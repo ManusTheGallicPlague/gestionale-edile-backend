@@ -665,6 +665,26 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/deadlines/summary:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: getDeadlineSummary
+      summary: Riepilogo delle scadenze per la dashboard
+      description: |
+        Permesso: deadlines.view. Solo scadenze aperte, contate sulla data di oggi in Italia.
+        overdue: scadute. next_7_days e next_30_days: da oggi compreso fino a 7 o 30 giorni
+        (la seconda comprende la prima).
+      responses:
+        '200':
+          description: Il riepilogo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeadlineSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/deadlines/{deadline}:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -1400,6 +1420,25 @@ components:
             updated_at:
               type: string
               format: date-time
+    DeadlineBucket:
+      type: object
+      required: [count, amount]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+        amount:
+          description: Somma degli importi, con due decimali; le scadenze senza importo valgono zero.
+          type: string
+          pattern: '^\d+\.\d{2}$'
+    DeadlineSummary:
+      type: object
+      required: [today, overdue, next_7_days, next_30_days]
+      properties:
+        today: { $ref: '#/components/schemas/Date' }
+        overdue: { $ref: '#/components/schemas/DeadlineBucket' }
+        next_7_days: { $ref: '#/components/schemas/DeadlineBucket' }
+        next_30_days: { $ref: '#/components/schemas/DeadlineBucket' }
     DeadlineList:
       type: object
       required: [data, meta]

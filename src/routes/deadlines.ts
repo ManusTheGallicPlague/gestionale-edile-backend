@@ -239,6 +239,39 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
     })
   })
 
+  app.get<{ Params: Params }>(`${base}/summary`, async (request) => {
+    const session = requireSession(request)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('deadlines.view')) throw forbidden()
+      const { rows } = await client.query<Record<string, string>>(
+        `with today as (select (now() at time zone 'Europe/Rome')::date as d)
+         select today.d::text as today,
+           count(*) filter (where due_on < today.d)::text as overdue_count,
+           coalesce(sum(amount_cents) filter (where due_on < today.d), 0)::text as overdue_cents,
+           count(*) filter (where due_on between today.d and today.d + 7)::text as next7_count,
+           coalesce(sum(amount_cents) filter (where due_on between today.d and today.d + 7), 0)::text
+             as next7_cents,
+           count(*) filter (where due_on between today.d and today.d + 30)::text as next30_count,
+           coalesce(sum(amount_cents) filter (where due_on between today.d and today.d + 30), 0)::text
+             as next30_cents
+         from today left join public.deadlines on status = 'open'
+         group by today.d`,
+      )
+      const r = rows[0] ?? {}
+      const bucket = (name: string) => ({
+        count: Number(r[`${name}_count`] ?? 0),
+        amount: centsToAmount(r[`${name}_cents`] ?? '0'),
+      })
+      return {
+        today: r.today,
+        overdue: bucket('overdue'),
+        next_7_days: bucket('next7'),
+        next_30_days: bucket('next30'),
+      }
+    })
+  })
+
   app.get<{ Params: Params }>(`${base}/:deadline`, async (request, reply) => {
     const session = requireSession(request)
     const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {

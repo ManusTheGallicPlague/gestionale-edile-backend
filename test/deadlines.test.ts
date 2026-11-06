@@ -339,3 +339,58 @@ describe('recurrences', () => {
     expect((await browser.call('GET', url)).json()).toMatchObject({ next_deadline_id: null })
   })
 })
+
+describe('summary for the dashboard', () => {
+  function day(offset: number): string {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome' }).format(new Date())
+    const date = new Date(`${today}T12:00:00Z`)
+    date.setUTCDate(date.getUTCDate() + offset)
+    return date.toISOString().slice(0, 10)
+  }
+
+  it('counts and sums open deadlines: overdue, next 7 and next 30 days', async () => {
+    const { browser, base } = await scene()
+    for (const [offset, amount] of [
+      [-10, '100.00'],
+      [-1, null],
+      [0, '0.50'],
+      [7, '10.00'],
+      [8, '1000.00'],
+      [30, '0.05'],
+      [31, '99999.99'],
+    ] as const) {
+      await browser.call('POST', base, { body: deadlineBody({ due_on: day(offset), amount }) })
+    }
+    // A completed one does not count.
+    const done = await browser.call('POST', base, { body: deadlineBody({ due_on: day(-2) }) })
+    await browser.call('POST', `${base}/${done.json<{ id: string }>().id}/complete`, {
+      headers: { 'if-match': '"1"' },
+    })
+
+    const res = await browser.call('GET', `${base}/summary`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      today: day(0),
+      overdue: { count: 2, amount: '100.00' },
+      next_7_days: { count: 2, amount: '10.50' },
+      next_30_days: { count: 4, amount: '1010.55' },
+    })
+  })
+
+  it('an empty company has zeros; another company does not count', async () => {
+    const mine = await scene()
+    const theirs = await scene()
+    await theirs.browser.call('POST', theirs.base, { body: deadlineBody({ due_on: day(1) }) })
+    const res = await mine.browser.call('GET', `${mine.base}/summary`)
+    expect(res.json()).toMatchObject({
+      overdue: { count: 0, amount: '0.00' },
+      next_7_days: { count: 0, amount: '0.00' },
+      next_30_days: { count: 0, amount: '0.00' },
+    })
+  })
+
+  it('needs deadlines.view', async () => {
+    const { browser, base } = await scene(['clients.view'])
+    expect((await browser.call('GET', `${base}/summary`)).statusCode).toBe(403)
+  })
+})
