@@ -1,0 +1,508 @@
+openapi: 3.1.0
+info:
+  title: Gestionale edile API
+  version: 0.1.0
+  description: |
+    Contratto tra frontend e backend: è l'unica fonte. Ogni cambio di API passa prima da qui.
+    Proposta da concordare con il backend: vedi docs/adr/0003-contratto-api-e-sessione.md.
+
+    COPIA DEL BACKEND: è la PR #7 di gestionale-edile (commit 660b946) con le modifiche
+    proposte nel commento del 4 novembre 2026. Quando la PR viene aggiornata, si sostituisce
+    con la versione concordata.
+
+    Regole comuni:
+    - Sessione con cookie HttpOnly, frontend e API sullo stesso dominio.
+    - Le richieste che modificano dati (POST, PUT, PATCH, DELETE) portano l'header X-XSRF-TOKEN,
+      copia del cookie XSRF-TOKEN. Il cookie lo imposta GET /api/auth/csrf.
+    - L'azienda è nel percorso: /api/companies/{company}/... Il backend verifica a ogni richiesta
+      che l'utente ne faccia parte; se non è così risponde 404, come per un record che non esiste.
+    - Importi e quantità sono stringhe decimali ("1234.50"); date e orari in ISO 8601.
+
+servers:
+  - url: /
+    description: Stesso dominio del frontend
+
+security:
+  - session: []
+
+paths:
+  /api/auth/csrf:
+    get:
+      operationId: getCsrfCookie
+      summary: Imposta il cookie XSRF-TOKEN
+      description: |
+        Il frontend lo chiama quando il cookie manca, prima della prima richiesta che modifica dati.
+        Il backend rinnova il token a ogni accesso e uscita, insieme alla sessione.
+      security: []
+      responses:
+        '204':
+          description: Cookie XSRF-TOKEN impostato (non HttpOnly, SameSite=Lax, Secure)
+
+  /api/auth/login:
+    post:
+      operationId: login
+      summary: Accesso con email e password
+      description: |
+        Se va a buon fine, il backend crea una nuova sessione e invalida la precedente.
+        Con credenziali sbagliate risponde 422 con un messaggio generico sul campo email,
+        senza rivelare se l'email esiste.
+      security:
+        - csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginInput' }
+      responses:
+        '204':
+          description: Accesso eseguito
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/auth/logout:
+    post:
+      operationId: logout
+      summary: Uscita
+      description: Il backend chiude la sessione sul server, non si limita a cancellare il cookie.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Uscita eseguita
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/me:
+    get:
+      operationId: getMe
+      summary: Utente collegato, con le sue aziende e i permessi in ognuna
+      responses:
+        '200':
+          description: Utente collegato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/companies/{company}/clients:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listClients
+      summary: Elenco dei clienti
+      description: 'Permesso: clients.view'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [name, -name, created_at, -created_at]
+            default: name
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[kind]=company.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              kind: { $ref: '#/components/schemas/ClientKind' }
+      responses:
+        '200':
+          description: Una pagina di clienti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createClient
+      summary: Nuovo cliente
+      description: 'Permesso: clients.create'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientInput' }
+      responses:
+        '201':
+          description: Cliente creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/clients/{client}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - name: client
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    get:
+      operationId: getClient
+      summary: Scheda di un cliente
+      description: 'Permesso: clients.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il cliente
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateClient
+      summary: Modifica di un cliente
+      description: |
+        Permesso: clients.update. Si inviano tutti i campi, come in creazione.
+        If-Match porta l'ETag ricevuto con la scheda: se nel frattempo qualcuno ha modificato
+        il cliente, la risposta è 412 e niente viene sovrascritto.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: If-Match
+          in: header
+          required: true
+          description: ETag della versione che l'utente sta modificando.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ClientInput' }
+      responses:
+        '200':
+          description: Cliente aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412':
+          description: Il cliente è stato modificato da qualcun altro dopo che l'utente l'ha aperto.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428':
+          description: Manca l'header If-Match.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+components:
+  securitySchemes:
+    session:
+      type: apiKey
+      in: cookie
+      name: session
+      description: Cookie di sessione HttpOnly, Secure, SameSite=Lax. Il nome lo sceglie il backend.
+    csrf:
+      type: apiKey
+      in: header
+      name: X-XSRF-TOKEN
+      description: |
+        Valore del cookie XSRF-TOKEN, ricopiato dal frontend a ogni richiesta che modifica dati.
+        Il backend lo verifica contro la sessione: non basta che header e cookie coincidano.
+
+  headers:
+    ETag:
+      description: Versione del record, da rimandare in If-Match quando lo si modifica.
+      schema:
+        type: string
+
+  parameters:
+    Company:
+      name: company
+      in: path
+      required: true
+      description: Slug dell'azienda, lo stesso che compare nell'URL dell'app.
+      schema: { $ref: '#/components/schemas/Slug' }
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    PerPage:
+      name: per_page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    Search:
+      name: search
+      in: query
+      description: Testo libero; il backend decide su quali campi cercare.
+      schema:
+        type: string
+        maxLength: 100
+
+  responses:
+    Unauthorized:
+      description: Sessione assente o scaduta. Il frontend torna alla pagina di accesso.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: |
+        Azione non permessa dal ruolo dell'utente in questa azienda, oppure token CSRF mancante
+        o non valido (code csrf_invalid: il frontend rinnova il token e riprova una volta).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Non esiste, oppure appartiene a un'altra azienda o l'utente non può vederlo.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationFailed:
+      description: Dati non validi. Il frontend mostra i messaggi sotto i campi.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ValidationError' }
+    TooManyRequests:
+      description: Troppi tentativi in poco tempo.
+      headers:
+        Retry-After:
+          description: Secondi da attendere prima di riprovare.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
+  schemas:
+    Id:
+      type: string
+      description: Identificativo scelto dal backend (ad esempio un UUID). Il frontend non ne deduce nulla.
+      examples: [0b8f6a52-3c1e-4d7a-9f20-6f1b2c3d4e5f]
+    Slug:
+      type: string
+      description: |
+        Non cambia dopo la creazione. Sono riservati i nomi delle rotte fisse del frontend
+        (accedi, profilo, password-dimenticata, invito).
+      minLength: 3
+      maxLength: 50
+      pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'
+      examples: [impresa-rossi]
+    Error:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+          description: Messaggio in italiano, mostrabile all'utente.
+        code:
+          type: string
+          description: |
+            Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
+            Per ora: csrf_invalid, stale_record, precondition_required.
+    ValidationError:
+      type: object
+      required: [message, errors]
+      properties:
+        message:
+          type: string
+        errors:
+          type: object
+          description: Per ogni campo, uno o più messaggi. I campi annidati usano il punto (address.city).
+          additionalProperties:
+            type: array
+            items:
+              type: string
+          examples:
+            - vat_number: [Esiste già un cliente con questa partita IVA.]
+    ListMeta:
+      type: object
+      required: [total, page, per_page]
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        per_page:
+          type: integer
+          minimum: 1
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 200
+    Me:
+      type: object
+      required: [id, name, email, companies]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name:
+          type: string
+        email:
+          type: string
+          format: email
+        companies:
+          type: array
+          description: Aziende di cui l'utente fa parte. Può essere vuoto.
+          items: { $ref: '#/components/schemas/Membership' }
+    Membership:
+      type: object
+      required: [slug, name, role, permissions]
+      properties:
+        slug: { $ref: '#/components/schemas/Slug' }
+        name:
+          type: string
+          examples: [Impresa Rossi S.r.l.]
+        role:
+          type: string
+          description: Nome del ruolo, da mostrare così com'è.
+          examples: [Titolare]
+        permissions:
+          type: array
+          description: |
+            Cosa può fare l'utente in questa azienda. L'interfaccia li usa solo per nascondere
+            voci e pulsanti: il controllo vero lo fa il backend a ogni richiesta.
+          items: { $ref: '#/components/schemas/Permission' }
+    Permission:
+      type: string
+      description: Nella forma <area>.<azione>. L'elenco cresce con i moduli.
+      enum: [clients.view, clients.create, clients.update]
+
+    ClientKind:
+      type: string
+      description: |
+        company: impresa, condominio o associazione. person: privato. public_body: ente pubblico.
+      enum: [company, person, public_body]
+    ClientInput:
+      type: object
+      description: |
+        Dati di un cliente, uguali in creazione e in modifica. I campi facoltativi si inviano
+        comunque, con null se vuoti.
+      required:
+        - kind
+        - name
+        - vat_number
+        - tax_code
+        - email
+        - pec
+        - phone
+        - sdi_code
+        - street
+        - postal_code
+        - city
+        - province
+        - country
+        - notes
+      properties:
+        kind: { $ref: '#/components/schemas/ClientKind' }
+        name:
+          type: string
+          description: Ragione sociale, oppure nome e cognome.
+          minLength: 1
+          maxLength: 200
+        vat_number:
+          type: [string, 'null']
+          description: |
+            Partita IVA, unica nell'azienda. Con country IT, per company e public_body serve
+            almeno una tra partita IVA e codice fiscale. Il backend la restituisce normalizzata:
+            senza spazi, in maiuscolo, senza il prefisso IT.
+          maxLength: 20
+        tax_code:
+          type: [string, 'null']
+          description: |
+            Codice fiscale. Con country IT è obbligatorio se kind è person. Unico nell'azienda
+            per lo stesso kind. Normalizzato come la partita IVA.
+          maxLength: 16
+        email:
+          type: [string, 'null']
+          format: email
+        pec:
+          type: [string, 'null']
+          format: email
+        phone:
+          type: [string, 'null']
+          maxLength: 30
+        sdi_code:
+          type: [string, 'null']
+          description: 'Codice destinatario: 7 caratteri, 6 per la pubblica amministrazione.'
+          minLength: 6
+          maxLength: 7
+        street:
+          type: [string, 'null']
+          maxLength: 200
+        postal_code:
+          type: [string, 'null']
+          maxLength: 10
+        city:
+          type: [string, 'null']
+          maxLength: 100
+        province:
+          type: [string, 'null']
+          description: Sigla della provincia (TO, MI). Vuota per i clienti esteri.
+          maxLength: 2
+        country:
+          type: string
+          description: Paese, codice ISO 3166-1 alpha-2.
+          pattern: '^[A-Z]{2}$'
+          default: IT
+          examples: [IT]
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    Client:
+      allOf:
+        - $ref: '#/components/schemas/ClientInput'
+        - type: object
+          required: [id, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    ClientList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Client' }
+        meta: { $ref: '#/components/schemas/ListMeta' }

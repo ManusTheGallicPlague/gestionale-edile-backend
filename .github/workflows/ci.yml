@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Lint, types, tests, build
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: gestionale
+          POSTGRES_USER: gestionale_owner
+          POSTGRES_PASSWORD: ci-owner
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U gestionale_owner -d gestionale"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL_OWNER: postgres://gestionale_owner:ci-owner@127.0.0.1:5432/gestionale
+      DATABASE_URL_APP: postgres://gestionale_app:ci-app@127.0.0.1:5432/gestionale
+      DATABASE_URL_AUTH: postgres://gestionale_auth:ci-auth@127.0.0.1:5432/gestionale
+      DB_APP_PASSWORD: ci-app
+      DB_AUTH_PASSWORD: ci-auth
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build

@@ -1,0 +1,229 @@
+/**
+ * Development data, the same companies and users as the frontend's mocks (src/mocks/data.ts),
+ * so the frontend can switch from mocks to this API without changing anything.
+ * Made-up data only. Refuses to run on a database that holds other companies.
+ */
+import { fileURLToPath } from 'node:url'
+import pg from 'pg'
+import { hashPassword } from '../src/auth/password.js'
+import { codiceFiscaleCheckLetter, partitaIvaCheckDigit } from '../src/clients/tax-ids.js'
+
+export const DEV_PASSWORD = 'cantiere-demo'
+
+const ALL = ['clients.view', 'clients.create', 'clients.update']
+const ROLES: Record<string, string[]> = {
+  Titolare: ALL,
+  Ufficio: ALL,
+  'Capo cantiere': ['clients.view'],
+}
+
+const COMPANIES = [
+  { slug: 'impresa-rossi', name: 'Impresa Rossi S.r.l.', clients: 60, seed: 1 },
+  { slug: 'costruzioni-verdi', name: 'Costruzioni Verdi S.p.A.', clients: 5, seed: 2 },
+]
+
+const USERS = [
+  {
+    name: 'Giulia Rossi',
+    email: 'titolare@example.test',
+    memberships: { 'impresa-rossi': 'Titolare', 'costruzioni-verdi': 'Ufficio' },
+  },
+  {
+    name: 'Luca Bianchi',
+    email: 'ufficio@example.test',
+    memberships: { 'impresa-rossi': 'Ufficio' },
+  },
+  {
+    name: 'Marco Neri',
+    email: 'capocantiere@example.test',
+    memberships: { 'impresa-rossi': 'Capo cantiere' },
+  },
+  { name: 'Sara Galli', email: 'nuovo@example.test', memberships: {} },
+] satisfies { name: string; email: string; memberships: Record<string, string> }[]
+
+const SURNAMES = (
+  'Ferri,Colombo,Ricci,Marino,Greco,Bruno,Gallo,Conti,De Luca,Costa,' +
+  'Giordano,Mancini,Rizzo,Lombardi,Moretti,Barbieri,Fontana,Santoro,Mariani,Rinaldi'
+).split(',')
+const FIRST_NAMES = ['Anna', 'Paolo', 'Elena']
+const CITIES = [
+  { city: 'Torino', province: 'TO', postal_code: '10121' },
+  { city: 'Milano', province: 'MI', postal_code: '20121' },
+  { city: 'Novara', province: 'NO', postal_code: '28100' },
+  { city: 'Asti', province: 'AT', postal_code: '14100' },
+]
+const pick = <T>(list: readonly T[], i: number) => list[i % list.length] as T
+
+function partitaIva(n: number): string {
+  const first10 = String(n).padStart(10, '0').slice(-10)
+  return first10 + partitaIvaCheckDigit(first10)
+}
+
+function codiceFiscale(surname: string, i: number): string {
+  const consonants = surname
+    .toUpperCase()
+    .replace(/[^A-Z]/g, '')
+    .padEnd(3, 'X')
+    .slice(0, 3)
+  const day = String((i % 28) + 1).padStart(2, '0')
+  const first15 = `${consonants}XYZ80A${day}L219`
+  return first15 + codiceFiscaleCheckLetter(first15)
+}
+
+export function devClients(count: number, seed: number) {
+  return Array.from({ length: count }, (_, i) => {
+    const surname = pick(SURNAMES, i)
+    const round = Math.floor(i / SURNAMES.length)
+    const form = i % 3
+    const base = seed * 100_000_000 + i * 1013
+    if (form === 2) {
+      return {
+        kind: 'person',
+        name: `${pick(FIRST_NAMES, round)} ${surname}`,
+        vat_number: null,
+        tax_code: codiceFiscale(surname, i + seed),
+        pec: null,
+        sdi_code: null,
+        i,
+      }
+    }
+    const condominium = form === 1 && round % 2 === 1
+    return {
+      kind: 'company',
+      name: condominium
+        ? `Condominio Via ${surname}`
+        : `${round % 2 === 0 ? 'Edil' : 'Immobiliare'} ${surname} S.r.l.`,
+      // A condominium has a numeric codice fiscale and no partita IVA.
+      vat_number: condominium ? null : partitaIva(base),
+      // Codici fiscali of condominiums start with 9 and use the partita IVA check digit.
+      tax_code: condominium ? partitaIva(9_000_000_000 + (base % 1_000_000_000)) : null,
+      pec: `cliente${i + 1}@pec.example.test`,
+      sdi_code: 'ABC1234',
+      i,
+    }
+  }).map(({ i, ...client }) => ({
+    ...client,
+    email: `cliente${i + 1}@example.test`,
+    phone: `011 555 ${1000 + i}`,
+    street: `Via ${pick(SURNAMES, i)} ${i + 1}`,
+    ...pick(CITIES, i),
+    country: 'IT',
+    notes: null,
+    created_at: new Date(Date.UTC(2026, 0, 1 + i, 9)),
+  }))
+}
+
+export async function seedDev(ownerUrl: string, { force = false } = {}) {
+  const client = new pg.Client({ connectionString: ownerUrl })
+  await client.connect()
+  try {
+    const { rows } = await client.query<{ slug: string }>('select slug from public.companies')
+    const ours = new Set(COMPANIES.map((c) => c.slug))
+    const others = rows.filter((r) => !ours.has(r.slug))
+    if (others.length > 0 && !force) {
+      throw new Error(
+        `There are ${others.length} other companies: this does not look like a development ` +
+          'database. Set SEED_FORCE=1 if you are sure.',
+      )
+    }
+
+    await client.query('begin')
+    const companyIds: Record<string, string> = {}
+    const roleIds: Record<string, string> = {}
+    for (const company of COMPANIES) {
+      const { rows: inserted } = await client.query<{ id: string }>(
+        `insert into public.companies (slug, name) values ($1, $2)
+         on conflict (slug) do update set name = excluded.name returning id`,
+        [company.slug, company.name],
+      )
+      const companyId = inserted[0]?.id ?? ''
+      companyIds[company.slug] = companyId
+      for (const [role, permissions] of Object.entries(ROLES)) {
+        const { rows: r } = await client.query<{ id: string }>(
+          `insert into public.roles (company_id, name) values ($1, $2)
+           on conflict (company_id, name) do update set name = excluded.name returning id`,
+          [companyId, role],
+        )
+        const roleId = r[0]?.id ?? ''
+        roleIds[`${company.slug}/${role}`] = roleId
+        await client.query('delete from public.role_permissions where role_id = $1', [roleId])
+        for (const permission of permissions) {
+          await client.query(
+            'insert into public.role_permissions (role_id, permission) values ($1, $2)',
+            [roleId, permission],
+          )
+        }
+      }
+      await client.query('delete from public.clients where company_id = $1', [companyId])
+      for (const c of devClients(company.clients, company.seed)) {
+        await client.query(
+          `insert into public.clients (company_id, kind, name, vat_number, tax_code, email, pec,
+             phone, sdi_code, street, postal_code, city, province, country, notes, created_at, updated_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)`,
+          [
+            companyId,
+            c.kind,
+            c.name,
+            c.vat_number,
+            c.tax_code,
+            c.email,
+            c.pec,
+            c.phone,
+            c.sdi_code,
+            c.street,
+            c.postal_code,
+            c.city,
+            c.province,
+            c.country,
+            c.notes,
+            c.created_at,
+          ],
+        )
+      }
+    }
+
+    const passwordHash = await hashPassword(DEV_PASSWORD)
+    for (const user of USERS) {
+      const { rows: u } = await client.query<{ id: string }>(
+        `insert into auth.users (email, name, password_hash) values ($1, $2, $3)
+         on conflict (email) do update set name = excluded.name, password_hash = excluded.password_hash,
+           active = true
+         returning id`,
+        [user.email, user.name, passwordHash],
+      )
+      const userId = u[0]?.id ?? ''
+      await client.query('delete from public.memberships where user_id = $1', [userId])
+      for (const [slug, role] of Object.entries(user.memberships)) {
+        await client.query(
+          'insert into public.memberships (user_id, company_id, role_id) values ($1, $2, $3)',
+          [userId, companyIds[slug], roleIds[`${slug}/${role}`]],
+        )
+      }
+    }
+    await client.query('commit')
+  } catch (error) {
+    await client.query('rollback').catch(() => {})
+    throw error
+  } finally {
+    await client.end()
+  }
+}
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const url = process.env.DATABASE_URL_OWNER
+  if (!url) {
+    console.error('✗ Missing DATABASE_URL_OWNER (see .env.example)')
+    process.exit(1)
+  }
+  seedDev(url, { force: process.env.SEED_FORCE === '1' })
+    .then(() => {
+      console.log('✓ Development data ready')
+      console.log(`  users: ${USERS.map((u) => u.email).join(', ')}`)
+      console.log(`  password for all of them: ${DEV_PASSWORD} (development only)`)
+      console.log(`  companies: ${COMPANIES.map((c) => c.slug).join(', ')}`)
+    })
+    .catch((error: unknown) => {
+      console.error(`✗ ${(error as Error).message}`)
+      process.exit(1)
+    })
+}
