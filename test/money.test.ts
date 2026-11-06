@@ -27,6 +27,8 @@ describe('money', () => {
     ['50', '0.50'],
     ['123456', '1234.56'],
     ['999999999999999', '9999999999999.99'],
+    ['-5', '-0.05'],
+    ['-123456', '-1234.56'],
   ])('%s cents read as %s', (cents, amount) => {
     expect(centsToAmount(cents)).toBe(amount)
   })

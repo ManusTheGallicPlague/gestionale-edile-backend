@@ -4,6 +4,7 @@ import type { Config } from '../config.js'
 import type { Db } from '../db.js'
 import { isForeignKeyViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
+import { centsToAmount } from '../money.js'
 import { UUID } from '../deadlines/input.js'
 import {
   ApiError,
@@ -30,6 +31,7 @@ const FIELDS = ['title', 'client_id', 'site_address', 'status', 'notes'] as cons
 interface EstimateRow extends EstimateInput {
   id: string
   client_name: string | null
+  total_cents: string
   version: number
   created_at: Date
   updated_at: Date
@@ -38,7 +40,9 @@ interface EstimateRow extends EstimateInput {
 type Params = { company: string; estimate?: string }
 
 const SELECT = `select e.id, e.title, e.client_id, e.site_address, e.status, e.notes, e.version,
-    e.created_at, e.updated_at, c.name as client_name
+    e.created_at, e.updated_at, c.name as client_name,
+    (select coalesce(sum(t.amount_cents), 0)::text from public.estimate_item_totals t
+     where t.estimate_id = e.id) as total_cents
   from public.estimates e
   left join public.clients c on c.id = e.client_id`
 
@@ -60,6 +64,7 @@ function toContract(row: EstimateRow) {
     site_address: row.site_address,
     status: row.status,
     notes: row.notes,
+    total: centsToAmount(row.total_cents),
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }

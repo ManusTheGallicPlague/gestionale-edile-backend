@@ -13,10 +13,16 @@ afterAll(() => ctx.close())
 
 const ALL: Permission[] = ['estimates.view', 'estimates.create', 'estimates.update']
 
-type Chapter = { id: string; parent_id: string | null; position: number; version: string }
+type Chapter = {
+  id: string
+  parent_id: string | null
+  position: number
+  version: string
+  amount: string
+}
 type Item = { id: string; chapter_id: string; position: number; unit_price: string }
 type Measurement = { id: string; item_id: string; quantity: string; position: number }
-type Structure = { chapters: Chapter[]; items: Item[]; measurements: Measurement[] }
+type Structure = { total: string; chapters: Chapter[]; items: Item[]; measurements: Measurement[] }
 
 async function scene(permissions: Permission[] = ALL) {
   const { company, user } = await fx.companyWithUser(permissions)
@@ -99,7 +105,7 @@ describe('estimate structure', () => {
     const del = await browser.call('DELETE', chapterUrl, { headers: { 'if-match': '"2"' } })
     expect(del.statusCode).toBe(204)
     const s = (await browser.call('GET', `${base}/structure`)).json<Structure>()
-    expect(s).toEqual({ chapters: [], items: [], measurements: [] })
+    expect(s).toEqual({ total: '0.00', chapters: [], items: [], measurements: [] })
     expect(
       (await browser.call('DELETE', itemUrl, { headers: { 'if-match': '"2"' } })).statusCode,
     ).toBe(404)
@@ -349,6 +355,69 @@ describe('estimate structure', () => {
         body: row(theirs.itemId),
       })
       expect(denied.statusCode).toBe(403)
+    })
+  })
+
+  describe('totals', () => {
+    it('adds up items, chapters with their sub-chapters, and the estimate', async () => {
+      const { browser, base, company, estimateId, chapter } = await scene()
+      const opere = await chapter('Opere')
+      const pavimenti = await chapter('Pavimenti', opere.id)
+      const altro = await chapter('Altro')
+      const item = async (chapterId: string, unit_price: string) =>
+        (
+          await browser.call('POST', `${base}/items`, {
+            body: itemBody(chapterId, { unit_price }),
+          })
+        ).json<Item>().id
+      const measure = (item_id: string, length: string, equal_parts: string | null = null) =>
+        browser.call('POST', `${base}/measurements`, {
+          body: { item_id, description: null, equal_parts, length, width: null, height: null },
+        })
+
+      // 3.333 × 0.15 € = 0.49995 € → 50 cents after rounding, never 49.995 through floats.
+      const a = await item(pavimenti.id, '0.15')
+      await measure(a, '3.333')
+      // 10 + 2.5 − 1.5 = 11 m × 12.34 € = 135.74 €
+      const b = await item(opere.id, '12.34')
+      await measure(b, '10')
+      await measure(b, '2.5')
+      await measure(b, '1.5', '-1')
+      // Only a deduction: negative amount.
+      const c = await item(altro.id, '100')
+      await measure(c, '0.5', '-1')
+      // No measurements: zero.
+      const empty = await item(altro.id, '99')
+
+      const s = (await browser.call('GET', `${base}/structure`)).json<Structure>()
+      const byItem = new Map(s.items.map((i) => [i.id, i as Item & Record<string, unknown>]))
+      expect(byItem.get(a)).toMatchObject({ quantity: '3.333', amount: '0.50' })
+      expect(byItem.get(b)).toMatchObject({ quantity: '11.000', amount: '135.74' })
+      expect(byItem.get(c)).toMatchObject({ quantity: '-0.500', amount: '-50.00' })
+      expect(byItem.get(empty)).toMatchObject({ quantity: '0.000', amount: '0.00' })
+      const byChapter = new Map(s.chapters.map((ch) => [ch.id, ch.amount]))
+      expect(byChapter.get(pavimenti.id)).toBe('0.50')
+      expect(byChapter.get(opere.id)).toBe('136.24')
+      expect(byChapter.get(altro.id)).toBe('-50.00')
+      expect(s.total).toBe('86.24')
+
+      // The same totals on the single chapter, on the item and on the estimate header.
+      const renamed = await browser.call('PUT', `${base}/chapters/${opere.id}`, {
+        body: { code: null, title: 'Opere edili' },
+        headers: { 'if-match': '"1"' },
+      })
+      expect(renamed.json()).toMatchObject({ amount: '136.24' })
+      const repriced = await browser.call('PUT', `${base}/items/${b}`, {
+        body: itemBody(opere.id, { unit_price: '10' }),
+        headers: { 'if-match': '"1"' },
+      })
+      expect(repriced.json()).toMatchObject({ quantity: '11.000', amount: '110.00' })
+      const header = await browser.call('GET', base)
+      expect(header.json()).toMatchObject({ total: '60.50' })
+      const list = await browser.call('GET', `/api/companies/${company.slug}/estimates`)
+      expect(list.json<{ data: { id: string; total: string }[] }>().data).toEqual([
+        expect.objectContaining({ id: estimateId, total: '60.50' }),
+      ])
     })
   })
 })

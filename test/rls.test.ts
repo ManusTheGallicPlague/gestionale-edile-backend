@@ -394,6 +394,21 @@ describe('the API role cannot cross companies', () => {
       c.query('select * from public.estimate_measurements where company_id = $1', [companyB.id]),
     )
     expect(seen.rowCount).toBe(0)
+    // The totals view runs with the caller's rights: company B's totals stay invisible.
+    const totals = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.estimate_item_totals where estimate_id = $1', [
+        estimateB.rows[0]?.id,
+      ]),
+    )
+    expect(totals.rowCount).toBe(0)
+    const ownerSees = await owner.query(
+      'select amount_cents::text as cents from public.estimate_item_totals where estimate_id = $1',
+      [estimateB.rows[0]?.id],
+    )
+    expect(ownerSees.rows).toEqual([{ cents: '5000' }])
+    await expect(auth.query('select * from public.estimate_item_totals')).rejects.toThrow(
+      /permission denied/,
+    )
     await expect(
       as(alice.id, companyA.id, (c) =>
         c.query(

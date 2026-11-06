@@ -948,6 +948,8 @@ paths:
         Permesso: estimates.view. Senza permesso risponde 404, non 403.
         Tre elenchi piatti, già ordinati per posizione: l'albero si ricostruisce con
         parent_id (capitoli), chapter_id (voci) e item_id (righe di misura).
+        I totali di voci, capitoli e computo li calcola il backend: ogni importo di voce è
+        arrotondato al centesimo, capitoli e computo sommano gli importi arrotondati.
       responses:
         '200':
           description: La struttura del computo
@@ -1738,6 +1740,13 @@ components:
         si accettano anche zero o un decimale.
       pattern: '^\d{1,13}(\.\d{1,2})?$'
       examples: ['1234.50']
+    SignedAmount:
+      type: string
+      description: |
+        Importo calcolato dal backend, in euro con due decimali e il punto, mai numero JSON.
+        Può essere negativo (ad esempio una voce di sole detrazioni).
+      pattern: '^-?\d+\.\d{2}$'
+      examples: ['1234.50', '-12.00']
     DeadlineKind:
       type: string
       description: |
@@ -1903,9 +1912,12 @@ components:
       allOf:
         - $ref: '#/components/schemas/EstimateInput'
         - type: object
-          required: [id, client, created_at, updated_at]
+          required: [id, client, total, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            total:
+              description: Totale del computo, somma degli importi delle voci.
+              allOf: [{ $ref: '#/components/schemas/SignedAmount' }]
             client:
               oneOf:
                 - $ref: '#/components/schemas/SubjectRef'
@@ -1951,9 +1963,12 @@ components:
       allOf:
         - $ref: '#/components/schemas/EstimateChapterCreate'
         - type: object
-          required: [id, position, version]
+          required: [id, amount, position, version]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            amount:
+              description: Totale del capitolo, sottocapitoli compresi.
+              allOf: [{ $ref: '#/components/schemas/SignedAmount' }]
             position:
               type: integer
               minimum: 0
@@ -1991,9 +2006,15 @@ components:
       allOf:
         - $ref: '#/components/schemas/EstimateItemCreate'
         - type: object
-          required: [id, position, version]
+          required: [id, quantity, amount, position, version]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            quantity:
+              description: Somma delle quantità delle righe di misura; 0.000 se non ce ne sono.
+              allOf: [{ $ref: '#/components/schemas/Quantity' }]
+            amount:
+              description: Quantità per prezzo unitario, arrotondato al centesimo.
+              allOf: [{ $ref: '#/components/schemas/SignedAmount' }]
             position:
               type: integer
               minimum: 0
@@ -2003,8 +2024,11 @@ components:
               description: Lo stesso valore dell'ETag, da rimandare in If-Match.
     EstimateStructure:
       type: object
-      required: [chapters, items, measurements]
+      required: [total, chapters, items, measurements]
       properties:
+        total:
+          description: Totale del computo.
+          allOf: [{ $ref: '#/components/schemas/SignedAmount' }]
         measurements:
           type: array
           items: { $ref: '#/components/schemas/EstimateMeasurement' }
@@ -2019,7 +2043,7 @@ components:
       description: |
         Quantità come stringa con il punto e fino a tre decimali, mai numero JSON; può essere
         negativa (detrazioni). In uscita ha sempre tre decimali.
-      pattern: '^-?\d{1,11}(\.\d{1,3})?$'
+      pattern: '^-?\d+(\.\d{1,3})?$'
       examples: ['12.500', '-2.000']
     MeasurementFactor:
       description: Un fattore della riga di misura, al massimo 9 cifre intere; null se assente.

@@ -35,6 +35,7 @@ interface ChapterRow {
   title: string
   position: number
   version: number
+  amount_cents: string
 }
 
 interface ItemRow {
@@ -44,15 +45,40 @@ interface ItemRow {
   description: string
   unit: string
   unit_price_cents: string
+  quantity: string
+  amount_cents: string
   position: number
   version: number
 }
 
-const CHAPTER_SELECT = `select id, parent_id, code, title, position, version
-  from public.estimate_chapters`
-const ITEM_SELECT = `select id, chapter_id, code, description, unit,
-    unit_price_cents::text as unit_price_cents, position, version
-  from public.estimate_items`
+const CHAPTER_COLUMNS = 'id, parent_id, code, title, position, version'
+const ITEM_SELECT = `select i.id, i.chapter_id, i.code, i.description, i.unit,
+    i.unit_price_cents::text as unit_price_cents, round(t.quantity, 3)::text as quantity,
+    t.amount_cents::text as amount_cents, i.position, i.version
+  from public.estimate_items i
+  join public.estimate_item_totals t on t.item_id = i.id`
+
+/** A chapter with its amount: its items and those of all its sub-chapters. */
+async function readChapter(client: PoolClient, id: string) {
+  const { rows } = await client.query<ChapterRow>(
+    `with recursive sub as (
+       select id from public.estimate_chapters where id = $1
+       union all
+       select c.id from public.estimate_chapters c join sub on c.parent_id = sub.id
+     )
+     select ${CHAPTER_COLUMNS},
+       (select coalesce(sum(t.amount_cents), 0)::text from public.estimate_item_totals t
+        where t.chapter_id in (select id from sub)) as amount_cents
+     from public.estimate_chapters where id = $1`,
+    [id],
+  )
+  return rows[0]
+}
+
+async function readItem(client: PoolClient, id: string) {
+  const { rows } = await client.query<ItemRow>(`${ITEM_SELECT} where i.id = $1`, [id])
+  return rows[0]
+}
 
 interface MeasurementRow {
   id: string
@@ -82,6 +108,7 @@ const chapterToContract = (row: ChapterRow) => ({
   parent_id: row.parent_id,
   code: row.code,
   title: row.title,
+  amount: centsToAmount(row.amount_cents),
   position: row.position,
   version: etag(row.version),
 })
@@ -93,6 +120,8 @@ const itemToContract = (row: ItemRow) => ({
   description: row.description,
   unit: row.unit,
   unit_price: centsToAmount(row.unit_price_cents),
+  quantity: row.quantity,
+  amount: centsToAmount(row.amount_cents),
   position: row.position,
   version: etag(row.version),
 })
@@ -287,6 +316,22 @@ const sendChapter = (reply: FastifyReply, row: ChapterRow, status = 200) =>
 const sendItem = (reply: FastifyReply, row: ItemRow, status = 200) =>
   reply.code(status).header('ETag', etag(row.version)).send(itemToContract(row))
 
+/** Each chapter's amount in cents (integers, never floats), sub-chapters included. */
+function chapterAmounts(
+  chapters: { id: string; parent_id: string | null }[],
+  items: { chapter_id: string; amount_cents: string }[],
+): Map<string, bigint> {
+  const parent = new Map(chapters.map((c) => [c.id, c.parent_id]))
+  const amounts = new Map<string, bigint>(chapters.map((c) => [c.id, 0n]))
+  for (const item of items) {
+    const cents = BigInt(item.amount_cents)
+    for (let id: string | null | undefined = item.chapter_id; id; id = parent.get(id)) {
+      amounts.set(id, (amounts.get(id) ?? 0n) + cents)
+    }
+  }
+  return amounts
+}
+
 export function estimateStructureRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/estimates/:estimate'
 
@@ -294,20 +339,26 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
     const session = requireSession(request)
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const estimateId = await enterEstimate(client, request, 'estimates.view')
-      const chapters = await client.query<ChapterRow>(
-        `${CHAPTER_SELECT} where estimate_id = $1 order by parent_id nulls first, position, id`,
+      const chapters = await client.query<Omit<ChapterRow, 'amount_cents'>>(
+        `select ${CHAPTER_COLUMNS} from public.estimate_chapters
+         where estimate_id = $1 order by parent_id nulls first, position, id`,
         [estimateId],
       )
       const items = await client.query<ItemRow>(
-        `${ITEM_SELECT} where estimate_id = $1 order by chapter_id, position, id`,
+        `${ITEM_SELECT} where i.estimate_id = $1 order by i.chapter_id, i.position, i.id`,
         [estimateId],
       )
       const measurements = await client.query<MeasurementRow>(
         `${MEASUREMENT_SELECT} where estimate_id = $1 order by item_id, position, id`,
         [estimateId],
       )
+      const amounts = chapterAmounts(chapters.rows, items.rows)
+      const total = items.rows.reduce((sum, i) => sum + BigInt(i.amount_cents), 0n)
       return {
-        chapters: chapters.rows.map(chapterToContract),
+        total: centsToAmount(total.toString()),
+        chapters: chapters.rows.map((c) =>
+          chapterToContract({ ...c, amount_cents: (amounts.get(c.id) ?? 0n).toString() }),
+        ),
         items: items.rows.map(itemToContract),
         measurements: measurements.rows.map(measurementToContract),
       }
@@ -330,13 +381,13 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
         }
       }
       const { rows } = await client
-        .query<ChapterRow>(
+        .query<{ id: string }>(
           `insert into public.estimate_chapters
              (company_id, estimate_id, parent_id, code, title, position)
            values (app.current_company_id(), $1, $2, $3, $4,
              (select coalesce(max(position) + 1, 0) from public.estimate_chapters
               where estimate_id = $1 and parent_id is not distinct from $2))
-           returning id, parent_id, code, title, position, version`,
+           returning id`,
           [estimateId, input.parent_id, input.code, input.title],
         )
         .catch((error: unknown) => {
@@ -346,7 +397,7 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
           throw error
         })
       await touch(client, estimateId)
-      return rows[0]
+      return readChapter(client, rows[0]?.id ?? '')
     })
     if (!row) throw new Error('insert returned no row')
     return sendChapter(reply, row, 201)
@@ -361,17 +412,18 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
       const input = parseChapter(request.body, false)
-      const { rows } = await client.query<ChapterRow>(
+      const { rows } = await client.query<{ id: string }>(
         `update public.estimate_chapters
          set code = $1, title = $2, version = version + 1, updated_at = now()
          where id = $3 and estimate_id = $4 and version = $5
-         returning id, parent_id, code, title, position, version`,
+         returning id`,
         [input.code, input.title, id, estimateId, version],
       )
       if (!rows[0]) return missingOrStale(client, 'estimate_chapters', estimateId, id)
       await touch(client, estimateId)
-      return rows[0]
+      return readChapter(client, id)
     })
+    if (!row) throw notFound()
     return sendChapter(reply, row)
   })
 
@@ -400,15 +452,14 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       const estimateId = await enterEstimate(client, request, 'estimates.update')
       const input = parseItem(request.body, true)
       const { rows } = await client
-        .query<ItemRow>(
+        .query<{ id: string }>(
           `insert into public.estimate_items
              (company_id, estimate_id, chapter_id, code, description, unit, unit_price_cents,
               position)
            values (app.current_company_id(), $1, $2, $3, $4, $5, $6,
              (select coalesce(max(position) + 1, 0) from public.estimate_items
               where estimate_id = $1 and chapter_id = $2))
-           returning id, chapter_id, code, description, unit,
-             unit_price_cents::text as unit_price_cents, position, version`,
+           returning id`,
           [
             estimateId,
             input.chapter_id,
@@ -425,7 +476,7 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
           throw error
         })
       await touch(client, estimateId)
-      return rows[0]
+      return readItem(client, rows[0]?.id ?? '')
     })
     if (!row) throw new Error('insert returned no row')
     return sendItem(reply, row, 201)
@@ -440,19 +491,19 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
       const input = parseItem(request.body, false)
-      const { rows } = await client.query<ItemRow>(
+      const { rows } = await client.query<{ id: string }>(
         `update public.estimate_items
          set code = $1, description = $2, unit = $3, unit_price_cents = $4,
              version = version + 1, updated_at = now()
          where id = $5 and estimate_id = $6 and version = $7
-         returning id, chapter_id, code, description, unit,
-           unit_price_cents::text as unit_price_cents, position, version`,
+         returning id`,
         [input.code, input.description, input.unit, input.unitPriceCents, id, estimateId, version],
       )
       if (!rows[0]) return missingOrStale(client, 'estimate_items', estimateId, id)
       await touch(client, estimateId)
-      return rows[0]
+      return readItem(client, id)
     })
+    if (!row) throw notFound()
     return sendItem(reply, row)
   })
 

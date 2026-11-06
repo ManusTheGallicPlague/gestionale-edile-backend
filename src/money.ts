@@ -14,8 +14,9 @@ export function amountToCents(value: string): string | null {
   return `${euros === '0' ? '' : euros}${cents}`.replace(/^0+(?=\d)/, '') || '0'
 }
 
-/** "123450" (bigint from pg) → "1234.50". */
+/** "123450" (bigint or numeric from pg) → "1234.50"; "-5" → "-0.05" for computed totals. */
 export function centsToAmount(cents: string): string {
+  if (cents.startsWith('-')) return `-${centsToAmount(cents.slice(1))}`
   const digits = cents.padStart(3, '0')
   return `${digits.slice(0, -2).replace(/^0+(?=\d)/, '')}.${digits.slice(-2)}`
 }
