@@ -49,4 +49,29 @@ describe('roles', () => {
       404,
     )
   })
+
+  it('lists the users of the company in the URL, never those of other companies', async () => {
+    const { company, user, roleId } = await fx.companyWithUser(['users.view'])
+    const colleague = await fx.user({ name: 'Anna Bassi' })
+    const office = await fx.role(company.id, 'Ufficio', [])
+    await fx.member(colleague.id, company.id, office)
+    const other = await fx.companyWithUser(['users.view'])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const res = await browser.call('GET', `/api/companies/${company.slug}/users`)
+    expect(res.statusCode).toBe(200)
+    const data = res.json<{ data: { id: string; email: string; role: { id: string } }[] }>().data
+    expect(data.map((u) => u.id).sort()).toEqual([user.id, colleague.id].sort())
+    expect(data[0]).toMatchObject({ id: colleague.id, active: true, role: { id: office } })
+    expect(data.find((u) => u.id === user.id)?.role.id).toBe(roleId)
+    expect(JSON.stringify(data)).not.toContain('password')
+    expect(data.some((u) => u.id === other.user.id)).toBe(false)
+    expect(
+      (await browser.call('GET', `/api/companies/${other.company.slug}/users`)).statusCode,
+    ).toBe(404)
+    const blind = await fx.companyWithUser(['clients.view'])
+    const b = new Browser(ctx.app)
+    await b.signIn(blind.user.email)
+    expect((await b.call('GET', `/api/companies/${blind.company.slug}/users`)).statusCode).toBe(403)
+  })
 })

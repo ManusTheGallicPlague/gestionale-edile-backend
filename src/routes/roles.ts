@@ -29,4 +29,31 @@ export function roleRoutes(app: FastifyInstance, db: Db): void {
       }
     })
   })
+
+  app.get<{ Params: { company: string } }>('/api/companies/:company/users', async (request) => {
+    const session = requireSession(request)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('users.view')) throw forbidden()
+      const { rows } = await client.query<{
+        user_id: string
+        name: string
+        email: string
+        active: boolean
+        role_id: string
+        role_name: string
+        joined_at: Date
+      }>('select * from app.company_members() order by name, user_id')
+      return {
+        data: rows.map((r) => ({
+          id: r.user_id,
+          name: r.name,
+          email: r.email,
+          active: r.active,
+          role: { id: r.role_id, name: r.role_name },
+          joined_at: r.joined_at.toISOString(),
+        })),
+      }
+    })
+  })
 }

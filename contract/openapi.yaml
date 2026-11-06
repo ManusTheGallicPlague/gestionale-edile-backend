@@ -1496,6 +1496,25 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/users:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listCompanyUsers
+      summary: Utenti dell'azienda con il loro ruolo
+      description: |
+        Permesso: users.view. Tutti i membri, in ordine di nome, senza paginazione; active è
+        false per un utente disattivato.
+      responses:
+        '200':
+          description: Gli utenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyUserList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/quotes:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2154,6 +2173,32 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/Role' }
+    CompanyUser:
+      type: object
+      required: [id, name, email, active, role, joined_at]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        email:
+          type: string
+          format: email
+        active: { type: boolean }
+        role:
+          type: object
+          required: [id, name]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            name: { type: string }
+        joined_at:
+          type: string
+          format: date-time
+    CompanyUserList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/CompanyUser' }
     Permission:
       type: string
       description: Nella forma <area>.<azione>. L'elenco cresce con i moduli.

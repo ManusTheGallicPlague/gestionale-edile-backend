@@ -632,6 +632,33 @@ describe('the API role cannot cross companies', () => {
     expect(rows.rows.every((r: { user_id: string }) => r.user_id === alice.id)).toBe(true)
   })
 
+  it('company members: only of the declared company the user belongs to', async () => {
+    const mine = await as(alice.id, companyA.id, (c) =>
+      c.query<{ user_id: string }>('select * from app.company_members()'),
+    )
+    expect(mine.rows.some((r) => r.user_id === alice.id)).toBe(true)
+    const bMembers = await owner.query<{ user_id: string }>(
+      'select user_id from public.memberships where company_id = $1',
+      [companyB.id],
+    )
+    const ids = new Set(mine.rows.map((r) => r.user_id))
+    for (const m of bMembers.rows) {
+      const alsoInA = await owner.query(
+        'select 1 from public.memberships where user_id = $1 and company_id = $2',
+        [m.user_id, companyA.id],
+      )
+      if (!alsoInA.rowCount) expect(ids.has(m.user_id)).toBe(false)
+    }
+    // Declaring a company the user does not belong to gives nothing.
+    const theirs = await as(alice.id, companyB.id, (c) =>
+      c.query('select * from app.company_members()'),
+    )
+    expect(theirs.rowCount).toBe(0)
+    await expect(auth.query('select * from app.company_members()')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('cannot read password hashes or sessions', async () => {
     await expect(app.query('select * from auth.users')).rejects.toThrow(/permission denied/)
     await expect(app.query('select * from auth.sessions')).rejects.toThrow(/permission denied/)
