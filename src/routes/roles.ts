@@ -120,7 +120,7 @@ export function roleRoutes(app: FastifyInstance, config: Config, db: Db): void {
     async (request, reply) => {
       const session = requireSession(request)
       checkCsrf(config, request)
-      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const body = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('roles.manage')) throw forbidden()
         const input = readRole(request.body)
@@ -133,8 +133,9 @@ export function roleRoutes(app: FastifyInstance, config: Config, db: Db): void {
         const id = rows[0]?.id
         if (!id) throw new ValidationFailed({ name: [DUPLICATE_ROLE] })
         await setPermissions(client, id, input.permissions)
-        return reply.code(201).send({ id, name: input.name, permissions: input.permissions })
+        return { id, name: input.name, permissions: input.permissions }
       })
+      return reply.code(201).send(body)
     },
   )
 
@@ -170,7 +171,7 @@ export function roleRoutes(app: FastifyInstance, config: Config, db: Db): void {
   app.delete<RoleParams>('/api/companies/:company/roles/:role', async (request, reply) => {
     const session = requireSession(request)
     checkCsrf(config, request)
-    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+    await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('roles.manage')) throw forbidden()
       const id = request.params.role
@@ -187,8 +188,8 @@ export function roleRoutes(app: FastifyInstance, config: Config, db: Db): void {
         }
         throw error
       }
-      return reply.code(204).send()
     })
+    return reply.code(204).send()
   })
 }
 

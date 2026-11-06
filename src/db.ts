@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
 import pg from 'pg'
 
 /**
@@ -26,6 +27,19 @@ export function createDb(urls: { app: string; auth: string }): Db {
   }
 }
 
+/**
+ * Marks the code running inside a withIdentity() transaction. A response sent from there
+ * would reach the client before the commit, so the next request could still see the old
+ * data: the onSend hook in app.ts refuses it (500) and the transaction is rolled back.
+ */
+export const openTransaction = new AsyncLocalStorage<{ responseSent: boolean }>()
+
+export class ResponseBeforeCommit extends Error {
+  constructor() {
+    super('response sent inside withIdentity(): send it after the transaction commits')
+  }
+}
+
 export interface Identity {
   userId: string
   companyId?: string
@@ -42,13 +56,15 @@ export async function withIdentity<T>(
   fn: (client: pg.PoolClient) => Promise<T>,
 ): Promise<T> {
   const client = await pool.connect()
+  const scope = { responseSent: false }
   try {
     await client.query('begin')
     await client.query(
       "select set_config('app.user_id', $1, true), set_config('app.company_id', $2, true)",
       [identity.userId, identity.companyId ?? ''],
     )
-    const result = await fn(client)
+    const result = await openTransaction.run(scope, () => fn(client))
+    if (scope.responseSent) throw new ResponseBeforeCommit()
     await client.query('commit')
     return result
   } catch (error) {

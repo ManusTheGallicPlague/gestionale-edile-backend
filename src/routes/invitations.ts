@@ -109,7 +109,7 @@ export function invitationRoutes(
     async (request, reply) => {
       const session = requireSession(request)
       checkCsrf(config, request)
-      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const body = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('users.manage')) throw forbidden()
         const input = readInvitation(request.body)
@@ -155,8 +155,9 @@ export function invitationRoutes(
             `${config.appUrl}/invito/${token}\n\n` +
             `Se non aspettavi questo invito, ignora il messaggio.\n`,
         })
-        return reply.code(201).send({ ...present(row), token })
+        return { ...present(row), token }
       })
+      return reply.code(201).send(body)
     },
   )
 
@@ -165,7 +166,7 @@ export function invitationRoutes(
     async (request, reply) => {
       const session = requireSession(request)
       checkCsrf(config, request)
-      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('users.manage')) throw forbidden()
         if (!UUID.test(request.params.invitation)) throw notFound()
@@ -175,8 +176,8 @@ export function invitationRoutes(
           [request.params.invitation],
         )
         if (rowCount === 0) throw notFound()
-        return reply.code(204).send()
       })
+      return reply.code(204).send()
     },
   )
 

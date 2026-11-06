@@ -9,7 +9,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 ## Compiti
 
 ### 0. Da sistemare prima di tutto
-- [ ] Test instabile: `test/invitations.test.ts` › «a new invitation replaces the old one; deleting kills the link» è fallito una volta in CI (run del commit c1fd566, 06/11 16:48 UTC: `expected 200 to be 404`, il vecchio link dell'invito risultava ancora valido subito dopo il secondo invito) e poi è passato. Trovare la causa vera, non ritentare il test. Ipotesi da verificare per prima: la risposta del `POST` parte prima del `commit` della transazione, oppure due richieste vedono stati diversi. Lanciare il file molte volte di seguito (es. `for i in $(seq 50); do npx vitest run test/invitations.test.ts || break; done`) per riprodurlo, correggere e lasciare un test che fallirebbe senza la correzione. Controllare se lo stesso schema (risposta prima del commit) è presente in altre rotte.
+- [x] Test instabile degli inviti: la risposta partiva dentro `withIdentity()`, prima del `commit` (inviti e ruoli). Corretto; ora l'hook `onSend` rifiuta con 500, e la transazione torna indietro, ogni risposta inviata dentro una transazione aperta (`test/transaction.test.ts`).
 
 ### 1. Anagrafiche
 - [x] Accesso, sessioni, CSRF, `/api/me`
@@ -68,6 +68,7 @@ Diviso in pezzi il 06/11/2026, secondo `docs/frontend.md` del frontend (percorsi
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
 
 - 06/11/2026: importi in centesimi interi (`bigint`), quantità `numeric(14,3)`.
+- 06/11/2026: una risposta si invia solo dopo il `commit`. Se una rotta la invia dentro `withIdentity()`, l'hook `onSend` risponde 500 e la transazione torna indietro: l'errore esce sempre nei test invece che a caso.
 - 06/11/2026: archiviazione con `POST …/clients/{id}/archive` e `…/restore` (permesso `clients.update`, `If-Match`); archiviare due volte tiene la prima data.
 - 06/11/2026: `filter[archived]` accetta solo `true`/`false`, predefinito `false`: l'elenco mostra i soli attivi o i soli archiviati, non entrambi.
 - 06/11/2026: `DELETE …/clients/{id}` con permesso nuovo `clients.delete` (solo Titolare nei dati di sviluppo; Ufficio no) e `If-Match`; con documenti collegati risponde `409` `code: has_documents`.

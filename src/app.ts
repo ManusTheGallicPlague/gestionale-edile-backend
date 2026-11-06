@@ -1,7 +1,7 @@
 import cookie from '@fastify/cookie'
 import Fastify, { type FastifyInstance } from 'fastify'
 import type { Config } from './config.js'
-import type { Db } from './db.js'
+import { ResponseBeforeCommit, openTransaction, type Db } from './db.js'
 import { findSession } from './auth/sessions.js'
 import { ApiError, ValidationFailed, messages } from './http/errors.js'
 import { COOKIES } from './http/request-context.js'
@@ -60,6 +60,12 @@ export function buildApp(
   })
 
   app.addHook('onSend', async (_request, reply, payload) => {
+    const transaction = openTransaction.getStore()
+    if (transaction && !transaction.responseSent) {
+      // The error handler's 500 passes through here again and goes out.
+      transaction.responseSent = true
+      throw new ResponseBeforeCommit()
+    }
     reply.header('Cache-Control', 'no-store')
     reply.header('X-Content-Type-Options', 'nosniff')
     return payload
