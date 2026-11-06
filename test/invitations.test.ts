@@ -40,6 +40,10 @@ describe('invitations', () => {
     const created = await invite(browser, company.slug, ` ${email.toUpperCase()} `, office)
     expect(created).toMatchObject({ email, status: 'pending', role: { id: office } })
     expect(created.token.length).toBeGreaterThanOrEqual(20)
+    const mail = ctx.mailer.sent.find((m) => m.to === email)
+    expect(mail?.subject).toBe(`Invito a ${company.name}`)
+    expect(mail?.text).toContain(`https://gestionale.example.test/invito/${created.token}`)
+    expect(mail?.text).toContain('Ufficio')
 
     const list = await browser.call('GET', `/api/companies/${company.slug}/invitations`)
     expect(list.json<{ data: unknown[] }>().data).toEqual([

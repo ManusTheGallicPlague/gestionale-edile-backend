@@ -99,7 +99,7 @@ export function buildApp(
   numberingRoutes(app, config, db)
   logoRoutes(app, config, db)
   roleRoutes(app, config, db)
-  invitationRoutes(app, config, db)
+  invitationRoutes(app, config, db, mailer)
 
   return app
 }

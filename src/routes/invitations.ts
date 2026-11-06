@@ -10,6 +10,7 @@ import { UUID } from '../deadlines/input.js'
 import { ApiError, ValidationFailed, forbidden, messages, notFound } from '../http/errors.js'
 import type { FieldErrors } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import type { Mailer } from '../mail/mailer.js'
 import { startSession } from './auth.js'
 
 const TOKEN = /^[A-Za-z0-9_-]{20,100}$/
@@ -79,7 +80,12 @@ function readAccept(body: unknown): { name: string | null; password: string } {
   return { name: name === '' ? null : name, password }
 }
 
-export function invitationRoutes(app: FastifyInstance, config: Config, db: Db): void {
+export function invitationRoutes(
+  app: FastifyInstance,
+  config: Config,
+  db: Db,
+  mailer: Mailer,
+): void {
   app.get<{ Params: { company: string } }>(
     '/api/companies/:company/invitations',
     async (request) => {
@@ -136,6 +142,19 @@ export function invitationRoutes(app: FastifyInstance, config: Config, db: Db): 
         )
         const row = rows[0]
         if (!row) throw new Error('invitation not created')
+        const { rows: company } = await client.query<{ name: string }>(
+          'select name from public.companies where id = app.current_company_id()',
+        )
+        await mailer.send({
+          to: row.email,
+          subject: `Invito a ${company[0]?.name ?? 'un’azienda'}`,
+          text:
+            `${session.user.name} ti ha invitato a usare il gestionale di ` +
+            `${company[0]?.name ?? 'un’azienda'} con il ruolo ${row.role_name}.\n\n` +
+            `Per accettare apri questo link entro 7 giorni:\n` +
+            `${config.appUrl}/invito/${token}\n\n` +
+            `Se non aspettavi questo invito, ignora il messaggio.\n`,
+        })
         return reply.code(201).send({ ...present(row), token })
       })
     },

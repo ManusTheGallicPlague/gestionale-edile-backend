@@ -1797,7 +1797,8 @@ paths:
       summary: Invito di una persona con un ruolo
       description: |
         Permesso: users.manage. Il link è /invito/{token}, vale 7 giorni e una volta sola.
-        Il token compare solo in questa risposta: il backend ne tiene l'impronta. Un nuovo
+        Il backend lo manda per email all'invitato; il token compare anche in questa risposta
+        (e solo qui: il backend ne tiene l'impronta), così il link si può copiare e girare. Un nuovo
         invito per la stessa email sostituisce quello in attesa. Se l'email è già di un
         membro dell'azienda la risposta è 409 con code already_member.
       security:
