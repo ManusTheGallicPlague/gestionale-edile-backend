@@ -686,6 +686,72 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('invoices: cannot read, write or attach across companies, nor link a deadline', async () => {
+    const one = async (sql: string, companyId: string) =>
+      (await owner.query<{ id: string }>(sql, [companyId])).rows[0]?.id
+    const clientSql =
+      "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Fatture') returning id"
+    const supplierSql =
+      "insert into public.suppliers (company_id, name) values ($1, 'Fatture') returning id"
+    const clientA = await one(clientSql, companyA.id)
+    const clientB = await one(clientSql, companyB.id)
+    const supplierB = await one(supplierSql, companyB.id)
+    const siteB = await one(
+      "insert into public.sites (company_id, name) values ($1, 'Fatture B') returning id",
+      companyB.id,
+    )
+    const invoiceB = (
+      await owner.query<{ id: string }>(
+        `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+           taxable_cents, vat_cents) values ($1, 'issued', 'B-1', '2026-11-02', $2, 100, 22)
+         returning id`,
+        [companyB.id, clientB],
+      )
+    ).rows[0]?.id
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.invoices where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    const insert = (companyId: string, clientId: unknown, extra: Record<string, unknown> = {}) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+             supplier_id, site_id, taxable_cents, vat_cents)
+           values ($1, $2, 'A-1', '2026-11-02', $3, $4, $5, 100, 22)`,
+          [
+            companyId,
+            extra.supplier ? 'received' : 'issued',
+            extra.supplier ? null : clientId,
+            extra.supplier ?? null,
+            extra.site ?? null,
+          ],
+        ),
+      )
+    await expect(insert(companyB.id, clientB)).rejects.toThrow(/row-level security/)
+    await expect(insert(companyA.id, clientB)).rejects.toThrow(/foreign key/)
+    await expect(insert(companyA.id, clientA, { site: siteB })).rejects.toThrow(/foreign key/)
+    await expect(insert(companyA.id, null, { supplier: supplierB })).rejects.toThrow(/foreign key/)
+    // A deadline of the first company cannot point to the other company's invoice.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.deadlines (company_id, title, due_on, kind, invoice_id)
+           values ($1, 'X', '2026-12-01', 'invoice_out', $2)`,
+          [companyA.id, invoiceB],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.invoices set number = 'X' where id = $1", [invoiceB])
+      const d = await c.query('delete from public.invoices where id = $1', [invoiceB])
+      return u.rowCount! + d.rowCount!
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.invoices')).rejects.toThrow(/permission denied/)
+    // Other tests change every client of the first company: leave none behind.
+    await owner.query('delete from public.clients where id = $1', [clientA])
+  })
+
   it('warehouse items and movements: cannot read, write or attach across companies', async () => {
     const itemOf = async (companyId: string) =>
       (

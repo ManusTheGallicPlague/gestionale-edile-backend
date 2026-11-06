@@ -92,6 +92,9 @@ export const messages = {
   orderLoaded:
     'La merce dell’ordine è già stata caricata in magazzino: prima vanno eliminati i carichi.',
   orderInvalidTransition: 'Questo cambio di stato dell’ordine non è ammesso.',
+  invoiceStale:
+    'La fattura è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  invoiceMissingIfMatch: 'Manca la versione della fattura: ricarica la pagina e riprova.',
   employeeStale:
     'Il dipendente è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   employeeHasDocuments:

@@ -67,6 +67,10 @@ const ALL = [
   'warehouse.create',
   'warehouse.update',
   'warehouse.delete',
+  'invoices.view',
+  'invoices.create',
+  'invoices.update',
+  'invoices.delete',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -303,6 +307,8 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
         }
       }
       await client.query('delete from public.deadlines where company_id = $1', [companyId])
+      // Invoices point to clients, suppliers and sites: they go first.
+      await client.query('delete from public.invoices where company_id = $1', [companyId])
       await client.query('delete from public.quotes where company_id = $1', [companyId])
       // Daily reports point to sites, employees and vehicles: they go first.
       await client.query('delete from public.daily_reports where company_id = $1', [companyId])
@@ -414,20 +420,6 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            ('Saldo IVA trimestrale', 45, 'tax', 1250000::bigint, false),
            ('F24 del mese scorso', -33, 'tax', 398000::bigint, true)
          ) as d (title, days, kind, cents, done)`,
-        [companyId],
-      )
-      await client.query(
-        `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, client_id)
-         select $1, 'Incasso fattura ' || c.name, current_date + 20, 'invoice_out', 2440000, c.id
-         from public.clients c where c.company_id = $1 and c.archived_at is null
-         order by c.created_at limit 1`,
-        [companyId],
-      )
-      await client.query(
-        `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, supplier_id)
-         select $1, 'Pagamento fattura ' || s.name, current_date + 8, 'invoice_in', 735000, s.id
-         from public.suppliers s where s.company_id = $1
-         order by s.created_at limit 1`,
         [companyId],
       )
       // The suppliers' documents in the calendar, as the API does when they are saved.
@@ -646,6 +638,49 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
           ],
         )
       }
+      // Invoices relative to today: one to collect, one overdue, one to pay and one paid,
+      // with their payment deadlines in the calendar, as the API does when they are saved.
+      await client.query(
+        `with c as (
+           select id from public.clients where company_id = $1 and archived_at is null
+           order by created_at limit 1
+         ), p as (
+           select id from public.suppliers where company_id = $1 order by created_at limit 1
+         ), s as (
+           select id from public.sites where company_id = $1 and code = '2026-01'
+         )
+         insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+           supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on)
+         select $1, i.direction, i.number || '/' || extract(year from current_date + i.days),
+           current_date + i.days,
+           case when i.direction = 'issued' then (select id from c) end,
+           case when i.direction = 'received' then (select id from p) end,
+           (select id from s), i.description, i.taxable, i.vat, current_date + i.due,
+           case when i.paid then current_date + i.days + 10 end
+         from (values
+           ('issued', '1', -40, 'Primo SAL', 2000000::bigint, 440000::bigint, 20, false),
+           ('issued', '2', -70, 'Acconto lavori', 800000::bigint, 176000::bigint, -10, false),
+           ('received', 'F-118', -22, 'Calcestruzzo e pompaggio', 602459::bigint,
+             132541::bigint, 8, false),
+           ('received', 'F-097', -60, 'Nolo ponteggio', 150000::bigint, 33000::bigint, 0, true)
+         ) as i (direction, number, days, description, taxable, vat, due, paid)
+         where exists (select 1 from c) and exists (select 1 from p)`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, client_id,
+           supplier_id, status, done_at, invoice_id)
+         select i.company_id, 'Fattura ' || i.number || ' – ' || coalesce(c.name, p.name),
+           i.due_date, case i.direction when 'issued' then 'invoice_out' else 'invoice_in' end,
+           i.taxable_cents + i.vat_cents, i.client_id, i.supplier_id,
+           case when i.paid_on is null then 'open' else 'done' end,
+           case when i.paid_on is not null then now() end, i.id
+         from public.invoices i
+         left join public.clients c on c.id = i.client_id
+         left join public.suppliers p on p.id = i.supplier_id
+         where i.company_id = $1 and i.due_date is not null`,
+        [companyId],
+      )
       // A few warehouse items: loaded on 2 November, part taken to the first site.
       await client.query(
         `with i as (

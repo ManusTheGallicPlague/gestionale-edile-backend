@@ -3950,6 +3950,154 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/invoices:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listInvoices
+      summary: Registro delle fatture emesse e ricevute
+      description: |
+        Permesso: invoices.view. Dalla più recente. total_amount è la somma dei totali delle
+        fatture che rispettano i filtri, non solo della pagina; outstanding_amount la parte
+        ancora da pagare o incassare.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [date, -date, due_date, -due_date, total, -total]
+            default: -date
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[direction]=issued, filter[client]=<id>,
+            filter[supplier]=<id>, filter[site]=<id>, filter[status]=overdue,
+            filter[from]=2026-11-01 e filter[to]=2026-11-30 (sulla data della fattura) e
+            filter[q]=testo (nel numero e nella descrizione).
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              direction: { $ref: '#/components/schemas/InvoiceDirection' }
+              client: { $ref: '#/components/schemas/Id' }
+              supplier: { $ref: '#/components/schemas/Id' }
+              site: { $ref: '#/components/schemas/Id' }
+              status: { $ref: '#/components/schemas/InvoicePaymentStatus' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
+      responses:
+        '200':
+          description: Una pagina di fatture
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvoiceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createInvoice
+      summary: Registrazione di una fattura
+      description: |
+        Permesso: invoices.create. Se ha una scadenza di pagamento, nasce anche la scadenza
+        nello scadenziario (invoice_out per le emesse, invoice_in per le ricevute). Un numero
+        già usato nello stesso anno (per le ricevute: dello stesso fornitore) risponde 422
+        sotto number.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvoiceInput' }
+      responses:
+        '201':
+          description: Fattura registrata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/invoices/{invoice}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/InvoiceId'
+    get:
+      operationId: getInvoice
+      summary: Una fattura
+      description: 'Permesso: invoices.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: La fattura
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateInvoice
+      summary: Modifica di una fattura, anche per segnarla pagata
+      description: |
+        Permesso: invoices.update. Si inviano tutti i campi. La scadenza nello scadenziario
+        segue la fattura: si sposta con la data di pagamento, si chiude quando paid_on è
+        valorizzato, si riapre se torna null, sparisce se la scadenza di pagamento torna null.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvoiceInput' }
+      responses:
+        '200':
+          description: Fattura aggiornata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteInvoice
+      summary: Eliminazione di una fattura
+      description: 'Permesso: invoices.delete. Elimina anche la sua scadenza nello scadenziario.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Fattura eliminata
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/roles:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -4843,6 +4991,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    InvoiceId:
+      name: invoice
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     PurchaseOrderId:
       name: order
       in: path
@@ -5316,6 +5469,10 @@ components:
         - warehouse.create
         - warehouse.update
         - warehouse.delete
+        - invoices.view
+        - invoices.create
+        - invoices.update
+        - invoices.delete
         - quotes.view
         - quotes.create
         - quotes.update
@@ -5432,6 +5589,7 @@ components:
         quote: preventivo. site: cantiere. employee: dipendente. vehicle: mezzo.
         daily_report: rapportino. site_cost: costo. site_document: documento o foto del cantiere.
         purchase_order: ordine a un fornitore. warehouse_item: articolo di magazzino.
+        invoice: fattura.
       enum:
         [
           client,
@@ -5447,6 +5605,7 @@ components:
           site_document,
           purchase_order,
           warehouse_item,
+          invoice,
         ]
     AuditEntry:
       type: object
@@ -5748,6 +5907,7 @@ components:
             - done_at
             - next_deadline_id
             - supplier_document_id
+            - invoice_id
             - client
             - supplier
             - created_at
@@ -5766,6 +5926,14 @@ components:
                 Documento di regolarità del fornitore da cui nasce la scadenza. Il backend la
                 tiene allineata alla data di scadenza del documento (un rinnovo la riapre) e la
                 elimina con il documento: si modifica dal documento, non da qui.
+              oneOf:
+                - $ref: '#/components/schemas/Id'
+                - type: 'null'
+            invoice_id:
+              description: |
+                Fattura da cui nasce la scadenza di pagamento. Il backend la tiene allineata alla
+                fattura (data, importo, chiusa quando la fattura è pagata) e la elimina con la
+                fattura: si modifica dalla fattura, non da qui.
               oneOf:
                 - $ref: '#/components/schemas/Id'
                 - type: 'null'
@@ -6301,6 +6469,138 @@ components:
           items: { $ref: '#/components/schemas/PurchaseOrderSummary' }
         meta: { $ref: '#/components/schemas/ListMeta' }
         total_amount: { $ref: '#/components/schemas/Amount' }
+    InvoiceDirection:
+      type: string
+      description: 'issued: emessa a un cliente. received: ricevuta da un fornitore.'
+      enum: [issued, received]
+    InvoicePaymentStatus:
+      type: string
+      description: |
+        paid: pagata (o incassata). overdue: non pagata e con la scadenza di pagamento passata
+        (oggi in Italia). open: non pagata, non ancora scaduta o senza scadenza.
+      enum: [open, overdue, paid]
+    InvoiceInput:
+      type: object
+      description: |
+        I campi facoltativi si inviano comunque, con null se vuoti. Le emesse hanno client_id
+        e supplier_id null, le ricevute il contrario. La scadenza di pagamento non può essere
+        prima della data della fattura. Niente invio allo SDI: è solo un registro.
+      required:
+        [
+          direction,
+          number,
+          date,
+          client_id,
+          supplier_id,
+          site_id,
+          description,
+          taxable_amount,
+          vat_amount,
+          due_date,
+          paid_on,
+          notes,
+        ]
+      properties:
+        direction: { $ref: '#/components/schemas/InvoiceDirection' }
+        number:
+          type: string
+          minLength: 1
+          maxLength: 40
+          examples: ['12/2026']
+        date: { $ref: '#/components/schemas/Date' }
+        client_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        supplier_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        site_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        description:
+          type: [string, 'null']
+          maxLength: 500
+        taxable_amount:
+          description: Imponibile.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        vat_amount:
+          description: IVA; 0.00 per le operazioni senza IVA (ad esempio in reverse charge).
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        due_date:
+          description: Scadenza di pagamento; alimenta lo scadenziario.
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        paid_on:
+          description: Data del pagamento o dell'incasso; null se non ancora pagata.
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    Invoice:
+      allOf:
+        - $ref: '#/components/schemas/InvoiceInput'
+        - type: object
+          required:
+            [id, client, supplier, site, total, payment_status, deadline_id, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            client:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            supplier:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            site:
+              oneOf:
+                - type: object
+                  required: [id, name, code]
+                  properties:
+                    id: { $ref: '#/components/schemas/Id' }
+                    name: { type: string }
+                    code: { type: [string, 'null'] }
+                - type: 'null'
+            total:
+              description: Imponibile più IVA.
+              allOf:
+                - $ref: '#/components/schemas/Amount'
+            payment_status: { $ref: '#/components/schemas/InvoicePaymentStatus' }
+            deadline_id:
+              description: La scadenza nello scadenziario; null senza scadenza di pagamento.
+              oneOf:
+                - $ref: '#/components/schemas/Id'
+                - type: 'null'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    InvoiceList:
+      type: object
+      required: [data, meta, total_amount, outstanding_amount]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Invoice' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+        total_amount:
+          description: Somma dei totali delle fatture filtrate.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        outstanding_amount:
+          description: Somma dei totali delle fatture filtrate non ancora pagate.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
     WarehouseItemInput:
       type: object
       description: I campi facoltativi si inviano comunque, con null se vuoti.
