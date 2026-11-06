@@ -85,6 +85,52 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Me' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+    put:
+      operationId: updateMe
+      summary: Cambio del proprio nome
+      description: L'email non si cambia da qui.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProfileInput' }
+      responses:
+        '200':
+          description: Profilo aggiornato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Me' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/me/password:
+    post:
+      operationId: changePassword
+      summary: Cambio della propria password
+      description: |
+        Serve la password attuale: se è sbagliata la risposta è 422 sul campo
+        current_password e conta come tentativo di accesso fallito (dopo troppi, 429). La
+        nuova password ha almeno 10 caratteri. Le altre sessioni dell'utente vengono chiuse;
+        quella da cui arriva la richiesta resta aperta.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordChangeInput' }
+      responses:
+        '204':
+          description: Password cambiata
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /api/companies/{company}/clients:
     parameters:
@@ -2427,6 +2473,28 @@ components:
           type: string
           format: password
           minLength: 1
+          maxLength: 200
+    ProfileInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+    PasswordChangeInput:
+      type: object
+      required: [current_password, new_password]
+      properties:
+        current_password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 200
+        new_password:
+          type: string
+          format: password
+          minLength: 10
           maxLength: 200
     Me:
       type: object

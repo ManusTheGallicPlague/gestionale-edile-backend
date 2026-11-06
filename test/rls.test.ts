@@ -705,6 +705,20 @@ describe('the API role cannot cross companies', () => {
     expect(still.rowCount).toBe(0)
   })
 
+  it('profile: the API role cannot touch names or passwords, the auth role only those', async () => {
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query("update auth.users set name = 'Preso' where id = $1", [alice.id]),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    await expect(
+      auth.query("update auth.users set email = 'x@example.test' where false"),
+    ).rejects.toThrow(/permission denied/)
+    await expect(auth.query('update auth.users set active = false where false')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('quote lines: cannot read, write or attach across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',

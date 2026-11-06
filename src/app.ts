@@ -81,7 +81,7 @@ export function buildApp(
   })
 
   authRoutes(app, config, db)
-  meRoutes(app, db)
+  meRoutes(app, config, db)
   clientRoutes(app, config, db)
   supplierRoutes(app, config, db)
   supplierDocumentRoutes(app, config, db)
