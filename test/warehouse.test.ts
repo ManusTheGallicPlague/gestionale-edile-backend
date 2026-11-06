@@ -65,6 +65,30 @@ const move = (s: Scene, itemId: string, overrides: Record<string, unknown> = {})
 })
 
 describe('warehouse', () => {
+  it('exports the items with their stock as CSV, with the same search', async () => {
+    const s = await scene()
+    const cement = (await s.browser.call('POST', s.items, { body: item() })).json<Item>()
+    await s.browser.call('POST', s.items, {
+      body: item({ code: null, name: 'Sabbia lavata', unit: 'm³', notes: 'cava nord' }),
+    })
+    await s.browser.call('POST', s.moves, { body: move(s, cement.id, { quantity: '12.5' }) })
+    const url = `${s.items}/export`
+    const res = await s.browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe('attachment; filename="magazzino.csv"')
+    expect(res.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Codice;Articolo;Unità;Giacenza;Note',
+      'CEM-325;Cemento 32.5 in sacchi;sacchi;12,500;',
+      ';Sabbia lavata;m³;0,000;cava nord',
+    ])
+    const found = await s.browser.call('GET', `${url}?search=sabb`)
+    expect(found.body.trim().split('\r\n')).toHaveLength(2)
+    expect((await s.browser.call('GET', `${url}?sort=prezzo`)).statusCode).toBe(422)
+    const blind = await scene(['sites.view'])
+    expect((await blind.browser.call('GET', `${blind.items}/export`)).statusCode).toBe(403)
+    expect((await blind.browser.call('GET', url)).statusCode).toBe(404)
+  })
+
   it('creates, reads, updates and deletes an item with If-Match', async () => {
     const s = await scene()
     const created = await s.browser.call('POST', s.items, { body: item() })

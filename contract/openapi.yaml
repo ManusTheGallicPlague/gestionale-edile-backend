@@ -1400,6 +1400,51 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/daily-reports/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportDailyReports
+      summary: Esportazione dei rapportini in CSV
+      description: |
+        Permesso: reports.view. Stessi filtri e ordinamento dell'elenco, senza paginazione, nello
+        stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con la
+        virgola decimale (1234,50). Il file si chiama rapportini.csv.
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [date, -date, updated_at, -updated_at]
+            default: -date
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              status: { $ref: '#/components/schemas/DailyReportStatus' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/daily-reports/{report}:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2052,6 +2097,41 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/WarehouseItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/warehouse/items/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportWarehouseItems
+      summary: Esportazione degli articoli di magazzino con la giacenza in CSV
+      description: |
+        Permesso: warehouse.view. Stessa ricerca e ordinamento dell'elenco, senza paginazione,
+        nello stesso formato dell'esportazione dei clienti. Giacenza con la virgola decimale
+        (12,500). Il file si chiama magazzino.csv.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, -name, code, -code, stock, -stock]
+            default: name
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

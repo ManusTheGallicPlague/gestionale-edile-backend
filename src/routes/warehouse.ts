@@ -15,6 +15,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 
 export const MOVEMENT_KINDS = ['in', 'out'] as const
 type Kind = (typeof MOVEMENT_KINDS)[number]
@@ -307,28 +308,34 @@ function duplicateCode(error: unknown): never {
   throw error
 }
 
+/** Search and sort of the item list, shared by the list and its export. */
+function itemList(query: Record<string, unknown>) {
+  const q = listQuery(query)
+  const search = q.single('search')
+  if (search !== undefined && search.length > 100) q.errors.search = ['Al massimo 100 caratteri.']
+  const sortValue = q.single('sort') ?? 'name'
+  const sort = sortValue in ITEM_SORTS ? (sortValue as keyof typeof ITEM_SORTS) : 'name'
+  if (!(sortValue in ITEM_SORTS)) q.errors.sort = ['Ordinamento non valido.']
+  q.done()
+  const values: unknown[] = []
+  let where = 'true'
+  if (search?.trim()) {
+    values.push(`%${search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
+    where = `(i.name ilike $1 or i.code ilike $1)`
+  }
+  return { q, sort, where, values }
+}
+
 export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const items = '/api/companies/:company/warehouse/items'
   const movements = '/api/companies/:company/warehouse/movements'
 
   app.get<{ Params: Params; Querystring: Record<string, unknown> }>(items, async (request) => {
     const session = requireSession(request)
-    const q = listQuery(request.query)
-    const search = q.single('search')
-    if (search !== undefined && search.length > 100) q.errors.search = ['Al massimo 100 caratteri.']
-    const sortValue = q.single('sort') ?? 'name'
-    const sort = sortValue in ITEM_SORTS ? (sortValue as keyof typeof ITEM_SORTS) : 'name'
-    if (!(sortValue in ITEM_SORTS)) q.errors.sort = ['Ordinamento non valido.']
-    q.done()
+    const { q, sort, where, values } = itemList(request.query)
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('warehouse.view')) throw forbidden()
-      const values: unknown[] = []
-      let where = 'true'
-      if (search?.trim()) {
-        values.push(`%${search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
-        where = `(i.name ilike $1 or i.code ilike $1)`
-      }
       const filters = values.length
       values.push(q.perPage, (q.page - 1) * q.perPage)
       const { rows } = await client.query<ItemRow>(
@@ -346,6 +353,31 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${items}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const { sort, where, values } = itemList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('warehouse.view')) throw forbidden()
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<ItemRow>(
+          `${ITEM_SELECT} where ${where} order by ${ITEM_SORTS[sort]} limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          ['Codice', 'Articolo', 'Unità', 'Giacenza', 'Note'],
+          rows.map((r) => [r.code, r.name, r.unit, r.stock.replace('.', ','), r.notes]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="magazzino.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${items}/:item`, async (request, reply) => {
     const session = requireSession(request)

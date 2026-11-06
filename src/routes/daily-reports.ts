@@ -15,6 +15,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 
 export const REPORT_STATUSES = ['draft', 'submitted', 'approved'] as const
 type Status = (typeof REPORT_STATUSES)[number]
@@ -78,6 +79,12 @@ interface VehicleRow {
 }
 
 type Params = { company: string; report?: string }
+
+const STATUS_LABELS: Record<Status, string> = {
+  draft: 'Bozza',
+  submitted: 'Inviato',
+  approved: 'Approvato',
+}
 
 const SELECT = `select r.id, r.site_id, s.name as site_name, s.code as site_code,
     r.report_date::text as report_date, r.status, r.weather, r.work_done, r.notes,
@@ -351,6 +358,20 @@ function duplicateDay(error: unknown): never {
   throw error
 }
 
+function listFilter(list: ReturnType<typeof readList>) {
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  if (list.status) add((p) => `r.status = ${p}`, list.status)
+  if (list.siteId) add((p) => `r.site_id = ${p}`, list.siteId)
+  if (list.from) add((p) => `r.report_date >= ${p}`, list.from)
+  if (list.to) add((p) => `r.report_date <= ${p}`, list.to)
+  return { where, values }
+}
+
 export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/daily-reports'
 
@@ -360,16 +381,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('reports.view')) throw forbidden()
-      const where = ['true']
-      const values: unknown[] = []
-      const add = (sql: (p: string) => string, value: unknown) => {
-        values.push(value)
-        where.push(sql(`$${values.length}`))
-      }
-      if (list.status) add((p) => `r.status = ${p}`, list.status)
-      if (list.siteId) add((p) => `r.site_id = ${p}`, list.siteId)
-      if (list.from) add((p) => `r.report_date >= ${p}`, list.from)
-      if (list.to) add((p) => `r.report_date <= ${p}`, list.to)
+      const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
       const { rows } = await client.query<ReportRow>(
@@ -387,6 +399,57 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('reports.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<ReportRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Data',
+            'Cantiere',
+            'Codice cantiere',
+            'Stato',
+            'Ore manodopera',
+            'Ore mezzi',
+            'Meteo',
+            'Lavori eseguiti',
+            'Note',
+            'Compilato da',
+            'Approvato da',
+          ],
+          rows.map((r) => [
+            italianDate(r.report_date),
+            r.site_name,
+            r.site_code,
+            STATUS_LABELS[r.status],
+            r.labor_hours.replace('.', ','),
+            r.vehicle_hours.replace('.', ','),
+            r.weather,
+            r.work_done,
+            r.notes,
+            r.created_by_name,
+            r.approved_by_name,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="rapportini.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:report`, async (request, reply) => {
     const session = requireSession(request)

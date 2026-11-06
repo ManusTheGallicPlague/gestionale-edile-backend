@@ -90,6 +90,38 @@ async function create(s: Scene, overrides: Record<string, unknown> = {}) {
 }
 
 describe('daily reports', () => {
+  it('exports the reports as CSV with the same filters', async () => {
+    const s = await scene()
+    await create(s)
+    await create(s, {
+      site_id: s.other,
+      date: '2026-11-06',
+      weather: null,
+      work_done: '@scavo',
+      labor: [],
+      vehicles: [],
+    })
+    const url = `${s.base}/export`
+    const res = await s.browser.call('GET', `${url}?sort=date`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe('attachment; filename="rapportini.csv"')
+    const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(lines).toHaveLength(3)
+    expect(lines[0]).toBe(
+      'Data;Cantiere;Codice cantiere;Stato;Ore manodopera;Ore mezzi;Meteo;Lavori eseguiti;Note;Compilato da;Approvato da',
+    )
+    expect(lines[1]).toMatch(
+      /^05\/11\/2026;Villetta;C-1;Bozza;15,50;3,25;Sereno;Getto del solaio;;[^;]+;$/,
+    )
+    expect(lines[2]).toMatch(/^06\/11\/2026;Condominio;;Bozza;0,00;0,00;;'@scavo;;[^;]+;$/)
+    const filtered = await s.browser.call('GET', `${url}?filter[site]=${s.site}`)
+    expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
+    expect((await s.browser.call('GET', `${url}?filter[status]=chiuso`)).statusCode).toBe(422)
+    const blind = await scene(['sites.view'])
+    expect((await blind.browser.call('GET', `${blind.base}/export`)).statusCode).toBe(403)
+    expect((await blind.browser.call('GET', url)).statusCode).toBe(404)
+  })
+
   it('creates a draft with hours and totals, without costs, and reads it back', async () => {
     const s = await scene()
     const { report, etag } = await create(s)
