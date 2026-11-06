@@ -84,6 +84,13 @@ Aggiunta il 06/11/2026, quando la sezione 7 era finita. Percorsi del frontend: `
 - [x] Magazzino: carico dagli ordini ricevuti (movimenti di carico creati dalle righe di un ordine ricevuto, collegati all'ordine)
 - [x] Fatture: registro delle fatture emesse e ricevute (numero, data, cliente o fornitore, cantiere, imponibile, IVA, totale, scadenza di pagamento che alimenta lo scadenziario, stato pagata); niente invio allo SDI
 
+### 9. Completamento
+Aggiunta il 06/11/2026, quando la sezione 8 era finita. `docs/frontend.md` vuole l'esportazione in ogni elenco (schermata tipo A): mancava negli elenchi più recenti.
+
+- [x] Esportazione CSV delle fatture (`exportInvoices`)
+- [x] Esportazione CSV degli ordini ai fornitori e dei costi (`exportPurchaseOrders`, `exportSiteCosts`)
+- [ ] Esportazione CSV dei rapportini e degli articoli di magazzino
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.

@@ -1591,6 +1591,52 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/costs/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportSiteCosts
+      summary: Esportazione dei costi in CSV
+      description: |
+        Permesso: costs.view. Stessi filtri e ordinamento dell'elenco, senza paginazione, nello
+        stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con la
+        virgola decimale (1234,50). Il file si chiama costi.csv.
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [date, -date, amount, -amount]
+            default: -date
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              supplier: { $ref: '#/components/schemas/Id' }
+              category: { $ref: '#/components/schemas/CostCategory' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/costs/{cost}:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -1721,6 +1767,52 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/PurchaseOrder' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/purchase-orders/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportPurchaseOrders
+      summary: Esportazione degli ordini ai fornitori in CSV
+      description: |
+        Permesso: purchases.view. Stessi filtri e ordinamento dell'elenco, senza paginazione, nello
+        stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con la
+        virgola decimale (1234,50). Il file si chiama ordini.csv.
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [date, -date, number, -number, total, -total]
+            default: -date
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              supplier: { $ref: '#/components/schemas/Id' }
+              site: { $ref: '#/components/schemas/Id' }
+              status: { $ref: '#/components/schemas/PurchaseOrderStatus' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -4026,6 +4118,57 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Invoice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/invoices/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportInvoices
+      summary: Esportazione del registro delle fatture in CSV
+      description: |
+        Permesso: invoices.view. Stessi filtri e ordinamento dell'elenco, senza paginazione,
+        nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con
+        la virgola decimale (1234,50). Il file si chiama fatture.csv.
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [date, -date, due_date, -due_date, total, -total]
+            default: -date
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              direction: { $ref: '#/components/schemas/InvoiceDirection' }
+              client: { $ref: '#/components/schemas/Id' }
+              supplier: { $ref: '#/components/schemas/Id' }
+              site: { $ref: '#/components/schemas/Id' }
+              status: { $ref: '#/components/schemas/InvoicePaymentStatus' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

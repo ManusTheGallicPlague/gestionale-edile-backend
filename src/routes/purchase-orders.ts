@@ -16,6 +16,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 export const ORDER_STATUSES = ['draft', 'sent', 'received'] as const
 type Status = (typeof ORDER_STATUSES)[number]
@@ -79,6 +80,12 @@ interface LineRow {
 }
 
 type Params = { company: string; order?: string }
+
+const STATUS_LABELS: Record<Status, string> = {
+  draft: 'Bozza',
+  sent: 'Inviato',
+  received: 'Ricevuto',
+}
 
 const TOTALS = `(select count(*)::int as line_count,
       coalesce(sum(round(l.quantity * l.unit_price_cents)), 0)::bigint::text as total_cents
@@ -363,6 +370,21 @@ function readList(query: Record<string, unknown>) {
   return { page, perPage, sort: sort ?? '-date', status, supplierId, siteId, from, to }
 }
 
+function listFilter(list: ReturnType<typeof readList>) {
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  if (list.status) add((p) => `o.status = ${p}`, list.status)
+  if (list.supplierId) add((p) => `o.supplier_id = ${p}`, list.supplierId)
+  if (list.siteId) add((p) => `o.site_id = ${p}`, list.siteId)
+  if (list.from) add((p) => `o.order_date >= ${p}`, list.from)
+  if (list.to) add((p) => `o.order_date <= ${p}`, list.to)
+  return { where, values }
+}
+
 export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/purchase-orders'
 
@@ -372,17 +394,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('purchases.view')) throw forbidden()
-      const where = ['true']
-      const values: unknown[] = []
-      const add = (sql: (p: string) => string, value: unknown) => {
-        values.push(value)
-        where.push(sql(`$${values.length}`))
-      }
-      if (list.status) add((p) => `o.status = ${p}`, list.status)
-      if (list.supplierId) add((p) => `o.supplier_id = ${p}`, list.supplierId)
-      if (list.siteId) add((p) => `o.site_id = ${p}`, list.siteId)
-      if (list.from) add((p) => `o.order_date >= ${p}`, list.from)
-      if (list.to) add((p) => `o.order_date <= ${p}`, list.to)
+      const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
       const { rows } = await client.query<OrderRow>(
@@ -403,6 +415,53 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('purchases.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<OrderRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Numero',
+            'Data',
+            'Fornitore',
+            'Cantiere',
+            'Consegna prevista',
+            'Stato',
+            'Righe',
+            'Totale',
+            'Note',
+          ],
+          rows.map((r) => [
+            summary(r).number,
+            italianDate(r.order_date),
+            r.supplier_name,
+            r.site_name,
+            r.delivery_date === null ? null : italianDate(r.delivery_date),
+            STATUS_LABELS[r.status],
+            r.line_count,
+            italianAmount(r.total_cents),
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="ordini.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:order`, async (request, reply) => {
     const session = requireSession(request)

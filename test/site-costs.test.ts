@@ -60,6 +60,38 @@ const input = (s: Scene, overrides: Record<string, unknown> = {}) => ({
 })
 
 describe('site costs', () => {
+  it('exports the costs as CSV with the same filters', async () => {
+    const s = await scene()
+    await s.browser.call('POST', s.base, { body: input(s) })
+    await s.browser.call('POST', s.base, {
+      body: input(s, {
+        site_id: s.other,
+        date: '2026-11-05',
+        category: 'rentals',
+        description: 'Nolo; gru',
+        supplier_id: null,
+        amount: '20',
+        notes: 'storno',
+      }),
+    })
+    const url = `${s.base}/export`
+    const res = await s.browser.call('GET', `${url}?sort=date`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe('attachment; filename="costi.csv"')
+    const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(lines).toEqual([
+      'Data;Cantiere;Codice cantiere;Categoria;Descrizione;Fornitore;Importo;Note',
+      '04/11/2026;Villetta;C-1;Materiali;Calcestruzzo;Calcestruzzi Srl;1560,50;',
+      '05/11/2026;Condominio;;Noli;"Nolo; gru";;20,00;storno',
+    ])
+    const filtered = await s.browser.call('GET', `${url}?filter[site]=${s.site}`)
+    expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
+    expect((await s.browser.call('GET', `${url}?sort=costo`)).statusCode).toBe(422)
+    const blind = await scene(['sites.view'])
+    expect((await blind.browser.call('GET', `${blind.base}/export`)).statusCode).toBe(403)
+    expect((await blind.browser.call('GET', url)).statusCode).toBe(404)
+  })
+
   it('creates, reads, updates and deletes a cost with If-Match', async () => {
     const s = await scene()
     const created = await s.browser.call('POST', s.base, { body: input(s) })

@@ -16,6 +16,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 export const DIRECTIONS = ['issued', 'received'] as const
 type Direction = (typeof DIRECTIONS)[number]
@@ -67,6 +68,12 @@ interface InvoiceRow {
 }
 
 type Params = { company: string; invoice?: string }
+
+const STATUS_LABELS: Record<PaymentStatus, string> = {
+  open: 'Da pagare',
+  overdue: 'Scaduta',
+  paid: 'Pagata',
+}
 
 // "Today" is the Italian one, not the server's.
 const PAYMENT_STATUS = `case
@@ -389,6 +396,29 @@ function readList(query: Record<string, unknown>) {
   }
 }
 
+function listFilter(list: ReturnType<typeof readList>) {
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  if (list.direction) add((p) => `i.direction = ${p}`, list.direction)
+  if (list.status) add((p) => `${PAYMENT_STATUS} = ${p}`, list.status)
+  if (list.clientId) add((p) => `i.client_id = ${p}`, list.clientId)
+  if (list.supplierId) add((p) => `i.supplier_id = ${p}`, list.supplierId)
+  if (list.siteId) add((p) => `i.site_id = ${p}`, list.siteId)
+  if (list.from) add((p) => `i.invoice_date >= ${p}`, list.from)
+  if (list.to) add((p) => `i.invoice_date <= ${p}`, list.to)
+  if (list.q) {
+    add(
+      (p) => `strpos(lower(i.number || ' ' || coalesce(i.description, '')), lower(${p})) > 0`,
+      list.q,
+    )
+  }
+  return { where, values }
+}
+
 export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/invoices'
 
@@ -398,25 +428,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('invoices.view')) throw forbidden()
-      const where = ['true']
-      const values: unknown[] = []
-      const add = (sql: (p: string) => string, value: unknown) => {
-        values.push(value)
-        where.push(sql(`$${values.length}`))
-      }
-      if (list.direction) add((p) => `i.direction = ${p}`, list.direction)
-      if (list.status) add((p) => `${PAYMENT_STATUS} = ${p}`, list.status)
-      if (list.clientId) add((p) => `i.client_id = ${p}`, list.clientId)
-      if (list.supplierId) add((p) => `i.supplier_id = ${p}`, list.supplierId)
-      if (list.siteId) add((p) => `i.site_id = ${p}`, list.siteId)
-      if (list.from) add((p) => `i.invoice_date >= ${p}`, list.from)
-      if (list.to) add((p) => `i.invoice_date <= ${p}`, list.to)
-      if (list.q) {
-        add(
-          (p) => `strpos(lower(i.number || ' ' || coalesce(i.description, '')), lower(${p})) > 0`,
-          list.q,
-        )
-      }
+      const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
       const { rows } = await client.query<InvoiceRow>(
@@ -441,6 +453,61 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('invoices.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<InvoiceRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Tipo',
+            'Numero',
+            'Data',
+            'Cliente o fornitore',
+            'Cantiere',
+            'Descrizione',
+            'Imponibile',
+            'IVA',
+            'Totale',
+            'Scadenza pagamento',
+            'Pagata il',
+            'Stato',
+            'Note',
+          ],
+          rows.map((r) => [
+            r.direction === 'issued' ? 'Emessa' : 'Ricevuta',
+            r.number,
+            italianDate(r.invoice_date),
+            r.client_name ?? r.supplier_name,
+            r.site_name,
+            r.description,
+            italianAmount(r.taxable_cents),
+            italianAmount(r.vat_cents),
+            italianAmount(r.total_cents),
+            r.due_date === null ? null : italianDate(r.due_date),
+            r.paid_on === null ? null : italianDate(r.paid_on),
+            STATUS_LABELS[r.payment_status],
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="fatture.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:invoice`, async (request, reply) => {
     const session = requireSession(request)

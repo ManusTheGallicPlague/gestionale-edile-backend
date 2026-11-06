@@ -73,6 +73,37 @@ type Order = {
 }
 
 describe('purchase orders', () => {
+  it('exports the orders as CSV with the same filters', async () => {
+    const s = await scene()
+    await s.browser.call('POST', s.base, { body: input(s) })
+    await s.browser.call('POST', s.base, {
+      body: input(s, {
+        date: '2026-11-05',
+        supplier_id: s.other,
+        site_id: null,
+        delivery_date: null,
+        lines: [],
+        notes: '+39 sotto',
+      }),
+    })
+    const url = `${s.base}/export`
+    const res = await s.browser.call('GET', `${url}?sort=number`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe('attachment; filename="ordini.csv"')
+    const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(lines).toEqual([
+      'Numero;Data;Fornitore;Cantiere;Consegna prevista;Stato;Righe;Totale;Note',
+      '2026/001;04/11/2026;Calcestruzzi Srl;Villetta;10/11/2026;Bozza;2;1625,02;',
+      "2026/002;05/11/2026;Ferramenta Spa;;;Bozza;0;0,00;'+39 sotto",
+    ])
+    const filtered = await s.browser.call('GET', `${url}?filter[supplier]=${s.other}`)
+    expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
+    expect((await s.browser.call('GET', `${url}?filter[status]=chiuso`)).statusCode).toBe(422)
+    const blind = await scene(['sites.view'])
+    expect((await blind.browser.call('GET', `${blind.base}/export`)).statusCode).toBe(403)
+    expect((await blind.browser.call('GET', url)).statusCode).toBe(404)
+  })
+
   it('creates, reads, updates and deletes a draft with If-Match', async () => {
     const s = await scene()
     const created = await s.browser.call('POST', s.base, { body: input(s) })

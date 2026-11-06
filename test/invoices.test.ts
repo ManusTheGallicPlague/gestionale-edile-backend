@@ -342,6 +342,32 @@ describe('invoices', () => {
     }
   })
 
+  it('exports the register as CSV with the same filters', async () => {
+    const s = await scene()
+    await s.browser.call('POST', s.base, {
+      body: issued(s, { notes: '=SOMMA(A1)', paid_on: '2026-11-20' }),
+    })
+    await s.browser.call('POST', s.base, {
+      body: received(s, { date: '2026-11-03', due_date: null, site_id: null }),
+    })
+    const url = `${s.base}/export`
+    const res = await s.browser.call('GET', `${url}?sort=date`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe('attachment; filename="fatture.csv"')
+    const lines = res.body.replace('﻿', '').trim().split('\r\n')
+    expect(lines).toEqual([
+      'Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Totale;Scadenza pagamento;Pagata il;Stato;Note',
+      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;11000,50;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
+      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;1830,00;;;Da pagare;',
+    ])
+    const filtered = await s.browser.call('GET', `${url}?filter[direction]=received`)
+    expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
+    expect((await s.browser.call('GET', `${url}?filter[status]=late`)).statusCode).toBe(422)
+    const blind = await scene(['clients.view'])
+    expect((await blind.browser.call('GET', `${blind.base}/export`)).statusCode).toBe(403)
+    expect((await blind.browser.call('GET', url)).statusCode).toBe(404)
+  })
+
   it('needs the invoices permissions', async () => {
     const owner = await scene()
     const created = await owner.browser.call('POST', owner.base, { body: issued(owner) })

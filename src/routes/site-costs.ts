@@ -16,6 +16,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 export const COST_CATEGORIES = ['materials', 'rentals', 'subcontract', 'other'] as const
 type Category = (typeof COST_CATEGORIES)[number]
@@ -50,6 +51,13 @@ interface CostRow extends CostValues {
 }
 
 type Params = { company: string; cost?: string }
+
+const CATEGORY_LABELS: Record<Category, string> = {
+  materials: 'Materiali',
+  rentals: 'Noli',
+  subcontract: 'Subappalti',
+  other: 'Altro',
+}
 
 const SELECT = `select k.id, k.site_id, s.name as site_name, s.code as site_code,
     k.cost_date::text as cost_date, k.category, k.description, k.supplier_id,
@@ -239,6 +247,21 @@ function writeFailed(error: unknown): never {
   throw error
 }
 
+function listFilter(list: ReturnType<typeof readList>) {
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  if (list.category) add((p) => `k.category = ${p}`, list.category)
+  if (list.siteId) add((p) => `k.site_id = ${p}`, list.siteId)
+  if (list.supplierId) add((p) => `k.supplier_id = ${p}`, list.supplierId)
+  if (list.from) add((p) => `k.cost_date >= ${p}`, list.from)
+  if (list.to) add((p) => `k.cost_date <= ${p}`, list.to)
+  return { where, values }
+}
+
 export function siteCostRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/costs'
 
@@ -248,17 +271,7 @@ export function siteCostRoutes(app: FastifyInstance, config: Config, db: Db): vo
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('costs.view')) throw forbidden()
-      const where = ['true']
-      const values: unknown[] = []
-      const add = (sql: (p: string) => string, value: unknown) => {
-        values.push(value)
-        where.push(sql(`$${values.length}`))
-      }
-      if (list.category) add((p) => `k.category = ${p}`, list.category)
-      if (list.siteId) add((p) => `k.site_id = ${p}`, list.siteId)
-      if (list.supplierId) add((p) => `k.supplier_id = ${p}`, list.supplierId)
-      if (list.from) add((p) => `k.cost_date >= ${p}`, list.from)
-      if (list.to) add((p) => `k.cost_date <= ${p}`, list.to)
+      const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
       const { rows } = await client.query<CostRow>(
@@ -278,6 +291,51 @@ export function siteCostRoutes(app: FastifyInstance, config: Config, db: Db): vo
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('costs.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<CostRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Data',
+            'Cantiere',
+            'Codice cantiere',
+            'Categoria',
+            'Descrizione',
+            'Fornitore',
+            'Importo',
+            'Note',
+          ],
+          rows.map((r) => [
+            italianDate(r.cost_date),
+            r.site_name,
+            r.site_code,
+            CATEGORY_LABELS[r.category],
+            r.description,
+            r.supplier_name,
+            italianAmount(r.amount_cents),
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="costi.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:cost`, async (request, reply) => {
     const session = requireSession(request)
