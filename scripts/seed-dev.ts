@@ -54,6 +54,10 @@ const ALL = [
   'documents.create',
   'documents.update',
   'documents.delete',
+  'price_lists.view',
+  'price_lists.create',
+  'price_lists.update',
+  'price_lists.delete',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -594,6 +598,23 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
           [companyId, file.kind, file.title, file.name, file.type, file.data.length, file.data],
         )
       }
+      await client.query('delete from public.price_lists where company_id = $1', [companyId])
+      await client.query(
+        `with l as (
+           insert into public.price_lists (company_id, name, year)
+           values ($1, 'Prezzi interni', 2026) returning id
+         )
+         insert into public.price_list_items (company_id, price_list_id, code, description, unit,
+           unit_price_cents)
+         select $1, l.id, i.code, i.description, i.unit, i.cents
+         from l, (values
+           ('SC.01', 'Scavo di sbancamento con mezzo meccanico', 'm³', 850),
+           ('CLS.01', 'Calcestruzzo C25/30 per fondazioni, in opera', 'm³', 14500),
+           ('MUR.01', 'Muratura in blocchi di laterizio da 30 cm', 'm²', 6200),
+           ('INT.01', 'Intonaco civile per interni', 'm²', 2300)
+         ) as i (code, description, unit, cents)`,
+        [companyId],
+      )
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query(
         `insert into public.estimates (company_id, title, client_id, site_id, site_address, status)

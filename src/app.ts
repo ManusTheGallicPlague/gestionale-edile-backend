@@ -23,6 +23,7 @@ import { quoteLineRoutes } from './routes/quote-lines.js'
 import { logoRoutes } from './routes/logo.js'
 import { siteDocumentRoutes } from './routes/site-documents.js'
 import { dashboardRoutes } from './routes/dashboard.js'
+import { priceListRoutes } from './routes/price-lists.js'
 import { invitationRoutes } from './routes/invitations.js'
 import { roleRoutes } from './routes/roles.js'
 import { auditLogRoutes } from './routes/audit-log.js'
@@ -118,6 +119,7 @@ export function buildApp(
   siteCostRoutes(app, config, db)
   siteDocumentRoutes(app, config, db)
   dashboardRoutes(app, db)
+  priceListRoutes(app, config, db)
   siteCostSummaryRoutes(app, db)
   estimateStructureRoutes(app, config, db)
   quoteRoutes(app, config, db)

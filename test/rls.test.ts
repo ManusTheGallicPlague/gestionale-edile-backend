@@ -702,6 +702,54 @@ describe('the API role cannot cross companies', () => {
     ).rejects.toThrow(/foreign key/)
   })
 
+  it('price lists and their items: cannot read, write or attach across companies', async () => {
+    const listB = await owner.query<{ id: string }>(
+      "insert into public.price_lists (company_id, name) values ($1, 'B') returning id",
+      [companyB.id],
+    )
+    const idB = listB.rows[0]?.id
+    await owner.query(
+      `insert into public.price_list_items (company_id, price_list_id, code, description, unit,
+         unit_price_cents) values ($1, $2, 'B1', 'Voce B', 'm²', 100)`,
+      [companyB.id, idB],
+    )
+    const item = (companyId: string) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.price_list_items (company_id, price_list_id, code, description,
+             unit, unit_price_cents) values ($1, $2, 'A1', 'Voce A', 'm²', 100)`,
+          [companyId, idB],
+        ),
+      )
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const l = await c.query('select * from public.price_lists where company_id = $1', [
+        companyB.id,
+      ])
+      const i = await c.query('select * from public.price_list_items where company_id = $1', [
+        companyB.id,
+      ])
+      return l.rowCount! + i.rowCount!
+    })
+    expect(seen).toBe(0)
+    await expect(item(companyB.id)).rejects.toThrow(/row-level security/)
+    await expect(item(companyA.id)).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query(
+        "update public.price_list_items set code = 'X' where price_list_id = $1",
+        [idB],
+      )
+      const d = await c.query('delete from public.price_lists where id = $1', [idB])
+      return u.rowCount! + d.rowCount!
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.price_lists')).rejects.toThrow(
+      /permission denied/,
+    )
+    await expect(auth.query('select * from public.price_list_items')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('estimate chapters and items: cannot read, write or attach across companies', async () => {
     const estimateB = await owner.query<{ id: string }>(
       "insert into public.estimates (company_id, title) values ($1, 'B') returning id",

@@ -1891,6 +1891,221 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/price-lists:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listPriceLists
+      summary: Elenco dei prezzari
+      description: 'Permesso: price_lists.view. Dal più recente per anno, poi per nome.'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: search
+          in: query
+          description: Cerca nel nome.
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: Una pagina di prezzari
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceListList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createPriceList
+      summary: Nuovo prezzario
+      description: 'Permesso: price_lists.create.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PriceListInput' }
+      responses:
+        '201':
+          description: Prezzario creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/price-lists/{list}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PriceListId'
+    get:
+      operationId: getPriceList
+      summary: Un prezzario
+      description: 'Permesso: price_lists.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il prezzario
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updatePriceList
+      summary: Modifica di un prezzario
+      description: 'Permesso: price_lists.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PriceListInput' }
+      responses:
+        '200':
+          description: Prezzario aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deletePriceList
+      summary: Eliminazione di un prezzario
+      description: 'Permesso: price_lists.delete. Elimina anche tutte le sue voci.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Prezzario eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/price-lists/{list}/items:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PriceListId'
+    get:
+      operationId: listPriceListItems
+      summary: Voci di un prezzario
+      description: 'Permesso: price_lists.view. Senza permesso risponde 404. In ordine di codice.'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: search
+          in: query
+          description: Cerca nel codice e nella descrizione.
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: Una pagina di voci
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceListItemList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createPriceListItem
+      summary: Nuova voce del prezzario
+      description: |
+        Permesso: price_lists.update. Il codice è unico nel prezzario, senza distinguere
+        maiuscole (altrimenti 422 sotto code).
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PriceListItemInput' }
+      responses:
+        '201':
+          description: Voce creata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceListItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/price-lists/{list}/items/{item}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PriceListId'
+      - $ref: '#/components/parameters/PriceListItemId'
+    put:
+      operationId: updatePriceListItem
+      summary: Modifica di una voce del prezzario
+      description: 'Permesso: price_lists.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PriceListItemInput' }
+      responses:
+        '200':
+          description: Voce aggiornata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceListItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deletePriceListItem
+      summary: Eliminazione di una voce del prezzario
+      description: 'Permesso: price_lists.update.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Voce eliminata
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/employees:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -3815,6 +4030,16 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    PriceListId:
+      name: list
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    PriceListItemId:
+      name: item
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     SiteDocumentId:
       name: document
       in: path
@@ -4274,6 +4499,10 @@ components:
         - documents.create
         - documents.update
         - documents.delete
+        - price_lists.view
+        - price_lists.create
+        - price_lists.update
+        - price_lists.delete
         - quotes.view
         - quotes.create
         - quotes.update
@@ -5295,6 +5524,88 @@ components:
             - $ref: '#/components/schemas/SignedAmount'
             - type: 'null'
         overdue: { type: boolean }
+    PriceListInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [name, year, notes]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+          description: Ad esempio «Prezzario regionale 2026» o «Prezzi interni».
+        year:
+          type: [integer, 'null']
+          minimum: 1900
+          maximum: 2100
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    PriceList:
+      allOf:
+        - $ref: '#/components/schemas/PriceListInput'
+        - type: object
+          required: [id, item_count, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            item_count:
+              type: integer
+              minimum: 0
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    PriceListList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/PriceList' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    PriceListItemInput:
+      type: object
+      required: [code, description, unit, unit_price]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 50
+          description: Codice della voce, ad esempio quello del prezzario regionale.
+        description:
+          type: string
+          minLength: 1
+          maxLength: 2000
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 20
+          description: Unità di misura, ad esempio m², m³, kg, cad.
+        unit_price: { $ref: '#/components/schemas/Amount' }
+    PriceListItem:
+      allOf:
+        - $ref: '#/components/schemas/PriceListItemInput'
+        - type: object
+          required: [id, price_list_id, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            price_list_id: { $ref: '#/components/schemas/Id' }
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    PriceListItemList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/PriceListItem' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
     SiteCostList:
       type: object
       required: [data, meta, total_amount]
