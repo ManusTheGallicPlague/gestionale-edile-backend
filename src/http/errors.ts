@@ -56,6 +56,9 @@ export const messages = {
   employeeStale:
     'Il dipendente è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   employeeMissingIfMatch: 'Manca la versione del dipendente: ricarica la pagina e riprova.',
+  vehicleStale:
+    'Il mezzo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  vehicleMissingIfMatch: 'Manca la versione del mezzo: ricarica la pagina e riprova.',
   chapterStale:
     'Il capitolo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   itemStale:

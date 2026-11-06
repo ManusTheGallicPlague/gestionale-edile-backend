@@ -1331,6 +1331,133 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/vehicles:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listVehicles
+      summary: Elenco dei mezzi
+      description: 'Permesso: vehicles.view. La ricerca guarda nome, targa e modello.'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [name, -name, updated_at, -updated_at]
+            default: name
+        - name: filter
+          in: query
+          description: 'Filtri: filter[kind]=machine; filter[active]=true solo i mezzi in uso, false solo i dismessi.'
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              kind: { $ref: '#/components/schemas/VehicleKind' }
+              active: { type: boolean }
+      responses:
+        '200':
+          description: Una pagina di mezzi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createVehicle
+      summary: Nuovo mezzo
+      description: 'Permesso: vehicles.create. La targa, se c''è, è unica nell''azienda.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleInput' }
+      responses:
+        '201':
+          description: Mezzo creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Vehicle' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/vehicles/{vehicle}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/VehicleId'
+    get:
+      operationId: getVehicle
+      summary: Scheda di un mezzo
+      description: 'Permesso: vehicles.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il mezzo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Vehicle' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateVehicle
+      summary: Modifica di un mezzo
+      description: 'Permesso: vehicles.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleInput' }
+      responses:
+        '200':
+          description: Mezzo aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Vehicle' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteVehicle
+      summary: Eliminazione di un mezzo
+      description: 'Permesso: vehicles.delete.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Mezzo eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/estimates:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2906,6 +3033,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    VehicleId:
+      name: vehicle
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     EstimateId:
       name: estimate
       in: path
@@ -3323,6 +3455,10 @@ components:
         - employees.create
         - employees.update
         - employees.delete
+        - vehicles.view
+        - vehicles.create
+        - vehicles.update
+        - vehicles.delete
         - quotes.view
         - quotes.create
         - quotes.update
@@ -3436,8 +3572,8 @@ components:
       type: string
       description: |
         client: cliente. supplier: fornitore. deadline: scadenza. estimate: computo metrico.
-        quote: preventivo. site: cantiere. employee: dipendente.
-      enum: [client, supplier, deadline, estimate, quote, site, employee]
+        quote: preventivo. site: cantiere. employee: dipendente. vehicle: mezzo.
+      enum: [client, supplier, deadline, estimate, quote, site, employee, vehicle]
     AuditEntry:
       type: object
       required: [id, entity, entity_id, action, fields, user, created_at]
@@ -3943,6 +4079,62 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/Employee' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    VehicleKind:
+      type: string
+      description: |
+        vehicle: automezzo (furgone, autocarro). machine: macchina operatrice (escavatore, gru).
+        equipment: attrezzatura (betoniera, ponteggio, generatore).
+      enum: [vehicle, machine, equipment]
+    VehicleInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [name, kind, plate, model, hourly_cost, active, notes]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        kind: { $ref: '#/components/schemas/VehicleKind' }
+        plate:
+          type: [string, 'null']
+          description: Targa, unica nell'azienda. Si salva in maiuscolo, senza spazi né trattini.
+          maxLength: 20
+        model:
+          type: [string, 'null']
+          description: Marca e modello.
+          maxLength: 200
+        hourly_cost:
+          description: Costo orario del mezzo, per i costi dei cantieri.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        active:
+          type: boolean
+          description: false per un mezzo venduto o dismesso; resta nello storico.
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    Vehicle:
+      allOf:
+        - $ref: '#/components/schemas/VehicleInput'
+        - type: object
+          required: [id, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    VehicleList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Vehicle' }
         meta: { $ref: '#/components/schemas/ListMeta' }
     EstimateStatus:
       type: string

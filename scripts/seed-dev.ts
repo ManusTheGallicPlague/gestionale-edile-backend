@@ -37,6 +37,10 @@ const ALL = [
   'employees.create',
   'employees.update',
   'employees.delete',
+  'vehicles.view',
+  'vehicles.create',
+  'vehicles.update',
+  'vehicles.delete',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -428,6 +432,17 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            ('text', 'Ponteggi esclusi, a carico del committente.', null, null, null, null, null, 3)
          ) as l (kind, description, unit, quantity, cents, discount, vat, position)
          where q.company_id = $1`,
+        [companyId],
+      )
+      await client.query('delete from public.vehicles where company_id = $1', [companyId])
+      await client.query(
+        `insert into public.vehicles (company_id, name, kind, plate, hourly_cost_cents)
+         select $1, v.name, v.kind, v.plate, v.cost
+         from (values
+           ('Furgone cassonato', 'vehicle', 'AA000AA', 1500),
+           ('Miniescavatore 3,5 t', 'machine', null, 4500),
+           ('Betoniera 350 l', 'equipment', null, 300)
+         ) as v (name, kind, plate, cost)`,
         [companyId],
       )
       await client.query('delete from public.employees where company_id = $1', [companyId])
