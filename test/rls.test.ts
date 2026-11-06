@@ -291,6 +291,40 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.estimates')).rejects.toThrow(/permission denied/)
   })
 
+  it('sites: cannot read, write or link a client across companies', async () => {
+    const clientB = await owner.query<{ id: string }>(
+      'select id from public.clients where company_id = $1 limit 1',
+      [companyB.id],
+    )
+    await owner.query("insert into public.sites (company_id, name) values ($1, 'B')", [companyB.id])
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.sites where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query("insert into public.sites (company_id, name) values ($1, 'X')", [companyB.id]),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query("insert into public.sites (company_id, name, client_id) values ($1, 'X', $2)", [
+          companyA.id,
+          clientB.rows[0]?.id,
+        ]),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.sites set name = 'preso' where company_id = $1", [
+        companyB.id,
+      ])
+      const d = await c.query('delete from public.sites where company_id = $1', [companyB.id])
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.sites')).rejects.toThrow(/permission denied/)
+  })
+
   it('estimate chapters and items: cannot read, write or attach across companies', async () => {
     const estimateB = await owner.query<{ id: string }>(
       "insert into public.estimates (company_id, title) values ($1, 'B') returning id",

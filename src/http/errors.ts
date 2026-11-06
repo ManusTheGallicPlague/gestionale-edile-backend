@@ -50,6 +50,9 @@ export const messages = {
   estimateStale:
     'Il computo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   estimateMissingIfMatch: 'Manca la versione del computo: ricarica la pagina e riprova.',
+  siteStale:
+    'Il cantiere è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  siteMissingIfMatch: 'Manca la versione del cantiere: ricarica la pagina e riprova.',
   chapterStale:
     'Il capitolo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   itemStale:

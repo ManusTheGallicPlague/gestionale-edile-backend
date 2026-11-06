@@ -1078,6 +1078,133 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/sites:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listSites
+      summary: Elenco dei cantieri
+      description: 'Permesso: sites.view. La ricerca guarda nome, codice, indirizzo e cliente.'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [name, -name, code, -code, start_on, -start_on, updated_at, -updated_at]
+            default: -updated_at
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[status]=active o filter[client]=<id>.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/SiteStatus' }
+              client: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Una pagina di cantieri
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createSite
+      summary: Nuovo cantiere
+      description: 'Permesso: sites.create. Il codice, se c''è, è unico nell''azienda.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteInput' }
+      responses:
+        '201':
+          description: Cantiere creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/sites/{site}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: getSite
+      summary: Scheda di un cantiere
+      description: 'Permesso: sites.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il cantiere
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateSite
+      summary: Modifica di un cantiere
+      description: 'Permesso: sites.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteInput' }
+      responses:
+        '200':
+          description: Cantiere aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteSite
+      summary: Eliminazione di un cantiere
+      description: 'Permesso: sites.delete.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Cantiere eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/estimates:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2643,6 +2770,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    SiteId:
+      name: site
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     EstimateId:
       name: estimate
       in: path
@@ -3052,6 +3184,10 @@ components:
         - estimates.create
         - estimates.update
         - estimates.delete
+        - sites.view
+        - sites.create
+        - sites.update
+        - sites.delete
         - quotes.view
         - quotes.create
         - quotes.update
@@ -3165,8 +3301,8 @@ components:
       type: string
       description: |
         client: cliente. supplier: fornitore. deadline: scadenza. estimate: computo metrico.
-        quote: preventivo.
-      enum: [client, supplier, deadline, estimate, quote]
+        quote: preventivo. site: cantiere.
+      enum: [client, supplier, deadline, estimate, quote, site]
     AuditEntry:
       type: object
       required: [id, entity, entity_id, action, fields, user, created_at]
@@ -3536,6 +3672,76 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/Deadline' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    SiteStatus:
+      type: string
+      description: |
+        planned: da iniziare. active: in corso. suspended: sospeso. completed: chiuso.
+      enum: [planned, active, suspended, completed]
+    SiteInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [code, name, client_id, address, status, start_on, end_on, budget, notes]
+      properties:
+        code:
+          type: [string, 'null']
+          description: Codice della commessa, unico nell'azienda (senza distinguere maiuscole).
+          maxLength: 50
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        client_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        address:
+          type: [string, 'null']
+          description: Indirizzo del cantiere, in una riga.
+          maxLength: 300
+        status: { $ref: '#/components/schemas/SiteStatus' }
+        start_on:
+          description: Inizio dei lavori.
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        end_on:
+          description: Fine prevista, non prima dell'inizio.
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        budget:
+          description: Budget di costo del cantiere.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    Site:
+      allOf:
+        - $ref: '#/components/schemas/SiteInput'
+        - type: object
+          required: [id, client, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            client:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    SiteList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Site' }
         meta: { $ref: '#/components/schemas/ListMeta' }
     EstimateStatus:
       type: string

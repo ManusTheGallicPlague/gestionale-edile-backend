@@ -29,6 +29,10 @@ const ALL = [
   'estimates.create',
   'estimates.update',
   'estimates.delete',
+  'sites.view',
+  'sites.create',
+  'sites.update',
+  'sites.delete',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -51,7 +55,13 @@ const ROLES: Record<string, string[]> = {
       !p.startsWith('roles.') &&
       p !== 'audit.view',
   ),
-  'Capo cantiere': ['clients.view', 'suppliers.view', 'deadlines.view', 'estimates.view'],
+  'Capo cantiere': [
+    'clients.view',
+    'suppliers.view',
+    'deadlines.view',
+    'estimates.view',
+    'sites.view',
+  ],
   // The site manager does not see quotes: prices and margins stay with the office.
 }
 
@@ -226,6 +236,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       }
       await client.query('delete from public.deadlines where company_id = $1', [companyId])
       await client.query('delete from public.quotes where company_id = $1', [companyId])
+      await client.query('delete from public.sites where company_id = $1', [companyId])
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query('delete from public.clients where company_id = $1', [companyId])
       for (const [i, c] of devClients(company.clients, company.seed).entries()) {
@@ -413,6 +424,26 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            ('text', 'Ponteggi esclusi, a carico del committente.', null, null, null, null, null, 3)
          ) as l (kind, description, unit, quantity, cents, discount, vat, position)
          where q.company_id = $1`,
+        [companyId],
+      )
+      await client.query('delete from public.sites where company_id = $1', [companyId])
+      await client.query(
+        `insert into public.sites (company_id, code, name, client_id, address, status, start_on,
+           end_on, budget_cents)
+         select $1, s.code, s.name, c.id, s.address, s.status, s.start_on::date, s.end_on::date,
+           s.budget
+         from (values
+           ('2026-01', 'Rifacimento copertura condominio', 'Via Roma 1, Torino', 'active',
+             '2026-10-05', '2026-12-18', 6500000, 0),
+           ('2026-02', 'Ristrutturazione bagno', 'Corso Francia 20, Torino', 'planned',
+             '2026-11-23', '2026-12-11', 1200000, 1),
+           ('2025-07', 'Cappotto termico facciata nord', 'Via Po 3, Torino', 'completed',
+             '2025-05-12', '2025-09-30', null, 0)
+         ) as s (code, name, address, status, start_on, end_on, budget, n)
+         left join lateral (
+           select id from public.clients where company_id = $1 and archived_at is null
+           order by created_at offset s.n limit 1
+         ) c on true`,
         [companyId],
       )
       await client.query('delete from public.estimates where company_id = $1', [companyId])

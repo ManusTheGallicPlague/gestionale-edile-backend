@@ -11,6 +11,7 @@ import { supplierRoutes } from './routes/suppliers.js'
 import { supplierDocumentRoutes } from './routes/supplier-documents.js'
 import { deadlineRoutes } from './routes/deadlines.js'
 import { estimateRoutes } from './routes/estimates.js'
+import { siteRoutes } from './routes/sites.js'
 import { estimateStructureRoutes } from './routes/estimate-structure.js'
 import { quoteRoutes } from './routes/quotes.js'
 import { quoteLineRoutes } from './routes/quote-lines.js'
@@ -95,6 +96,7 @@ export function buildApp(
   supplierDocumentRoutes(app, config, db)
   deadlineRoutes(app, config, db)
   estimateRoutes(app, config, db)
+  siteRoutes(app, config, db)
   estimateStructureRoutes(app, config, db)
   quoteRoutes(app, config, db)
   quoteLineRoutes(app, config, db)
