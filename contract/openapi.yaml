@@ -251,6 +251,54 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/clients/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportClients
+      summary: Esportazione dei clienti in CSV
+      description: |
+        Permesso: clients.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
+        paginazione (al massimo 10000 righe). Il file è per i fogli di calcolo in italiano:
+        UTF-8 con BOM, separatore punto e virgola, intestazioni in italiano. Le celle che
+        inizierebbero con = + - @ sono precedute da un apostrofo, perché il foglio di calcolo
+        non le esegua come formule. Il file si chiama clienti.csv.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, -name, created_at, -created_at]
+            default: name
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              kind: { $ref: '#/components/schemas/ClientKind' }
+              archived:
+                type: boolean
+                default: false
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/clients/{client}:
     parameters:
       - $ref: '#/components/parameters/Company'

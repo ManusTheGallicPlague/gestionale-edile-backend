@@ -1,3 +1,4 @@
+import { MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { Config } from '../config.js'
 import type { Db } from '../db.js'
@@ -110,6 +111,30 @@ function readList(query: Record<string, unknown>) {
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
+function listFilter(list: { archived: boolean; kind?: string | undefined; search: string }) {
+  const where = [list.archived ? 'archived_at is not null' : 'archived_at is null']
+  const values: unknown[] = []
+  if (list.kind) {
+    values.push(list.kind)
+    where.push(`kind = $${values.length}`)
+  }
+  if (list.search) {
+    values.push(`%${escapeLike(list.search)}%`)
+    const p = `$${values.length}`
+    where.push(
+      `(name ilike ${p} or vat_number ilike ${p} or tax_code ilike ${p}` +
+        ` or email ilike ${p} or city ilike ${p})`,
+    )
+  }
+  return { where, values }
+}
+
+const KIND_LABELS: Record<string, string> = {
+  company: 'Impresa',
+  person: 'Privato',
+  public_body: 'Ente pubblico',
+}
+
 function sendClient(reply: FastifyReply, row: ClientRow, status = 200) {
   return reply.code(status).header('ETag', etagOf(row)).send(toContract(row))
 }
@@ -124,20 +149,7 @@ export function clientRoutes(app: FastifyInstance, config: Config, db: Db): void
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('clients.view')) throw forbidden()
 
-        const where = [list.archived ? 'archived_at is not null' : 'archived_at is null']
-        const values: unknown[] = []
-        if (list.kind) {
-          values.push(list.kind)
-          where.push(`kind = $${values.length}`)
-        }
-        if (list.search) {
-          values.push(`%${escapeLike(list.search)}%`)
-          const p = `$${values.length}`
-          where.push(
-            `(name ilike ${p} or vat_number ilike ${p} or tax_code ilike ${p}` +
-              ` or email ilike ${p} or city ilike ${p})`,
-          )
-        }
+        const { where, values } = listFilter(list)
         values.push(list.perPage, (list.page - 1) * list.perPage)
         const { rows } = await client.query<ClientRow & { total: number }>(
           `select ${COLUMNS}, count(*) over ()::int as total
@@ -161,6 +173,65 @@ export function clientRoutes(app: FastifyInstance, config: Config, db: Db): void
           meta: { total, page: list.page, per_page: list.perPage },
         }
       })
+    },
+  )
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/clients/export',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('clients.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<ClientRow>(
+          `select ${COLUMNS} from public.clients
+           where ${where.join(' and ')}
+           order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Tipo',
+            'Nome',
+            'Partita IVA',
+            'Codice fiscale',
+            'Email',
+            'PEC',
+            'Telefono',
+            'Codice destinatario',
+            'Indirizzo',
+            'CAP',
+            'Città',
+            'Provincia',
+            'Paese',
+            'Note',
+          ],
+          rows.map((r) => [
+            KIND_LABELS[r.kind] ?? r.kind,
+            r.name,
+            r.vat_number,
+            r.tax_code,
+            r.email,
+            r.pec,
+            r.phone,
+            r.sdi_code,
+            r.street,
+            r.postal_code,
+            r.city,
+            r.province,
+            r.country,
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="clienti.csv"')
+        .send(csv)
     },
   )
 
