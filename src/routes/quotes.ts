@@ -16,6 +16,7 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { quotePdf } from '../quotes/pdf.js'
+import { readProfile } from './settings.js'
 import { LINE_COLUMNS, lineToContract, type LineRow } from './quote-lines.js'
 
 const STATUSES = ['draft', 'sent', 'accepted', 'rejected', 'expired'] as const
@@ -318,7 +319,6 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
         [id],
       )
       const { rows: parties } = await client.query<{
-        company_name: string
         name: string
         vat_number: string | null
         tax_code: string | null
@@ -327,18 +327,23 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
         city: string | null
         province: string | null
       }>(
-        `select co.name as company_name, c.name, c.vat_number, c.tax_code, c.street,
-           c.postal_code, c.city, c.province
-         from public.clients c join public.companies co on co.id = c.company_id
-         where c.id = $1`,
+        `select c.name, c.vat_number, c.tax_code, c.street, c.postal_code, c.city, c.province
+         from public.clients c where c.id = $1`,
         [row.client_id],
       )
       const party = parties[0]
       if (!party) throw notFound()
+      const profile = await readProfile(client)
       return {
         number: quote.number,
         buffer: quotePdf({
-          company: { name: party.company_name },
+          company: {
+            ...profile,
+            share_capital:
+              profile.share_capital_cents === null
+                ? null
+                : centsToAmount(profile.share_capital_cents),
+          },
           client: party,
           number: quote.number,
           issue_date: quote.issue_date,

@@ -1292,6 +1292,57 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/settings/company:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: getCompanyProfile
+      summary: Dati dell'azienda (ragione sociale, dati fiscali, indirizzo)
+      description: |
+        Permesso: settings.view. Se non sono mai stati salvati, la ragione sociale è il nome
+        dell'azienda, gli altri campi sono null e l'ETag è "0". Sono i dati stampati nei PDF.
+      responses:
+        '200':
+          description: I dati dell'azienda
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateCompanyProfile
+      summary: Modifica dei dati dell'azienda
+      description: |
+        Permesso: settings.update. Si inviano tutti i campi; il primo salvataggio usa
+        If-Match "0".
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompanyProfileInput' }
+      responses:
+        '200':
+          description: Dati aggiornati
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProfile' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/quotes:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -1954,6 +2005,8 @@ components:
         - quotes.create
         - quotes.update
         - quotes.delete
+        - settings.view
+        - settings.update
 
     ClientKind:
       type: string
@@ -2616,6 +2669,54 @@ components:
             properties:
               id: { $ref: '#/components/schemas/Id' }
               chapter_id: { $ref: '#/components/schemas/Id' }
+    CompanyProfileInput:
+      type: object
+      description: |
+        Dati fiscali dell'azienda. Per le aziende italiane si controllano partita IVA, codice
+        fiscale, CAP e provincia. I campi facoltativi si inviano comunque, con null se vuoti.
+      required:
+        [legal_name, vat_number, tax_code, rea, share_capital, street, postal_code, city, province, country, phone, email, pec, iban]
+      properties:
+        legal_name:
+          type: string
+          description: Ragione sociale.
+          minLength: 1
+          maxLength: 200
+        vat_number: { type: [string, 'null'], maxLength: 20 }
+        tax_code: { type: [string, 'null'], maxLength: 16 }
+        rea:
+          type: [string, 'null']
+          description: Numero REA, ad esempio TO-1234567.
+          maxLength: 30
+        share_capital:
+          description: Capitale sociale versato, per le società.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        street: { type: [string, 'null'], maxLength: 200 }
+        postal_code: { type: [string, 'null'], maxLength: 10 }
+        city: { type: [string, 'null'], maxLength: 100 }
+        province: { type: [string, 'null'], maxLength: 2 }
+        country:
+          type: string
+          pattern: '^[A-Za-z]{2}$'
+        phone: { type: [string, 'null'], maxLength: 30 }
+        email: { type: [string, 'null'], maxLength: 254 }
+        pec: { type: [string, 'null'], maxLength: 254 }
+        iban:
+          type: [string, 'null']
+          description: Conto per i pagamenti, stampato nelle condizioni. Gli spazi si tolgono.
+          maxLength: 42
+    CompanyProfile:
+      allOf:
+        - $ref: '#/components/schemas/CompanyProfileInput'
+        - type: object
+          required: [updated_at]
+          properties:
+            updated_at:
+              type: [string, 'null']
+              format: date-time
+              description: Null se i dati non sono mai stati salvati.
     QuoteStatus:
       type: string
       description: 'draft: bozza. sent: inviato. accepted: accettato. rejected: rifiutato. expired: scaduto.'

@@ -1,7 +1,21 @@
 import { A4, PdfDocument, textWidth, wrap, type TextStyle } from '../pdf/pdf.js'
 
 export interface QuotePdfData {
-  company: { name: string }
+  company: {
+    legal_name: string
+    vat_number: string | null
+    tax_code: string | null
+    rea: string | null
+    share_capital: string | null
+    street: string | null
+    postal_code: string | null
+    city: string | null
+    province: string | null
+    phone: string | null
+    email: string | null
+    pec: string | null
+    iban: string | null
+  }
   client: {
     name: string
     vat_number: string | null
@@ -107,11 +121,43 @@ export function quotePdf(data: QuotePdfData): Buffer {
 
   newPage()
   // Header: who sends, the quote, who receives.
-  pdf.text(MARGIN, y - 14, data.company.name, { size: 16, bold: true })
+  const co = data.company
+  pdf.text(MARGIN, y - 14, co.legal_name, { size: 14, bold: true })
+  const small: TextStyle = { size: 8 }
+  const companyLines = [
+    [
+      co.street,
+      [co.postal_code, co.city, co.province ? `(${co.province})` : null].filter(Boolean).join(' '),
+    ]
+      .filter(Boolean)
+      .join(' – '),
+    [
+      co.vat_number ? `P. IVA ${co.vat_number}` : null,
+      co.tax_code && co.tax_code !== co.vat_number ? `C.F. ${co.tax_code}` : null,
+    ]
+      .filter(Boolean)
+      .join(' – '),
+    [
+      co.rea ? `REA ${co.rea}` : null,
+      co.share_capital ? `Cap. soc. € ${italianAmount(co.share_capital)} i.v.` : null,
+    ]
+      .filter(Boolean)
+      .join(' – '),
+    [co.phone ? `Tel. ${co.phone}` : null, co.email, co.pec ? `PEC ${co.pec}` : null]
+      .filter(Boolean)
+      .join(' – '),
+  ].filter((line) => line !== '')
+  let companyY = y - 26
+  for (const text of companyLines) {
+    for (const line of wrap(text, 280, small)) {
+      pdf.text(MARGIN, companyY, line, small)
+      companyY -= 10
+    }
+  }
   const title = data.number
     ? `Preventivo n. ${data.number} del ${italianDate(data.issue_date ?? '')}`
     : 'Preventivo (bozza, non ancora inviato)'
-  pdf.text(MARGIN, y - 36, title, { size: 12, bold: true })
+  pdf.text(MARGIN, companyY - 12, title, { size: 12, bold: true })
   let clientY = y - 14
   const clientX = 340
   pdf.text(clientX, clientY, 'Spett.le', BODY)
@@ -131,7 +177,7 @@ export function quotePdf(data: QuotePdfData): Buffer {
       clientY -= LEADING
     }
   }
-  y = Math.min(y - 60, clientY - 8)
+  y = Math.min(companyY - 30, clientY - 8)
   paragraph(`Oggetto: ${data.subject}`, BOLD)
   y -= 6
 
@@ -198,6 +244,10 @@ export function quotePdf(data: QuotePdfData): Buffer {
     y -= 6
     paragraph(label, BOLD)
     paragraph(text, BODY)
+  }
+  if (co.iban) {
+    y -= 6
+    paragraph(`Pagamento su IBAN ${co.iban}`, BODY)
   }
   y -= 24
   if (y - 3 * LEADING < BOTTOM) newPage()

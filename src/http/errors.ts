@@ -69,6 +69,9 @@ export const messages = {
     'Si fa la revisione solo di un preventivo inviato, rifiutato o scaduto: una bozza si modifica, uno accettato resta com’è.',
   quoteInvalidTransition:
     'Questo cambio di stato non è ammesso: una bozza si invia, un preventivo inviato riceve un esito.',
+  settingsStale:
+    'I dati dell’azienda sono stati modificati da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  settingsMissingIfMatch: 'Manca la versione dei dati dell’azienda: ricarica la pagina e riprova.',
   internal: 'Errore interno. Riprova tra poco.',
   badRequest: 'Richiesta non valida.',
 } as const

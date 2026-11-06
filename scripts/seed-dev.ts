@@ -31,10 +31,13 @@ const ALL = [
   'quotes.create',
   'quotes.update',
   'quotes.delete',
+  'settings.view',
+  'settings.update',
 ]
 const ROLES: Record<string, string[]> = {
   Titolare: ALL,
-  Ufficio: ALL.filter((p) => !p.endsWith('.delete')),
+  // The office sees the company data but only the owner changes it.
+  Ufficio: ALL.filter((p) => !p.endsWith('.delete') && p !== 'settings.update'),
   'Capo cantiere': ['clients.view', 'suppliers.view', 'deadlines.view', 'estimates.view'],
   // The site manager does not see quotes: prices and margins stay with the office.
 }
@@ -336,6 +339,23 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
 
     for (const company of COMPANIES) {
       const companyId = companyIds[company.slug]
+      // Made-up tax data: a valid-looking partita IVA from the company's seed.
+      const vatBase = String(1_000_000_000 + company.seed * 123_456_789).slice(0, 10)
+      await client.query(
+        `insert into public.company_profiles (company_id, legal_name, vat_number, tax_code, rea,
+           share_capital_cents, street, postal_code, city, province, phone, email, pec, iban)
+         values ($1, $2, $3, $3, $4, 1000000, 'Via dell''Industria 12', '10100', 'Torino', 'TO',
+           '011 000 0000', $5, null, 'IT60X0542811101000000123456')
+         on conflict (company_id) do update set legal_name = excluded.legal_name,
+           vat_number = excluded.vat_number, tax_code = excluded.tax_code`,
+        [
+          companyId,
+          company.name,
+          vatBase + partitaIvaCheckDigit(vatBase),
+          `TO-${100000 + company.seed}`,
+          `info@${company.slug}.example.test`,
+        ],
+      )
       await client.query('delete from public.quotes where company_id = $1', [companyId])
       await client.query('delete from public.quote_counters where company_id = $1', [companyId])
       await client.query(

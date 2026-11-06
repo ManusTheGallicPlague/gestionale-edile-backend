@@ -23,6 +23,8 @@ export const PERMISSIONS = [
   'quotes.create',
   'quotes.update',
   'quotes.delete',
+  'settings.view',
+  'settings.update',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]

@@ -515,6 +515,37 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.quotes')).rejects.toThrow(/permission denied/)
   })
 
+  it('company profiles: cannot read or write another company’s', async () => {
+    await owner.query(
+      "insert into public.company_profiles (company_id, legal_name) values ($1, 'B S.r.l.') on conflict do nothing",
+      [companyB.id],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.company_profiles where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.company_profiles (company_id, legal_name) values ($1, 'preso')",
+          [companyB.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    const changed = await as(alice.id, companyA.id, (c) =>
+      c.query("update public.company_profiles set legal_name = 'preso'"),
+    )
+    expect(changed.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query('delete from public.company_profiles')),
+    ).rejects.toThrow(/permission denied/)
+    const still = await owner.query<{ legal_name: string }>(
+      'select legal_name from public.company_profiles where company_id = $1',
+      [companyB.id],
+    )
+    expect(still.rows[0]?.legal_name).toBe('B S.r.l.')
+  })
+
   it('quote lines: cannot read, write or attach across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',
