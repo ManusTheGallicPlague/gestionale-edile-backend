@@ -15,6 +15,7 @@ import { estimateStructureRoutes } from './routes/estimate-structure.js'
 import { quoteRoutes } from './routes/quotes.js'
 import { quoteLineRoutes } from './routes/quote-lines.js'
 import { logoRoutes } from './routes/logo.js'
+import { roleRoutes } from './routes/roles.js'
 import { numberingRoutes, settingsRoutes } from './routes/settings.js'
 import { meRoutes } from './routes/me.js'
 
@@ -91,6 +92,7 @@ export function buildApp(
   settingsRoutes(app, config, db)
   numberingRoutes(app, config, db)
   logoRoutes(app, config, db)
+  roleRoutes(app, db)
 
   return app
 }

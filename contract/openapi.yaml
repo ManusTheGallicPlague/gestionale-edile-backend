@@ -1477,6 +1477,25 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/roles:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listRoles
+      summary: Ruoli dell'azienda con i loro permessi
+      description: |
+        Permesso: users.view. Tutti i ruoli, in ordine di nome, senza paginazione (sono pochi).
+        I permessi di ogni ruolo sono in ordine alfabetico.
+      responses:
+        '200':
+          description: I ruoli
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RoleList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/quotes:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2115,6 +2134,26 @@ components:
             Cosa può fare l'utente in questa azienda. L'interfaccia li usa solo per nascondere
             voci e pulsanti: il controllo vero lo fa il backend a ogni richiesta.
           items: { $ref: '#/components/schemas/Permission' }
+    Role:
+      type: object
+      required: [id, name, permissions]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+          examples: [Ufficio]
+        permissions:
+          type: array
+          items: { $ref: '#/components/schemas/Permission' }
+    RoleList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Role' }
     Permission:
       type: string
       description: Nella forma <area>.<azione>. L'elenco cresce con i moduli.
@@ -2141,6 +2180,7 @@ components:
         - quotes.delete
         - settings.view
         - settings.update
+        - users.view
 
     ClientKind:
       type: string
