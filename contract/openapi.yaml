@@ -26,6 +26,33 @@ security:
   - session: []
 
 paths:
+  /api/health:
+    get:
+      operationId: getHealth
+      summary: Stato del servizio
+      description: |
+        Per il bilanciatore, l'orchestratore dei container e i controlli di disponibilità.
+        Senza sessione e senza dati delle aziende. 200 se l'API raggiunge il database, 503
+        con code database_unavailable se non risponde entro 2 secondi.
+      security: []
+      responses:
+        '200':
+          description: Il servizio funziona
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+        '503':
+          description: Il database non risponde
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/auth/csrf:
     get:
       operationId: getCsrfCookie

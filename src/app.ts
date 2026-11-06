@@ -18,6 +18,7 @@ import { logoRoutes } from './routes/logo.js'
 import { invitationRoutes } from './routes/invitations.js'
 import { roleRoutes } from './routes/roles.js'
 import { auditLogRoutes } from './routes/audit-log.js'
+import { healthRoutes } from './routes/health.js'
 import { numberingRoutes, settingsRoutes } from './routes/settings.js'
 import { meRoutes } from './routes/me.js'
 import { passwordResetRoutes } from './routes/password-reset.js'
@@ -85,6 +86,7 @@ export function buildApp(
     return reply.code(404).send({ message: messages.notFound })
   })
 
+  healthRoutes(app, db)
   authRoutes(app, config, db)
   passwordResetRoutes(app, config, db, mailer)
   meRoutes(app, config, db)

@@ -4,7 +4,7 @@ API del gestionale per imprese edili. Il frontend è in [Affarin-pompe/gestional
 
 ## Stato
 
-Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
+Fatte le sezioni 1–5 del [piano](docs/piano.md), salvo la prova dell'immagine Docker.
 
 | Area | Stato |
 |---|---|
@@ -29,8 +29,11 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Preventivi: totali con IVA per aliquota | Fatto |
 | Preventivi: creazione da un computo | Fatto |
 | Preventivi: esito (accettato, rifiutato, scaduto) | Fatto |
-| Preventivi: revisioni, PDF | Da fare, dopo il contratto |
-| Pubblicazione | Da decidere |
+| Preventivi: revisioni, PDF | Fatto |
+| Impostazioni azienda, utenti e ruoli, profilo, password dimenticata | Fatto |
+| Esportazione CSV degli elenchi | Fatto |
+| Registro delle modifiche | Fatto |
+| Controllo di salute (`/api/health`), immagine Docker | Fatto; rilascio in [docs/rilascio.md](docs/rilascio.md) |
 
 ## Stack
 

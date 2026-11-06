@@ -75,6 +75,7 @@ export const messages = {
   numberInUse: (highest: number) =>
     `Il numero ${highest} di quell'anno è già stato usato: il prossimo deve essere almeno ${highest + 1}.`,
   internal: 'Errore interno. Riprova tra poco.',
+  databaseUnavailable: 'Il database non risponde.',
   badRequest: 'Richiesta non valida.',
 } as const
 

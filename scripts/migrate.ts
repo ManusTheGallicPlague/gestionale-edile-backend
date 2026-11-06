@@ -10,12 +10,16 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
 
-const MIGRATIONS = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  '..',
-  'db',
-  'migrations',
-)
+/**
+ * db/migrations at the root of the project, whether this file runs from scripts/ (tsx) or
+ * compiled from dist/scripts/ (production image).
+ */
+export function migrationsDir(scriptDir: string): string {
+  const root = path.basename(path.dirname(scriptDir)) === 'dist' ? '../..' : '..'
+  return path.resolve(scriptDir, root, 'db', 'migrations')
+}
+
+const MIGRATIONS = migrationsDir(path.dirname(fileURLToPath(import.meta.url)))
 
 export interface MigrateOptions {
   ownerUrl: string
