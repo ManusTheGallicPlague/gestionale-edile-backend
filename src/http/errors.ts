@@ -72,6 +72,8 @@ export const messages = {
   settingsStale:
     'I dati dell’azienda sono stati modificati da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   settingsMissingIfMatch: 'Manca la versione dei dati dell’azienda: ricarica la pagina e riprova.',
+  numberInUse: (highest: number) =>
+    `Il numero ${highest} di quell'anno è già stato usato: il prossimo deve essere almeno ${highest + 1}.`,
   internal: 'Errore interno. Riprova tra poco.',
   badRequest: 'Richiesta non valida.',
 } as const

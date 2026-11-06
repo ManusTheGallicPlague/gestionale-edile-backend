@@ -103,3 +103,80 @@ export function settingsRoutes(app: FastifyInstance, config: Config, db: Db): vo
     return send(reply, row)
   })
 }
+
+/** Next quote number of a year: one after the counter, which only ever grows. */
+async function readNumbering(client: PoolClient, year?: number) {
+  const { rows } = await client.query<{ year: number; next_number: number; highest_used: number }>(
+    `select y.year, coalesce(k.last_number, 0) + 1 as next_number,
+       coalesce((select max(number_seq) from public.quotes where number_year = y.year), 0)
+         as highest_used
+     from (select coalesce($1::int,
+             extract(year from (now() at time zone 'Europe/Rome'))::int) as year) y
+     left join public.quote_counters k on k.year = y.year`,
+    [year ?? null],
+  )
+  const row = rows[0]
+  if (!row) throw new Error('numbering query returned no row')
+  return row
+}
+
+const numberingToContract = (row: { year: number; next_number: number }) => ({
+  quotes: {
+    year: row.year,
+    next_number: row.next_number,
+    next: `${row.year}/${String(row.next_number).padStart(3, '0')}`,
+  },
+})
+
+export function numberingRoutes(app: FastifyInstance, config: Config, db: Db): void {
+  const url = '/api/companies/:company/settings/numbering'
+
+  app.get<{ Params: { company: string } }>(url, async (request) => {
+    const session = requireSession(request)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('settings.view')) throw forbidden()
+      return numberingToContract(await readNumbering(client))
+    })
+  })
+
+  app.put<{ Params: { company: string } }>(`${url}/quotes`, async (request) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('settings.update')) throw forbidden()
+      const body = request.body as Record<string, unknown> | null
+      const current = (await readNumbering(client)).year
+      const year = body?.year
+      const next = body?.next_number
+      const errors: Record<string, string[]> = {}
+      if (typeof year !== 'number' || !Number.isInteger(year) || Math.abs(year - current) > 1) {
+        errors.year = [
+          `L'anno corrente, il precedente o il successivo (${current - 1}–${current + 1}).`,
+        ]
+      }
+      if (typeof next !== 'number' || !Number.isInteger(next) || next < 1 || next > 999999) {
+        errors.next_number = ['Un numero intero da 1 a 999999.']
+      }
+      if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+      // The counter row is locked as a send would lock it: no quote takes a number meanwhile.
+      await client.query(
+        `insert into public.quote_counters (company_id, year, last_number)
+         values (app.current_company_id(), $1, 0)
+         on conflict (company_id, year) do update set last_number = public.quote_counters.last_number`,
+        [year],
+      )
+      const before = await readNumbering(client, year as number)
+      if ((next as number) <= before.highest_used) {
+        throw new ApiError(409, messages.numberInUse(before.highest_used), 'number_in_use')
+      }
+      await client.query(
+        `update public.quote_counters set last_number = $2
+         where company_id = app.current_company_id() and year = $1`,
+        [year, (next as number) - 1],
+      )
+      return numberingToContract(await readNumbering(client, year as number))
+    })
+  })
+}

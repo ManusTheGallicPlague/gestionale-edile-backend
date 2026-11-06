@@ -1343,6 +1343,68 @@ paths:
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/settings/numbering:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: getNumbering
+      summary: Numerazioni dei documenti
+      description: |
+        Permesso: settings.view. Per ora i soli preventivi: il prossimo numero dell'anno in
+        corso (data italiana).
+      responses:
+        '200':
+          description: Le numerazioni
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Numbering' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/companies/{company}/settings/numbering/quotes:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    put:
+      operationId: setQuoteNumbering
+      summary: Prossimo numero dei preventivi di un anno
+      description: |
+        Permesso: settings.update. Serve a chi arriva da un altro programma a metà anno: il
+        prossimo preventivo inviato in quell'anno prende next_number. Si può anche abbassare,
+        ma mai fino a un numero già usato (409 code number_in_use), così non ci sono doppioni.
+        L'anno è quello in corso, il precedente o il successivo.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [year, next_number]
+              properties:
+                year: { type: integer }
+                next_number:
+                  type: integer
+                  minimum: 1
+                  maximum: 999999
+      responses:
+        '200':
+          description: Numerazione aggiornata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Numbering' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il numero è già stato usato in quell'anno (code number_in_use).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/quotes:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2717,6 +2779,22 @@ components:
               type: [string, 'null']
               format: date-time
               description: Null se i dati non sono mai stati salvati.
+    Numbering:
+      type: object
+      required: [quotes]
+      properties:
+        quotes:
+          type: object
+          required: [year, next_number, next]
+          properties:
+            year: { type: integer }
+            next_number:
+              type: integer
+              minimum: 1
+            next:
+              type: string
+              description: Il prossimo numero come verrà stampato, ad esempio 2026/046.
+              pattern: '^\d{4}/\d{3,}$'
     QuoteStatus:
       type: string
       description: 'draft: bozza. sent: inviato. accepted: accettato. rejected: rifiutato. expired: scaduto.'

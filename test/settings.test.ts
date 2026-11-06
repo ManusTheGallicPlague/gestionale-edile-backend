@@ -165,6 +165,94 @@ describe('company profile', () => {
   })
 })
 
+describe('numbering', () => {
+  const year = Number(
+    new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' }).slice(0, 4),
+  )
+
+  it('sets the next quote number, never down to a number already used', async () => {
+    const { browser, company } = await scene([
+      'settings.view',
+      'settings.update',
+      'quotes.view',
+      'quotes.create',
+      'quotes.update',
+    ])
+    const url = `/api/companies/${company.slug}/settings/numbering`
+    const start = await browser.call('GET', url)
+    expect(start.json()).toEqual({ quotes: { year, next_number: 1, next: `${year}/001` } })
+    const set = (body: object) => browser.call('PUT', `${url}/quotes`, { body })
+    const moved = await set({ year, next_number: 46 })
+    expect(moved.statusCode).toBe(200)
+    expect(moved.json()).toEqual({ quotes: { year, next_number: 46, next: `${year}/046` } })
+
+    const client = await ctx.owner.query<{ id: string }>(
+      "insert into public.clients (company_id, kind, name, vat_number) values ($1, 'company', 'Cliente', $2) returning id",
+      [company.id, newVat()],
+    )
+    const quotes = `/api/companies/${company.slug}/quotes`
+    const quote = await browser.call('POST', quotes, {
+      body: {
+        client_id: client.rows[0]?.id,
+        subject: 'P',
+        validity_days: 30,
+        notes: null,
+        terms: null,
+      },
+    })
+    const sent = await browser.call('POST', `${quotes}/${quote.json<{ id: string }>().id}/send`, {
+      headers: { 'if-match': '"1"' },
+    })
+    expect(sent.json()).toMatchObject({ number: `${year}/046` })
+
+    const used = await set({ year, next_number: 46 })
+    expect(used.statusCode).toBe(409)
+    expect(used.json()).toMatchObject({ code: 'number_in_use' })
+    // Lowering is fine as long as no number is reused.
+    expect((await set({ year, next_number: 47 })).statusCode).toBe(200)
+    expect((await set({ year, next_number: 100 })).statusCode).toBe(200)
+    expect((await set({ year, next_number: 47 })).json()).toMatchObject({
+      quotes: { next_number: 47 },
+    })
+    // Next year can be prepared; other years cannot.
+    expect((await set({ year: year + 1, next_number: 5 })).json()).toMatchObject({
+      quotes: { year: year + 1, next: `${year + 1}/005` },
+    })
+    expect((await browser.call('GET', url)).json()).toMatchObject({ quotes: { year } })
+    for (const body of [
+      { year: year + 2, next_number: 1 },
+      { year, next_number: 0 },
+      { year, next_number: '5' },
+      {},
+    ]) {
+      expect((await set(body)).statusCode).toBe(422)
+    }
+  })
+
+  it('needs settings permissions and stays within the company', async () => {
+    const viewer = await scene(['settings.view'])
+    const url = `/api/companies/${viewer.company.slug}/settings/numbering`
+    expect((await viewer.browser.call('GET', url)).statusCode).toBe(200)
+    expect(
+      (await viewer.browser.call('PUT', `${url}/quotes`, { body: { year, next_number: 9 } }))
+        .statusCode,
+    ).toBe(403)
+    const none = await scene(['quotes.view'])
+    expect(
+      (await none.browser.call('GET', `/api/companies/${none.company.slug}/settings/numbering`))
+        .statusCode,
+    ).toBe(403)
+    const other = await scene()
+    expect(
+      (await other.browser.call('PUT', `${url}/quotes`, { body: { year, next_number: 9 } }))
+        .statusCode,
+    ).toBe(404)
+    expect((await viewer.browser.call('GET', url)).json()).toMatchObject({
+      quotes: { next_number: 1 },
+    })
+  })
+})
+
 describe('IBAN check digits', () => {
   it.each([
     [IBAN, true],
