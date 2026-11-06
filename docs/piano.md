@@ -45,7 +45,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Password dimenticata: token a scadenza breve; l'invio dell'email passa da un'interfaccia sostituibile (in sviluppo scrive nel log)
 - [x] Esportazione CSV degli elenchi
 - [x] Registro delle modifiche (chi ha cambiato cosa e quando) sulle entità principali
-- [ ] Endpoint di salute (`/api/health`) e documentazione del rilascio (Docker, variabili, migrazioni)
+- [x] Endpoint di salute (`/api/health`) e documentazione del rilascio (Docker, variabili, migrazioni)
 
 ### 6. Fase successiva (solo quando tutto il resto è fatto)
 - [ ] Cantieri, rapportini, costi, dipendenti, mezzi, secondo `docs/frontend.md` del frontend
@@ -108,6 +108,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: `GET …/audit-log` (permesso nuovo `audit.view`, solo Titolare nei dati di sviluppo), dal più recente, con `filter[entity]`, `filter[entity_id]` (storia di un documento) e `filter[user]`. Il nome dell'autore arriva dalla funzione `app.audit_users()`, anche per chi ha lasciato l'azienda; nessuna foreign key verso `companies`, così l'eliminazione di un'azienda non si blocca sul registro.
 - 06/11/2026: `GET /api/health` senza sessione: `200 {"status":"ok"}` se entrambi i ruoli dell'API raggiungono il database entro 2 secondi, altrimenti `503` con `code: database_unavailable`; nessun dato delle aziende, nessuna versione o dettaglio interno nella risposta.
 - 06/11/2026: rilascio con un'immagine Docker (`Dockerfile`, base `node:22-bookworm-slim` per avere glibc per `@node-rs/argon2`, utente `node`, `HEALTHCHECK` su `/api/health`); le migrazioni girano dalla stessa immagine con `node dist/scripts/migrate.js` prima di avviare la nuova versione. Istruzioni e variabili in `docs/rilascio.md`.
+- 06/11/2026: immagine Docker provata (build, migrazioni su database vuoto e ripetute, avvio, `HEALTHCHECK` healthy, 503 senza database, arresto con `SIGTERM`). In un ambiente dietro un proxy HTTPS con certificato proprio la build va lanciata con `--network host`, `--build-arg HTTPS_PROXY=…` e il certificato aggiunto al solo stadio di build (copia locale del Dockerfile, non versionata): il `Dockerfile` del repository resta senza riferimenti al proxy.
 
 ## Registro dei giri
 
