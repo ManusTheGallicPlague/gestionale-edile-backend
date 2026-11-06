@@ -1,7 +1,8 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { Config } from '../config.js'
 import type { Db } from '../db.js'
-import { isUniqueViolation, withIdentity } from '../db.js'
+import type { PoolClient } from 'pg'
+import { isForeignKeyViolation, isUniqueViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import {
   CLIENT_FIELDS,
@@ -21,12 +22,13 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 
 interface ClientRow extends ClientInput {
   id: string
+  archived_at: Date | null
   version: number
   created_at: Date
   updated_at: Date
 }
 
-const COLUMNS = `id, ${CLIENT_FIELDS.join(', ')}, version, created_at, updated_at`
+const COLUMNS = `id, ${CLIENT_FIELDS.join(', ')}, archived_at, version, created_at, updated_at`
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 const SORTS = {
@@ -41,6 +43,7 @@ type Params = { company: string; client?: string }
 function toContract(row: ClientRow) {
   const client: Record<string, unknown> = { id: row.id }
   for (const field of CLIENT_FIELDS) client[field] = row[field]
+  client.archived_at = row.archived_at?.toISOString() ?? null
   client.created_at = row.created_at.toISOString()
   client.updated_at = row.updated_at.toISOString()
   return client
@@ -96,9 +99,13 @@ function readList(query: Record<string, unknown>) {
   const kindValue = single('filter[kind]')
   const kind = kindValue === undefined ? undefined : CLIENT_KINDS.find((k) => k === kindValue)
   if (kindValue !== undefined && !kind) errors['filter[kind]'] = ['Tipo di cliente non valido.']
+  const archivedValue = single('filter[archived]') ?? 'false'
+  if (archivedValue !== 'true' && archivedValue !== 'false') {
+    errors['filter[archived]'] = ['Vale true oppure false.']
+  }
 
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? 'name', search, kind }
+  return { page, perPage, sort: sort ?? 'name', search, kind, archived: archivedValue === 'true' }
 }
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -117,7 +124,7 @@ export function clientRoutes(app: FastifyInstance, config: Config, db: Db): void
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('clients.view')) throw forbidden()
 
-        const where = ['true']
+        const where = [list.archived ? 'archived_at is not null' : 'archived_at is null']
         const values: unknown[] = []
         if (list.kind) {
           values.push(list.kind)
@@ -212,10 +219,7 @@ export function clientRoutes(app: FastifyInstance, config: Config, db: Db): void
       const id = request.params.client ?? ''
       if (!UUID.test(id)) throw notFound()
 
-      const ifMatch = request.headers['if-match']
-      if (typeof ifMatch !== 'string' || ifMatch.trim() === '') {
-        throw new ApiError(428, messages.missingIfMatch, 'precondition_required')
-      }
+      const ifMatch = requireIfMatch(request.headers['if-match'])
       const parsed = parseClientInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
 
@@ -237,11 +241,80 @@ export function clientRoutes(app: FastifyInstance, config: Config, db: Db): void
         if (duplicate) throw new ValidationFailed(duplicate)
         throw error
       }
-      // Nothing updated: either the client is not visible here, or someone changed it first.
-      const { rowCount } = await client.query('select 1 from public.clients where id = $1', [id])
-      if (!rowCount) throw notFound()
-      throw new ApiError(412, messages.staleRecord, 'stale_record')
+      return missingOrStale(client, id)
     })
     return sendClient(reply, row)
   })
+
+  const setArchived = (action: 'archive' | 'restore') =>
+    app.post<{ Params: Params }>(
+      `/api/companies/:company/clients/:client/${action}`,
+      async (request, reply) => {
+        const session = requireSession(request)
+        checkCsrf(config, request)
+        const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+          const permissions = await enterCompany(client, request.params.company)
+          if (!permissions.has('clients.update')) throw forbidden()
+          const id = request.params.client ?? ''
+          if (!UUID.test(id)) throw notFound()
+          const version = expectedVersion(requireIfMatch(request.headers['if-match']))
+          const { rows } = await client.query<ClientRow>(
+            `update public.clients
+             set archived_at = ${action === 'archive' ? 'coalesce(archived_at, now())' : 'null'},
+                 version = version + 1, updated_at = now()
+             where id = $1 and version = $2
+             returning ${COLUMNS}`,
+            [id, version ?? -1],
+          )
+          return rows[0] ?? missingOrStale(client, id)
+        })
+        return sendClient(reply, row)
+      },
+    )
+  setArchived('archive')
+  setArchived('restore')
+
+  app.delete<{ Params: Params }>(
+    '/api/companies/:company/clients/:client',
+    async (request, reply) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('clients.delete')) throw forbidden()
+        const id = request.params.client ?? ''
+        if (!UUID.test(id)) throw notFound()
+        const version = expectedVersion(requireIfMatch(request.headers['if-match']))
+        try {
+          const { rowCount } = await client.query(
+            'delete from public.clients where id = $1 and version = $2',
+            [id, version ?? -1],
+          )
+          if (rowCount) return
+        } catch (error) {
+          // Documents reference clients with "on delete restrict": the database says no.
+          if (isForeignKeyViolation(error)) {
+            throw new ApiError(409, messages.clientHasDocuments, 'has_documents')
+          }
+          throw error
+        }
+        await missingOrStale(client, id)
+      })
+      return reply.code(204).send()
+    },
+  )
+}
+
+function requireIfMatch(header: string | string[] | undefined): string {
+  if (typeof header !== 'string' || header.trim() === '') {
+    throw new ApiError(428, messages.missingIfMatch, 'precondition_required')
+  }
+  return header
+}
+
+/** Nothing changed: either the client is not visible here, or someone changed it first. */
+async function missingOrStale(client: PoolClient, id: string): Promise<never> {
+  const { rowCount } = await client.query('select 1 from public.clients where id = $1', [id])
+  if (!rowCount) throw notFound()
+  throw new ApiError(412, messages.staleRecord, 'stale_record')
 }

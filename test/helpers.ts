@@ -124,7 +124,7 @@ export class Browser {
   }
 
   async request(
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     url: string,
     options: { body?: unknown; headers?: Record<string, string>; csrf?: boolean } = {},
   ): Promise<InjectResponse> {
@@ -159,7 +159,7 @@ export class Browser {
 
   /** Request plus contract check. */
   async call(
-    method: 'GET' | 'POST' | 'PUT',
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     url: string,
     options: { body?: unknown; headers?: Record<string, string>; csrf?: boolean } = {},
   ) {

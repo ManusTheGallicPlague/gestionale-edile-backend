@@ -106,9 +106,18 @@ describe('the API role cannot cross companies', () => {
       c.query("update public.clients set name = 'preso' where company_id = $1", [companyB.id]),
     )
     expect(updated.rowCount).toBe(0)
-    await expect(
-      as(alice.id, companyA.id, (c) => c.query('delete from public.clients')),
-    ).rejects.toThrow(/permission denied/)
+    const deleted = await as(alice.id, companyA.id, (c) =>
+      c.query('delete from public.clients where company_id = $1', [companyB.id]),
+    )
+    expect(deleted.rowCount).toBe(0)
+    const archived = await as(alice.id, companyA.id, (c) =>
+      c.query('update public.clients set archived_at = now() where company_id = $1', [companyB.id]),
+    )
+    expect(archived.rowCount).toBe(0)
+    const stillThere = await owner.query('select 1 from public.clients where company_id = $1', [
+      companyB.id,
+    ])
+    expect(stillThere.rowCount).toBe(1)
   })
 
   it('cannot see memberships of other users', async () => {

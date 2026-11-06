@@ -35,6 +35,7 @@ export const messages = {
   staleRecord:
     'Il cliente è stato modificato da qualcun altro. Ricarica la scheda per vedere le modifiche.',
   missingIfMatch: 'Manca la versione del cliente: ricarica la scheda e riprova.',
+  clientHasDocuments: 'Il cliente ha documenti collegati e non si può eliminare: puoi archiviarlo.',
   internal: 'Errore interno. Riprova tra poco.',
   badRequest: 'Richiesta non valida.',
 } as const

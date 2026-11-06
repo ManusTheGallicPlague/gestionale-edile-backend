@@ -10,7 +10,7 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 |---|---|
 | Accesso: CSRF, login, logout, sessioni, limite ai tentativi | Fatto |
 | `GET /api/me`: aziende, ruolo e permessi | Fatto |
-| Clienti: elenco, scheda, creazione, modifica | Fatto |
+| Clienti: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
 | Isolamento tra aziende (Row Level Security) | Fatto, con test avversario |
 | Fornitori, preventivi, computo metrico, scadenziario | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |

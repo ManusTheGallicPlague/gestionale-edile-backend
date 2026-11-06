@@ -10,10 +10,10 @@ import { codiceFiscaleCheckLetter, partitaIvaCheckDigit } from '../src/clients/t
 
 export const DEV_PASSWORD = 'cantiere-demo'
 
-const ALL = ['clients.view', 'clients.create', 'clients.update']
+const ALL = ['clients.view', 'clients.create', 'clients.update', 'clients.delete']
 const ROLES: Record<string, string[]> = {
   Titolare: ALL,
-  Ufficio: ALL,
+  Ufficio: ['clients.view', 'clients.create', 'clients.update'],
   'Capo cantiere': ['clients.view'],
 }
 
@@ -155,11 +155,13 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
         }
       }
       await client.query('delete from public.clients where company_id = $1', [companyId])
-      for (const c of devClients(company.clients, company.seed)) {
+      for (const [i, c] of devClients(company.clients, company.seed).entries()) {
         await client.query(
           `insert into public.clients (company_id, kind, name, vat_number, tax_code, email, pec,
-             phone, sdi_code, street, postal_code, city, province, country, notes, created_at, updated_at)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)`,
+             phone, sdi_code, street, postal_code, city, province, country, notes, created_at, updated_at,
+             archived_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16,
+             case when $17::boolean then $16::timestamptz end)`,
           [
             companyId,
             c.kind,
@@ -177,6 +179,8 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
             c.country,
             c.notes,
             c.created_at,
+            // A few archived clients, to try the archive filter.
+            i % 20 === 19,
           ],
         )
       }

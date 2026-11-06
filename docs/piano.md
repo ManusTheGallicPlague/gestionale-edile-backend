@@ -11,7 +11,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 ### 1. Anagrafiche
 - [x] Accesso, sessioni, CSRF, `/api/me`
 - [x] Clienti: elenco, scheda, creazione, modifica
-- [ ] Clienti: archiviazione (`archived_at`, filtro `filter[archived]`, niente cancellazione fisica se ha documenti collegati)
+- [x] Clienti: archiviazione (`archived_at`, filtro `filter[archived]`, niente cancellazione fisica se ha documenti collegati)
 - [ ] Fornitori: come i clienti, più `categories` (es. materiali, noli, subappalto, servizi) e flag `subcontractor`. Permessi `suppliers.view/create/update`
 - [ ] Fornitori: documenti di regolarità dei subappaltatori (DURC, visura, assicurazione) con data di scadenza, che alimentano lo scadenziario
 
@@ -55,9 +55,15 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
 
 - 06/11/2026: importi in centesimi interi (`bigint`), quantità `numeric(14,3)`.
+- 06/11/2026: archiviazione con `POST …/clients/{id}/archive` e `…/restore` (permesso `clients.update`, `If-Match`); archiviare due volte tiene la prima data.
+- 06/11/2026: `filter[archived]` accetta solo `true`/`false`, predefinito `false`: l'elenco mostra i soli attivi o i soli archiviati, non entrambi.
+- 06/11/2026: `DELETE …/clients/{id}` con permesso nuovo `clients.delete` (solo Titolare nei dati di sviluppo; Ufficio no) e `If-Match`; con documenti collegati risponde `409` `code: has_documents`.
+- 06/11/2026: regola per le tabelle future: ogni riferimento a `clients` (e poi `suppliers`) va dichiarato `on delete restrict`, così è il database a impedire la cancellazione di un soggetto con documenti.
+- 06/11/2026: un cliente archiviato resta modificabile con `PUT` e leggibile nella scheda.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 13:21 UTC: archiviazione ed eliminazione dei clienti (contratto, migrazione 0002, permesso `clients.delete`, test). Niente a metà; prossimo compito: fornitori. 98 test.
 - 2026-11-06: primo pezzo (accesso, `/api/me`, clienti), 87 test.

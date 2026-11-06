@@ -106,13 +106,18 @@ paths:
             default: name
         - name: filter
           in: query
-          description: Filtri, ad esempio filter[kind]=company.
+          description: |
+            Filtri, ad esempio filter[kind]=company. filter[archived]=true mostra solo i clienti
+            archiviati; senza il filtro, o con false, solo quelli attivi.
           style: deepObject
           explode: true
           schema:
             type: object
             properties:
               kind: { $ref: '#/components/schemas/ClientKind' }
+              archived:
+                type: boolean
+                default: false
       responses:
         '200':
           description: Una pagina di clienti
@@ -213,6 +218,88 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+    delete:
+      operationId: deleteClient
+      summary: Eliminazione di un cliente
+      description: |
+        Permesso: clients.delete. Si può eliminare solo un cliente senza documenti collegati
+        (preventivi, computi, scadenze): altrimenti la risposta è 409 con code has_documents e
+        il cliente va archiviato. If-Match come nella modifica.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Cliente eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il cliente ha documenti collegati (code has_documents). Si può archiviare.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/clients/{client}/archive:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/ClientId'
+    post:
+      operationId: archiveClient
+      summary: Archiviazione di un cliente
+      description: |
+        Permesso: clients.update. Il cliente sparisce dall'elenco predefinito ma resta
+        consultabile, con i documenti collegati. Archiviare un cliente già archiviato non cambia
+        la data di archiviazione. If-Match come nella modifica.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Cliente archiviato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/clients/{client}/restore:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/ClientId'
+    post:
+      operationId: restoreClient
+      summary: Ripristino di un cliente archiviato
+      description: 'Permesso: clients.update. Riporta il cliente tra quelli attivi. If-Match come nella modifica.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Cliente di nuovo attivo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Client' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
 
 components:
   securitySchemes:
@@ -257,6 +344,18 @@ components:
         minimum: 1
         maximum: 100
         default: 25
+    ClientId:
+      name: client
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    IfMatch:
+      name: If-Match
+      in: header
+      required: true
+      description: ETag della versione che l'utente ha davanti.
+      schema:
+        type: string
     Search:
       name: search
       in: query
@@ -288,6 +387,18 @@ components:
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ValidationError' }
+    StaleRecord:
+      description: |
+        Il record è stato modificato da qualcun altro dopo che l'utente l'ha aperto
+        (code stale_record). Niente viene cambiato.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PreconditionRequired:
+      description: Manca l'header If-Match (code precondition_required).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     TooManyRequests:
       description: Troppi tentativi in poco tempo.
       headers:
@@ -324,7 +435,7 @@ components:
           type: string
           description: |
             Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
-            Per ora: csrf_invalid, stale_record, precondition_required.
+            Per ora: csrf_invalid, stale_record, precondition_required, has_documents.
     ValidationError:
       type: object
       required: [message, errors]
@@ -402,7 +513,7 @@ components:
     Permission:
       type: string
       description: Nella forma <area>.<azione>. L'elenco cresce con i moduli.
-      enum: [clients.view, clients.create, clients.update]
+      enum: [clients.view, clients.create, clients.update, clients.delete]
 
     ClientKind:
       type: string
@@ -489,9 +600,13 @@ components:
       allOf:
         - $ref: '#/components/schemas/ClientInput'
         - type: object
-          required: [id, created_at, updated_at]
+          required: [id, archived_at, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            archived_at:
+              type: [string, 'null']
+              format: date-time
+              description: Data di archiviazione; null se il cliente è attivo.
             created_at:
               type: string
               format: date-time

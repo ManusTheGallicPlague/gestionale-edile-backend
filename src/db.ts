@@ -64,6 +64,10 @@ export async function declareCompany(client: pg.PoolClient, companyId: string): 
   await client.query("select set_config('app.company_id', $1, true)", [companyId])
 }
 
+export function isForeignKeyViolation(error: unknown): error is pg.DatabaseError {
+  return error instanceof pg.DatabaseError && error.code === '23503'
+}
+
 export function isUniqueViolation(error: unknown): error is pg.DatabaseError {
   return error instanceof pg.DatabaseError && error.code === '23505'
 }
