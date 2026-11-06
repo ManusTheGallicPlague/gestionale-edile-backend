@@ -766,6 +766,7 @@ describe('the API role cannot cross companies', () => {
       /permission denied/,
     )
     // Other cases count every estimate row of company A: leave none behind.
+    await owner.query('delete from public.progress_statements where estimate_id = $1', [a.estimate])
     await owner.query('delete from public.estimates where id = $1', [a.estimate])
   })
 

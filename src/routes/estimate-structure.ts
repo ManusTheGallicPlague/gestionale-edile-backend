@@ -256,6 +256,14 @@ function quantityTooLarge(error: unknown): never {
   throw error
 }
 
+/** An item measured in a progress statement cannot go away (no-action foreign key). */
+function inStatements(error: unknown): never {
+  if (isForeignKeyViolation(error)) {
+    throw new ApiError(409, messages.estimateItemInStatements, 'has_documents')
+  }
+  throw error
+}
+
 /** Opens the company, checks the permission and that the estimate exists (else 404). */
 async function enterEstimate(
   client: PoolClient,
@@ -628,10 +636,12 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       const id = request.params.chapter ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const { rowCount } = await client.query(
-        'delete from public.estimate_chapters where id = $1 and estimate_id = $2 and version = $3',
-        [id, estimateId, version],
-      )
+      const { rowCount } = await client
+        .query(
+          'delete from public.estimate_chapters where id = $1 and estimate_id = $2 and version = $3',
+          [id, estimateId, version],
+        )
+        .catch(inStatements)
       if (!rowCount) await missingOrStale(client, 'estimate_chapters', estimateId, id)
       await touch(client, estimateId)
     })
@@ -755,10 +765,12 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       const id = request.params.item ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const { rowCount } = await client.query(
-        'delete from public.estimate_items where id = $1 and estimate_id = $2 and version = $3',
-        [id, estimateId, version],
-      )
+      const { rowCount } = await client
+        .query(
+          'delete from public.estimate_items where id = $1 and estimate_id = $2 and version = $3',
+          [id, estimateId, version],
+        )
+        .catch(inStatements)
       if (!rowCount) await missingOrStale(client, 'estimate_items', estimateId, id)
       await touch(client, estimateId)
     })

@@ -68,6 +68,8 @@ export const messages = {
   statementMissingIfMatch: 'Manca la versione del SAL: ricarica la pagina e riprova.',
   statementNotDraft: 'Il SAL è già approvato e non si modifica più.',
   statementDraftExists: 'C’è già un SAL in bozza per questo computo: completa o elimina quello.',
+  estimateHasStatements: 'Il computo ha dei SAL e non si può eliminare.',
+  estimateItemInStatements: 'Una o più voci compaiono in un SAL e non si possono eliminare.',
   costStale:
     'Il costo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   costMissingIfMatch: 'Manca la versione del costo: ricarica la pagina e riprova.',

@@ -39,7 +39,7 @@ async function estimateOf(companyId: string) {
        position) values ($1, $2, $3, 100, 0), ($1, $2, $4, 10, 0)`,
     [companyId, estimate, scavo, intonaco],
   )
-  return { estimate, scavo, intonaco }
+  return { estimate, chapter, scavo, intonaco }
 }
 
 async function scene(permissions: Permission[] = ALL) {
@@ -185,6 +185,42 @@ describe('progress statements', () => {
       (await s.browser.call('DELETE', twoUrl, { headers: { 'if-match': '"2"' } })).statusCode,
     ).toBe(204)
     expect((await s.browser.call('GET', s.url)).json<{ data: unknown[] }>().data).toHaveLength(1)
+  })
+
+  it('keeps the estimate and the items of a statement', async () => {
+    const s = await scene([...ALL, 'estimates.delete'])
+    const statement = (
+      await s.browser.call('POST', s.url, {
+        body: {
+          statement_date: '2026-10-31',
+          notes: null,
+          lines: [{ item_id: s.scavo, quantity: '5' }],
+        },
+      })
+    ).json<Statement>()
+    await s.browser.call('POST', `${s.url}/${statement.id}/approve`, {
+      headers: { 'if-match': '"1"' },
+    })
+    const estimate = `/api/companies/${s.company.slug}/estimates/${s.estimate}`
+    for (const url of [
+      `${estimate}/items/${s.scavo}`,
+      `${estimate}/chapters/${s.chapter}`,
+      estimate,
+    ]) {
+      const res = await s.browser.call('DELETE', url, { headers: { 'if-match': '"1"' } })
+      expect(res.statusCode).toBe(409)
+      expect(res.json()).toMatchObject({ code: 'has_documents' })
+    }
+    // An item outside the statements can still go.
+    expect(
+      (
+        await s.browser.call('DELETE', `${estimate}/items/${s.intonaco}`, {
+          headers: { 'if-match': '"1"' },
+        })
+      ).statusCode,
+    ).toBe(204)
+    const after = (await s.browser.call('GET', `${s.url}/${statement.id}`)).json<Statement>()
+    expect(after).toMatchObject({ status: 'approved', amount: '42.50' })
   })
 
   it.each([

@@ -364,10 +364,14 @@ export function estimateRoutes(app: FastifyInstance, config: Config, db: Db): vo
       const id = request.params.estimate ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const { rowCount } = await client.query(
-        'delete from public.estimates where id = $1 and version = $2',
-        [id, version],
-      )
+      const { rowCount } = await client
+        .query('delete from public.estimates where id = $1 and version = $2', [id, version])
+        .catch((error: unknown) => {
+          if (isForeignKeyViolation(error)) {
+            throw new ApiError(409, messages.estimateHasStatements, 'has_documents')
+          }
+          throw error
+        })
       if (!rowCount) await missingOrStale(client, id)
     })
     return reply.code(204).send()

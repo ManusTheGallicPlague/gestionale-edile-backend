@@ -298,6 +298,10 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       await client.query('delete from public.site_costs where company_id = $1', [companyId])
       await client.query('delete from public.site_documents where company_id = $1', [companyId])
       // Estimates point to sites: they go first.
+      // Progress statements keep their estimate: they go first.
+      await client.query('delete from public.progress_statements where company_id = $1', [
+        companyId,
+      ])
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query('delete from public.sites where company_id = $1', [companyId])
       await client.query('delete from public.clients where company_id = $1', [companyId])
@@ -641,6 +645,10 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          ) as i (code, description, unit, cents)`,
         [companyId],
       )
+      // Progress statements keep their estimate: they go first.
+      await client.query('delete from public.progress_statements where company_id = $1', [
+        companyId,
+      ])
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query(
         `insert into public.estimates (company_id, title, client_id, site_id, site_address, status)
