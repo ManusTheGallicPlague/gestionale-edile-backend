@@ -62,6 +62,12 @@ export function expectContract(res: InjectResponse, method: string, path: string
     expect(res.body, `${status} should have no body`).toBe('')
     return
   }
+  if (!('application/json' in content)) {
+    // Files: the content type must be one the contract declares.
+    const type = String(res.headers['content-type'] ?? '').split(';')[0]
+    expect(Object.keys(content), `${method} ${path} ${status}: content type`).toContain(type)
+    return
+  }
   const validate = ajv.compile({
     $ref: `openapi#/${pointer(...base, 'content', 'application/json', 'schema')}`,
   })

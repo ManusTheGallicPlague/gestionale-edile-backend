@@ -1512,6 +1512,35 @@ paths:
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/quotes/{quote}/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/QuoteId'
+    get:
+      operationId: getQuotePdf
+      summary: PDF del preventivo
+      description: |
+        Permesso: quotes.view. Il preventivo in A4, pronto da stampare o allegare: intestazione
+        con il nome dell'azienda, cliente, oggetto, righe, totali per aliquota, validità, note,
+        condizioni e spazio per l'accettazione. Una bozza esce con la dicitura «bozza» e senza
+        numero. Il file si chiama preventivo-2026-001.pdf (preventivo-bozza.pdf in bozza).
+        Senza permesso risponde 404, non 403.
+      responses:
+        '200':
+          description: Il PDF
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/quotes/{quote}/revisions:
     parameters:
       - $ref: '#/components/parameters/Company'

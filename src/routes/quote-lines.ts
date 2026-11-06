@@ -33,7 +33,7 @@ interface LineInput {
   vatRate: number | null
 }
 
-interface LineRow {
+export interface LineRow {
   id: string
   kind: LineInput['kind']
   description: string
@@ -47,12 +47,12 @@ interface LineRow {
   version: number
 }
 
-const COLUMNS = `id, kind, description, unit, quantity::text as quantity,
+export const LINE_COLUMNS = `id, kind, description, unit, quantity::text as quantity,
   unit_price_cents::text as unit_price_cents, discount_percent::text as discount_percent,
   vat_rate, position, version,
   round(quantity * unit_price_cents * (100 - discount_percent) / 100)::text as amount_cents`
 
-const toContract = (row: LineRow) => ({
+export const lineToContract = (row: LineRow) => ({
   id: row.id,
   kind: row.kind,
   description: row.description,
@@ -67,7 +67,7 @@ const toContract = (row: LineRow) => ({
 })
 
 const sendLine = (reply: FastifyReply, row: LineRow, status = 200) =>
-  reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row))
+  reply.code(status).header('ETag', `"${row.version}"`).send(lineToContract(row))
 
 function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
@@ -179,7 +179,7 @@ const touch = (client: PoolClient, quoteId: string) =>
 
 async function readLine(client: PoolClient, id: string) {
   const { rows } = await client.query<LineRow>(
-    `select ${COLUMNS} from public.quote_lines where id = $1`,
+    `select ${LINE_COLUMNS} from public.quote_lines where id = $1`,
     [id],
   )
   return rows[0]
@@ -212,10 +212,10 @@ export function quoteLineRoutes(app: FastifyInstance, config: Config, db: Db): v
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const quoteId = await enterQuote(client, request, 'quotes.view')
       const { rows } = await client.query<LineRow>(
-        `select ${COLUMNS} from public.quote_lines where quote_id = $1 order by position, id`,
+        `select ${LINE_COLUMNS} from public.quote_lines where quote_id = $1 order by position, id`,
         [quoteId],
       )
-      return { data: rows.map(toContract) }
+      return { data: rows.map(lineToContract) }
     })
   })
 

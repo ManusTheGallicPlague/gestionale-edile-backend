@@ -15,6 +15,8 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { quotePdf } from '../quotes/pdf.js'
+import { LINE_COLUMNS, lineToContract, type LineRow } from './quote-lines.js'
 
 const STATUSES = ['draft', 'sent', 'accepted', 'rejected', 'expired'] as const
 type Status = (typeof STATUSES)[number]
@@ -298,6 +300,64 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
     })
     if (!row) throw notFound()
     return send(reply, row)
+  })
+
+  app.get<{ Params: Params }>(`${base}/:quote/pdf`, async (request, reply) => {
+    const session = requireSession(request)
+    const pdf = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.view')) throw notFound()
+      const id = request.params.quote ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const row = await readOne(client, id)
+      if (!row) throw notFound()
+      const quote = toContract(row)
+      const { rows: lines } = await client.query<LineRow>(
+        `select ${LINE_COLUMNS} from public.quote_lines where quote_id = $1
+         order by position, id`,
+        [id],
+      )
+      const { rows: parties } = await client.query<{
+        company_name: string
+        name: string
+        vat_number: string | null
+        tax_code: string | null
+        street: string | null
+        postal_code: string | null
+        city: string | null
+        province: string | null
+      }>(
+        `select co.name as company_name, c.name, c.vat_number, c.tax_code, c.street,
+           c.postal_code, c.city, c.province
+         from public.clients c join public.companies co on co.id = c.company_id
+         where c.id = $1`,
+        [row.client_id],
+      )
+      const party = parties[0]
+      if (!party) throw notFound()
+      return {
+        number: quote.number,
+        buffer: quotePdf({
+          company: { name: party.company_name },
+          client: party,
+          number: quote.number,
+          issue_date: quote.issue_date,
+          valid_until: quote.valid_until,
+          validity_days: quote.validity_days,
+          subject: quote.subject,
+          notes: quote.notes,
+          terms: quote.terms,
+          lines: lines.map(lineToContract),
+          totals: quote.totals,
+        }),
+      }
+    })
+    const name = pdf.number ? `preventivo-${pdf.number.replace('/', '-')}` : 'preventivo-bozza'
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${name}.pdf"`)
+      .header('Cache-Control', 'private, no-store')
+      .send(pdf.buffer)
   })
 
   app.post<{ Params: Params }>(base, async (request, reply) => {
