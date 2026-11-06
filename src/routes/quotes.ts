@@ -5,6 +5,7 @@ import type { Db } from '../db.js'
 import { isForeignKeyViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
+import { italianDate, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 import { UUID } from '../deadlines/input.js'
 import {
   ApiError,
@@ -234,6 +235,34 @@ function readList(query: Record<string, unknown>) {
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
+function listFilter(list: ReturnType<typeof readList>) {
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  if (list.status) add((p) => `q.status = ${p}`, list.status)
+  if (list.clientId) add((p) => `q.client_id = ${p}`, list.clientId)
+  if (list.search) {
+    add(
+      (p) =>
+        `(q.subject ilike ${p} or c.name ilike ${p}
+          or (q.number_year::text || '/' || lpad(q.number_seq::text, 3, '0')) ilike ${p})`,
+      `%${escapeLike(list.search)}%`,
+    )
+  }
+  return { where, values }
+}
+
+const STATUS_LABELS: Record<Status, string> = {
+  draft: 'Bozza',
+  sent: 'Inviato',
+  accepted: 'Accettato',
+  rejected: 'Rifiutato',
+  expired: 'Scaduto',
+}
+
 async function readOne(client: PoolClient, id: string) {
   const { rows } = await client.query<QuoteRow>(`${SELECT} where q.id = $1`, [id])
   return rows[0]
@@ -256,22 +285,7 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('quotes.view')) throw forbidden()
-      const where = ['true']
-      const values: unknown[] = []
-      const add = (sql: (p: string) => string, value: unknown) => {
-        values.push(value)
-        where.push(sql(`$${values.length}`))
-      }
-      if (list.status) add((p) => `q.status = ${p}`, list.status)
-      if (list.clientId) add((p) => `q.client_id = ${p}`, list.clientId)
-      if (list.search) {
-        add(
-          (p) =>
-            `(q.subject ilike ${p} or c.name ilike ${p}
-              or (q.number_year::text || '/' || lpad(q.number_seq::text, 3, '0')) ilike ${p})`,
-          `%${escapeLike(list.search)}%`,
-        )
-      }
+      const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
       const { rows } = await client.query<QuoteRow>(
@@ -290,6 +304,57 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('quotes.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<QuoteRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Numero',
+            'Data',
+            'Cliente',
+            'Oggetto',
+            'Stato',
+            'Valido fino al',
+            'Imponibile',
+            'IVA',
+            'Totale',
+          ],
+          rows.map((r) => {
+            const t = totals(r.vat_breakdown)
+            const comma = (amount: string) => amount.replace('.', ',')
+            return [
+              formatNumber(r.number_year, r.number_seq, r.revision),
+              r.issue_date ? italianDate(r.issue_date) : null,
+              r.client_name,
+              r.subject,
+              STATUS_LABELS[r.status],
+              r.valid_until ? italianDate(r.valid_until) : null,
+              comma(t.taxable),
+              comma(t.vat_total),
+              comma(t.total),
+            ]
+          }),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="preventivi.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:quote`, async (request, reply) => {
     const session = requireSession(request)

@@ -1,4 +1,4 @@
-import { MAX_EXPORT_ROWS, toCsv } from '../csv.js'
+import { italianAmount, italianDate, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
@@ -107,9 +107,6 @@ const RECURRENCE_LABELS: Record<string, string> = {
   quarterly: 'Trimestrale',
   yearly: 'Annuale',
 }
-
-/** 2026-11-30 → 30/11/2026, as Italian spreadsheets read dates. */
-const italianDate = (iso: string) => iso.split('-').reverse().join('/')
 
 const send = (reply: FastifyReply, row: DeadlineRow, status = 200) =>
   reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row))
@@ -298,7 +295,7 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
             italianDate(r.due_on),
             r.title,
             KIND_LABELS[r.kind] ?? r.kind,
-            r.amount_cents === null ? null : centsToAmount(r.amount_cents).replace('.', ','),
+            r.amount_cents === null ? null : italianAmount(r.amount_cents),
             r.client_name,
             r.supplier_name,
             r.status === 'done' ? 'Fatta' : 'Aperta',

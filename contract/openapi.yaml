@@ -1114,6 +1114,51 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/estimates/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportEstimates
+      summary: Esportazione dei computi metrici in CSV
+      description: |
+        Permesso: estimates.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti. Una riga per computo,
+        con il totale (importo con la virgola decimale, anche negativo).
+        Il file si chiama computi.csv.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [title, -title, created_at, -created_at, updated_at, -updated_at]
+            default: -updated_at
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/EstimateStatus' }
+              client: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/estimates/{estimate}:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2101,6 +2146,51 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Quote' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/quotes/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportQuotes
+      summary: Esportazione dei preventivi in CSV
+      description: |
+        Permesso: quotes.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti. Una riga per preventivo,
+        con imponibile, IVA e totale (importi con la virgola decimale), date come 30/11/2026.
+        Il file si chiama preventivi.csv.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [number, -number, issue_date, -issue_date, updated_at, -updated_at]
+            default: -updated_at
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/QuoteStatus' }
+              client: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

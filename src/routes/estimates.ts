@@ -5,6 +5,7 @@ import type { Db } from '../db.js'
 import { isForeignKeyViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
+import { italianAmount, italianDate, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 import { UUID } from '../deadlines/input.js'
 import {
   ApiError,
@@ -32,6 +33,8 @@ interface EstimateRow extends EstimateInput {
   id: string
   client_name: string | null
   total_cents: string
+  /** Italian calendar day of the last change, for the export. */
+  updated_on: string
   version: number
   created_at: Date
   updated_at: Date
@@ -41,6 +44,7 @@ type Params = { company: string; estimate?: string }
 
 const SELECT = `select e.id, e.title, e.client_id, e.site_address, e.status, e.notes, e.version,
     e.created_at, e.updated_at, c.name as client_name,
+    (e.updated_at at time zone 'Europe/Rome')::date::text as updated_on,
     (select coalesce(sum(t.amount_cents), 0)::text from public.estimate_item_totals t
      where t.estimate_id = e.id) as total_cents
   from public.estimates e
@@ -168,6 +172,24 @@ function readList(query: Record<string, unknown>) {
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
+function listFilter(list: ReturnType<typeof readList>) {
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  if (list.status) add((p) => `e.status = ${p}`, list.status)
+  if (list.clientId) add((p) => `e.client_id = ${p}`, list.clientId)
+  if (list.search) {
+    add(
+      (p) => `(e.title ilike ${p} or e.site_address ilike ${p} or c.name ilike ${p})`,
+      `%${escapeLike(list.search)}%`,
+    )
+  }
+  return { where, values }
+}
+
 async function readOne(client: PoolClient, id: string) {
   const { rows } = await client.query<EstimateRow>(`${SELECT} where e.id = $1`, [id])
   return rows[0]
@@ -187,20 +209,7 @@ export function estimateRoutes(app: FastifyInstance, config: Config, db: Db): vo
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('estimates.view')) throw forbidden()
-      const where = ['true']
-      const values: unknown[] = []
-      const add = (sql: (p: string) => string, value: unknown) => {
-        values.push(value)
-        where.push(sql(`$${values.length}`))
-      }
-      if (list.status) add((p) => `e.status = ${p}`, list.status)
-      if (list.clientId) add((p) => `e.client_id = ${p}`, list.clientId)
-      if (list.search) {
-        add(
-          (p) => `(e.title ilike ${p} or e.site_address ilike ${p} or c.name ilike ${p})`,
-          `%${escapeLike(list.search)}%`,
-        )
-      }
+      const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
       const { rows } = await client.query<EstimateRow>(
@@ -219,6 +228,49 @@ export function estimateRoutes(app: FastifyInstance, config: Config, db: Db): vo
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('estimates.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<EstimateRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Titolo',
+            'Cliente',
+            'Indirizzo del lavoro',
+            'Stato',
+            'Totale',
+            'Ultima modifica',
+            'Note',
+          ],
+          rows.map((r) => [
+            r.title,
+            r.client_name,
+            r.site_address,
+            r.status === 'final' ? 'Definitivo' : 'Bozza',
+            italianAmount(r.total_cents),
+            italianDate(r.updated_on),
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="computi.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:estimate`, async (request, reply) => {
     const session = requireSession(request)
