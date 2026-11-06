@@ -11,7 +11,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 ### 0. Da sistemare prima di tutto
 - [x] Test instabile degli inviti: la risposta partiva dentro `withIdentity()`, prima del `commit` (inviti e ruoli). Corretto; ora l'hook `onSend` rifiuta con 500, e la transazione torna indietro, ogni risposta inviata dentro una transazione aperta (`test/transaction.test.ts`).
 
-- [ ] Eliminare un'intera azienda non funziona se ha SAL con righe: il vincolo `progress_statement_lines_item_fkey` (migrazione 0036) scatta quando la cascata elimina le voci del computo prima delle righe del SAL. Nessuna rotta elimina aziende, ma va corretto con una migrazione nuova (vincolo `deferrable initially deferred` o simile) e un test.
+- [x] Eliminare un'intera azienda non funzionava se aveva SAL con righe: il vincolo `progress_statement_lines_item_fkey` (migrazione 0036) scattava quando la cascata eliminava le voci del computo prima delle righe del SAL. Corretto con la migrazione 0038 (test in `test/progress-statements.test.ts`).
 
 ### 1. Anagrafiche
 - [x] Accesso, sessioni, CSRF, `/api/me`
@@ -171,6 +171,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: numero dell'ordine (2026/001) dato alla creazione, per azienda e anno della data dell'ordine, sotto un `pg_advisory_xact_lock` dell'azienda; non cambia se cambia la data. Eliminando una bozza il numero resta libero e non si riusa per i successivi solo se non era l'ultimo: per un documento interno i buchi sono accettati.
 - 06/11/2026: importo di riga = quantità × prezzo arrotondato al centesimo (metà in su), totale = somma delle righe arrotondate; al massimo 100 miliardi di euro per riga, così il totale resta un `Amount`.
 - 06/11/2026: stati dell'ordine `draft` → `sent` → `received`, indietro di un passo (`sent` → `draft`, `received` → `sent`), tutti con `purchases.update`; si modifica e si elimina solo la bozza (409 `order_not_draft`), un ordine senza righe non si invia (422 su `lines`). Fornitori e cantieri con ordini non si eliminano (409 `has_documents`).
+- 06/11/2026: i due vincoli che proteggono i SAL (0036) diventano `deferrable initially immediate` (migrazione 0038): nell'uso normale si controllano subito e l'API risponde 409 `has_documents`; un trigger `before delete` su `public.companies` li rimanda alla fine della transazione, così eliminare un'intera azienda funziona.
 - 06/11/2026: corretto il filtro del registro delle modifiche, che rifiutava `filter[entity]=site_document` (presente nel contratto); aggiunta l'entità `purchase_order`.
 
 ## Registro dei giri

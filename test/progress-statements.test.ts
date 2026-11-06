@@ -223,6 +223,24 @@ describe('progress statements', () => {
     expect(after).toMatchObject({ status: 'approved', amount: '42.50' })
   })
 
+  it('does not stop the deletion of a whole company', async () => {
+    const s = await scene()
+    const created = await s.browser.call('POST', s.url, {
+      body: {
+        statement_date: '2026-10-31',
+        notes: null,
+        lines: [{ item_id: s.scavo, quantity: '5' }],
+      },
+    })
+    expect(created.statusCode).toBe(201)
+    await ctx.owner.query('delete from public.companies where id = $1', [s.company.id])
+    const left = await ctx.owner.query(
+      'select 1 from public.progress_statement_lines where company_id = $1',
+      [s.company.id],
+    )
+    expect(left.rowCount).toBe(0)
+  })
+
   it.each([
     ['no date', { statement_date: null }],
     ['a bad date', { statement_date: '2026-13-01' }],
