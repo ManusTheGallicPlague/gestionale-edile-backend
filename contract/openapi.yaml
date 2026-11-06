@@ -1205,6 +1205,50 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/sites/{site}/team:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: getSiteTeam
+      summary: Squadra del cantiere
+      description: |
+        Permesso: sites.view. Senza permesso risponde 404, non 403. Solo nome, cognome,
+        mansione e stato dei dipendenti, senza costi: la vede anche chi non ha employees.view.
+        In ordine di cognome e nome.
+      responses:
+        '200':
+          description: La squadra
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteTeam' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: replaceSiteTeam
+      summary: Modifica della squadra del cantiere
+      description: |
+        Permesso: sites.update. Si invia l'elenco completo dei dipendenti, che sostituisce il
+        precedente (al massimo 200, i doppioni si tolgono). Senza If-Match: il valore è assoluto.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteTeamInput' }
+      responses:
+        '200':
+          description: La squadra aggiornata
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteTeam' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/employees:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -1316,7 +1360,10 @@ paths:
     delete:
       operationId: deleteEmployee
       summary: Eliminazione di un dipendente
-      description: 'Permesso: employees.delete.'
+      description: |
+        Permesso: employees.delete. Solo se non è in nessuna squadra e non ha documenti
+        collegati: altrimenti 409 con code has_documents, e il dipendente va segnato come non
+        attivo.
       security:
         - session: []
           csrf: []
@@ -1329,6 +1376,11 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
+        '409':
+          description: Il dipendente è in una squadra o ha documenti collegati (code has_documents).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
   /api/companies/{company}/vehicles:
@@ -4014,6 +4066,30 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Site' }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    SiteTeamInput:
+      type: object
+      required: [employee_ids]
+      properties:
+        employee_ids:
+          type: array
+          maxItems: 200
+          items: { $ref: '#/components/schemas/Id' }
+    SiteTeamMember:
+      type: object
+      required: [employee_id, first_name, last_name, job_title, active]
+      properties:
+        employee_id: { $ref: '#/components/schemas/Id' }
+        first_name: { type: string }
+        last_name: { type: string }
+        job_title: { type: [string, 'null'] }
+        active: { type: boolean }
+    SiteTeam:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/SiteTeamMember' }
     EmployeeInput:
       type: object
       description: I campi facoltativi si inviano comunque, con null se vuoti.

@@ -382,6 +382,53 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.vehicles')).rejects.toThrow(/permission denied/)
   })
 
+  it('site team: cannot read, write or attach across companies', async () => {
+    const siteB = await owner.query<{ id: string }>(
+      "insert into public.sites (company_id, name) values ($1, 'B') returning id",
+      [companyB.id],
+    )
+    const employeeB = await owner.query<{ id: string }>(
+      "insert into public.employees (company_id, first_name, last_name) values ($1, 'B', 'B') returning id",
+      [companyB.id],
+    )
+    const siteA = await owner.query<{ id: string }>(
+      "insert into public.sites (company_id, name) values ($1, 'A') returning id",
+      [companyA.id],
+    )
+    await owner.query(
+      'insert into public.site_team (company_id, site_id, employee_id) values ($1, $2, $3)',
+      [companyB.id, siteB.rows[0]?.id, employeeB.rows[0]?.id],
+    )
+    const seen = await as(alice.id, companyA.id, (c) => c.query('select * from public.site_team'))
+    expect(seen.rows.filter((r: { company_id: string }) => r.company_id === companyB.id)).toEqual(
+      [],
+    )
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          'insert into public.site_team (company_id, site_id, employee_id) values ($1, $2, $3)',
+          [companyB.id, siteB.rows[0]?.id, employeeB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          'insert into public.site_team (company_id, site_id, employee_id) values ($1, $2, $3)',
+          [companyA.id, siteA.rows[0]?.id, employeeB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const removed = await as(alice.id, companyA.id, (c) =>
+      c.query('delete from public.site_team where company_id = $1', [companyB.id]),
+    )
+    expect(removed.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query('update public.site_team set created_at = now()')),
+    ).rejects.toThrow(/permission denied/)
+    await expect(auth.query('select * from public.site_team')).rejects.toThrow(/permission denied/)
+  })
+
   it('estimate chapters and items: cannot read, write or attach across companies', async () => {
     const estimateB = await owner.query<{ id: string }>(
       "insert into public.estimates (company_id, title) values ($1, 'B') returning id",

@@ -55,6 +55,8 @@ export const messages = {
   siteMissingIfMatch: 'Manca la versione del cantiere: ricarica la pagina e riprova.',
   employeeStale:
     'Il dipendente è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  employeeHasDocuments:
+    'Il dipendente è in una squadra o ha documenti collegati e non si può eliminare: puoi segnarlo come non attivo.',
   employeeMissingIfMatch: 'Manca la versione del dipendente: ricarica la pagina e riprova.',
   vehicleStale:
     'Il mezzo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',

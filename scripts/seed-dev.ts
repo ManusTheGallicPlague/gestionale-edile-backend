@@ -478,6 +478,14 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          ) c on true`,
         [companyId],
       )
+      await client.query(
+        `insert into public.site_team (company_id, site_id, employee_id)
+         select $1, s.id, e.id
+         from public.sites s
+         join public.employees e on e.company_id = s.company_id and e.active
+         where s.company_id = $1 and s.code = '2026-01'`,
+        [companyId],
+      )
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query(
         `insert into public.estimates (company_id, title, client_id, site_address, status)

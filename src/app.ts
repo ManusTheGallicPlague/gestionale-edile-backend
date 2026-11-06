@@ -14,6 +14,7 @@ import { estimateRoutes } from './routes/estimates.js'
 import { siteRoutes } from './routes/sites.js'
 import { employeeRoutes } from './routes/employees.js'
 import { vehicleRoutes } from './routes/vehicles.js'
+import { siteTeamRoutes } from './routes/site-team.js'
 import { estimateStructureRoutes } from './routes/estimate-structure.js'
 import { quoteRoutes } from './routes/quotes.js'
 import { quoteLineRoutes } from './routes/quote-lines.js'
@@ -101,6 +102,7 @@ export function buildApp(
   siteRoutes(app, config, db)
   employeeRoutes(app, config, db)
   vehicleRoutes(app, config, db)
+  siteTeamRoutes(app, config, db)
   estimateStructureRoutes(app, config, db)
   quoteRoutes(app, config, db)
   quoteLineRoutes(app, config, db)
