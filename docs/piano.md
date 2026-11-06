@@ -20,7 +20,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Elenco con intervallo di date (`filter[from]`, `filter[to]`) per il calendario, filtri per tipo, stato e soggetto; ordinamento per data
 - [x] Ricorrenze semplici (mensile, trimestrale, annuale): completare una scadenza ricorrente crea la successiva
 - [x] Riepilogo per la dashboard: scadute, in scadenza nei prossimi 7 e 30 giorni
-- [ ] Le scadenze dei documenti dei fornitori compaiono nello scadenziario
+- [x] Le scadenze dei documenti dei fornitori compaiono nello scadenziario
 
 ### 3. Computo metrico estimativo
 - [ ] Computo: titolo, cliente facoltativo, indirizzo del lavoro, stato, note
@@ -72,12 +72,14 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: una scadenza punta al massimo a un cliente o a un fornitore, con chiave esterna composta `(company_id, id)` e `on delete restrict`; la risposta porta anche `client`/`supplier` con il nome, per l'elenco senza altre chiamate.
 - 06/11/2026: ricorrenza come campo `recurrence` della scadenza (`monthly`, `quarterly`, `yearly` o null). La successiva nasce a `complete`, una volta sola (`next_deadline_id`); riaprire non la cancella. Data successiva = data + intervallo di Postgres: a fine mese si ferma all'ultimo giorno e la catena può scivolare (31/01 → 28/02 → 28/03), scelta semplice accettata.
 - 06/11/2026: riepilogo `GET …/deadlines/summary` con conteggio e somma degli importi per scadute, prossimi 7 e prossimi 30 giorni (cumulativi, oggi compreso), solo scadenze aperte, data italiana. I documenti dei fornitori entreranno con il compito successivo.
+- 06/11/2026: i documenti dei fornitori con scadenza diventano scadenze vere (`supplier_document_id`), tenute allineate dall'API a ogni salvataggio del documento: titolo «DURC – Fornitore», tipo `durc`/`insurance`/`other`; una nuova data di scadenza riapre la scadenza; senza scadenza o con il documento eliminato la scadenza sparisce. Così elenco, calendario e riepilogo li contano senza casi speciali.
 - 06/11/2026: elenco delle scadenze con `per_page` al massimo 100 come gli altri; il calendario mensile chiede `filter[from]`/`filter[to]` e, se servono, più pagine.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 13:43 UTC: documenti dei fornitori nello scadenziario (migrazione 0007). Lo scadenziario (sezione 2) è completo. Niente a metà; prossimo: computo metrico. 179 test.
 - 2026-11-06 13:42 UTC: riepilogo delle scadenze per la dashboard. Niente a metà; prossimo: documenti dei fornitori nello scadenziario. 177 test.
 - 2026-11-06 13:39 UTC: ricorrenze semplici delle scadenze (migrazione 0006, `recurrence`, `next_deadline_id`, test e caso avversario). Niente a metà; prossimo: riepilogo per la dashboard. 174 test.
 - 2026-11-06 13:36 UTC: scadenze (contratto, migrazione 0005, importi in centesimi con `src/money.ts`, elenco per intervallo di date e filtri, complete/reopen, permessi `deadlines.*`, dati di sviluppo, test e caso avversario). Niente a metà; prossimo: ricorrenze. 168 test.

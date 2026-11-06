@@ -1388,7 +1388,15 @@ components:
         - $ref: '#/components/schemas/DeadlineInput'
         - type: object
           required:
-            [id, status, done_at, next_deadline_id, client, supplier, created_at, updated_at]
+            - id
+            - status
+            - done_at
+            - next_deadline_id
+            - supplier_document_id
+            - client
+            - supplier
+            - created_at
+            - updated_at
           properties:
             id: { $ref: '#/components/schemas/Id' }
             amount:
@@ -1398,6 +1406,14 @@ components:
                   pattern: '^\d+\.\d{2}$'
                 - type: 'null'
             status: { $ref: '#/components/schemas/DeadlineStatus' }
+            supplier_document_id:
+              description: |
+                Documento di regolarità del fornitore da cui nasce la scadenza. Il backend la
+                tiene allineata alla data di scadenza del documento (un rinnovo la riapre) e la
+                elimina con il documento: si modifica dal documento, non da qui.
+              oneOf:
+                - $ref: '#/components/schemas/Id'
+                - type: 'null'
             next_deadline_id:
               description: La scadenza creata completando questa, se ricorrente.
               oneOf:

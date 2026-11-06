@@ -28,6 +28,7 @@ interface DeadlineRow extends Omit<DeadlineInput, 'amount_cents'> {
   amount_cents: string | null
   status: 'open' | 'done'
   next_deadline_id: string | null
+  supplier_document_id: string | null
   done_at: Date | null
   client_name: string | null
   supplier_name: string | null
@@ -40,7 +41,8 @@ type Params = { company: string; deadline?: string }
 
 // Dates leave the database as text, never as a JavaScript Date shifted by the time zone.
 const SELECT = `select d.id, d.title, d.due_on::text as due_on, d.kind, d.amount_cents::text as amount_cents,
-    d.client_id, d.supplier_id, d.notes, d.recurrence, d.next_deadline_id, d.status, d.done_at, d.version, d.created_at, d.updated_at,
+    d.client_id, d.supplier_id, d.notes, d.recurrence, d.next_deadline_id,
+    d.supplier_document_id, d.status, d.done_at, d.version, d.created_at, d.updated_at,
     c.name as client_name, s.name as supplier_name
   from public.deadlines d
   left join public.clients c on c.id = d.client_id
@@ -62,6 +64,7 @@ function toContract(row: DeadlineRow) {
     notes: row.notes,
     recurrence: row.recurrence,
     next_deadline_id: row.next_deadline_id,
+    supplier_document_id: row.supplier_document_id,
     status: row.status,
     done_at: row.done_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),

@@ -17,6 +17,8 @@ const ALL: Permission[] = [
   'suppliers.create',
   'suppliers.update',
   'suppliers.delete',
+  'deadlines.view',
+  'deadlines.update',
 ]
 
 function newVat(): string {
@@ -63,6 +65,68 @@ async function scene(permissions: Permission[] = ALL) {
 }
 
 type Doc = { id: string; kind: string; status: string; expires_on: string | null }
+
+describe('documents in the deadline calendar', () => {
+  type Deadline = {
+    id: string
+    title: string
+    due_on: string
+    kind: string
+    status: string
+    supplier_document_id: string | null
+    supplier: { id: string } | null
+  }
+  const deadlinesOf = async (browser: Browser, slug: string) =>
+    (await browser.call('GET', `/api/companies/${slug}/deadlines`)).json<{ data: Deadline[] }>()
+      .data
+
+  it('a document with an expiry gets a deadline that follows it', async () => {
+    const { browser, base, company, supplier } = await scene()
+    const created = await browser.call('POST', base, { body: documentBody() })
+    const docId = created.json<Doc>().id
+    let [deadline] = await deadlinesOf(browser, company.slug)
+    expect(deadline).toMatchObject({
+      title: 'DURC – Sub',
+      due_on: day(110),
+      kind: 'durc',
+      status: 'open',
+      supplier_document_id: docId,
+      supplier: { id: supplier },
+    })
+
+    // Done, then the DURC is renewed: the deadline moves and opens again.
+    const deadlines = `/api/companies/${company.slug}/deadlines`
+    await browser.call('POST', `${deadlines}/${deadline?.id}/complete`, {
+      headers: { 'if-match': '"1"' },
+    })
+    await browser.call('PUT', `${base}/${docId}`, {
+      body: documentBody({ expires_on: day(230) }),
+      headers: { 'if-match': '"1"' },
+    })
+    ;[deadline] = await deadlinesOf(browser, company.slug)
+    expect(deadline).toMatchObject({ due_on: day(230), status: 'open' })
+
+    // No expiry any more: no deadline.
+    await browser.call('PUT', `${base}/${docId}`, {
+      body: documentBody({ expires_on: null }),
+      headers: { 'if-match': '"2"' },
+    })
+    expect(await deadlinesOf(browser, company.slug)).toEqual([])
+  })
+
+  it('deleting the document deletes its deadline', async () => {
+    const { browser, base, company } = await scene()
+    const created = await browser.call('POST', base, {
+      body: documentBody({ kind: 'other', description: 'Patente a crediti' }),
+    })
+    const [deadline] = await deadlinesOf(browser, company.slug)
+    expect(deadline).toMatchObject({ title: 'Patente a crediti – Sub', kind: 'other' })
+    await browser.call('DELETE', `${base}/${created.json<Doc>().id}`, {
+      headers: { 'if-match': '"1"' },
+    })
+    expect(await deadlinesOf(browser, company.slug)).toEqual([])
+  })
+})
 
 describe('supplier documents', () => {
   it('registers documents and computes their status from today', async () => {

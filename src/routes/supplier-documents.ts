@@ -75,6 +75,51 @@ async function missingOrStale(client: PoolClient, id: string, supplierId: string
   throw new ApiError(412, messages.documentStale, 'stale_record')
 }
 
+const KIND_LABEL = {
+  durc: 'DURC',
+  chamber_extract: 'Visura camerale',
+  insurance: 'Assicurazione',
+  other: 'Documento',
+} as const
+
+/**
+ * Keeps the document's deadline in step: one open deadline on the expiry date, linked to the
+ * supplier; none when the document does not expire. A new expiry date (a renewal) reopens it.
+ */
+async function syncDeadline(client: PoolClient, documentId: string): Promise<void> {
+  await client.query(
+    `delete from public.deadlines d using public.supplier_documents sd
+     where d.supplier_document_id = sd.id and sd.id = $1 and sd.expires_on is null`,
+    [documentId],
+  )
+  await client.query(
+    `insert into public.deadlines (company_id, title, due_on, kind, supplier_id, supplier_document_id)
+     select sd.company_id,
+       left(coalesce(sd.description, case sd.kind
+         when 'durc' then $2 when 'chamber_extract' then $3 when 'insurance' then $4 else $5 end)
+         || ' – ' || s.name, 200),
+       sd.expires_on,
+       case when sd.kind in ('durc', 'insurance') then sd.kind else 'other' end,
+       sd.supplier_id, sd.id
+     from public.supplier_documents sd
+     join public.suppliers s on s.id = sd.supplier_id
+     where sd.id = $1 and sd.expires_on is not null
+     on conflict (supplier_document_id) do update set
+       title = excluded.title, kind = excluded.kind,
+       status = case when deadlines.due_on = excluded.due_on then deadlines.status else 'open' end,
+       done_at = case when deadlines.due_on = excluded.due_on then deadlines.done_at end,
+       due_on = excluded.due_on,
+       version = deadlines.version + 1, updated_at = now()`,
+    [
+      documentId,
+      KIND_LABEL.durc,
+      KIND_LABEL.chamber_extract,
+      KIND_LABEL.insurance,
+      KIND_LABEL.other,
+    ],
+  )
+}
+
 export function supplierDocumentRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/suppliers/:supplier/documents'
 
@@ -110,6 +155,7 @@ export function supplierDocumentRoutes(app: FastifyInstance, config: Config, db:
          returning ${COLUMNS}`,
         values,
       )
+      if (rows[0]) await syncDeadline(client, rows[0].id)
       return rows[0]
     })
     if (!row) throw new Error('insert returned no row')
@@ -139,7 +185,9 @@ export function supplierDocumentRoutes(app: FastifyInstance, config: Config, db:
          returning ${COLUMNS}`,
         values,
       )
-      return rows[0] ?? missingOrStale(client, id, supplierId)
+      if (!rows[0]) return missingOrStale(client, id, supplierId)
+      await syncDeadline(client, id)
+      return rows[0]
     })
     return send(reply, row)
   })

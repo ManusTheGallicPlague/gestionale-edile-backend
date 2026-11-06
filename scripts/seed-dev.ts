@@ -308,6 +308,19 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          order by s.created_at limit 1`,
         [companyId],
       )
+      // The suppliers' documents in the calendar, as the API does when they are saved.
+      await client.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, supplier_id,
+           supplier_document_id)
+         select sd.company_id,
+           case sd.kind when 'durc' then 'DURC' when 'insurance' then 'Assicurazione'
+             else 'Visura camerale' end || ' – ' || s.name,
+           sd.expires_on, case when sd.kind in ('durc', 'insurance') then sd.kind else 'other' end,
+           sd.supplier_id, sd.id
+         from public.supplier_documents sd join public.suppliers s on s.id = sd.supplier_id
+         where sd.company_id = $1 and sd.expires_on is not null`,
+        [companyId],
+      )
     }
 
     const passwordHash = await hashPassword(DEV_PASSWORD)
