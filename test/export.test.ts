@@ -74,3 +74,40 @@ describe('clients export', () => {
     expect((await s.call('GET', url)).statusCode).toBe(404)
   })
 })
+
+describe('suppliers export', () => {
+  it('exports the filtered suppliers, with categories and subcontractor flag', async () => {
+    const { company, user } = await fx.companyWithUser(['suppliers.view'])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    await ctx.owner.query(
+      `insert into public.suppliers (company_id, name, categories, subcontractor)
+       values ($1, 'Noli Rossi', '{rentals,materials}', false),
+              ($1, 'Impianti Neri', '{subcontracting}', true)`,
+      [company.id],
+    )
+    const other = await fx.company()
+    await ctx.owner.query(
+      "insert into public.suppliers (company_id, name) values ($1, 'Fornitore altrui')",
+      [other.id],
+    )
+    const url = `/api/companies/${company.slug}/suppliers/export`
+    const res = await browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe('attachment; filename="fornitori.csv"')
+    const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(lines).toHaveLength(3)
+    expect(lines[1]).toMatch(/^Impianti Neri;.*;Subappalto;Sì;$/)
+    expect(lines[2]).toMatch(/^Noli Rossi;.*;Noli, Materiali;No;$/)
+    expect(res.body).not.toContain('Fornitore altrui')
+    const subs = await browser.call('GET', `${url}?filter[subcontractor]=true`)
+    expect(subs.body.trim().split('\r\n')).toHaveLength(2)
+
+    const blind = await fx.companyWithUser(['clients.view'])
+    const b = new Browser(ctx.app)
+    await b.signIn(blind.user.email)
+    const forbidden = await b.call('GET', `/api/companies/${blind.company.slug}/suppliers/export`)
+    expect(forbidden.statusCode).toBe(403)
+    expect((await b.call('GET', url)).statusCode).toBe(404)
+  })
+})

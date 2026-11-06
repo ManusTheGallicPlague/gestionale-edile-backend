@@ -516,6 +516,53 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/suppliers/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportSuppliers
+      summary: Esportazione dei fornitori in CSV
+      description: |
+        Permesso: suppliers.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti. Le categorie sono in
+        una sola colonna, separate da virgole. Il file si chiama fornitori.csv.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, -name, created_at, -created_at]
+            default: name
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              category: { $ref: '#/components/schemas/SupplierCategory' }
+              subcontractor: { type: boolean }
+              archived:
+                type: boolean
+                default: false
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/suppliers/{supplier}:
     parameters:
       - $ref: '#/components/parameters/Company'

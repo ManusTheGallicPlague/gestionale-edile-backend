@@ -1,3 +1,4 @@
+import { MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
@@ -131,6 +132,36 @@ function readList(query: Record<string, unknown>) {
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
+function listFilter(list: ReturnType<typeof readList>) {
+  const where = [list.archived ? 'archived_at is not null' : 'archived_at is null']
+  const values: unknown[] = []
+  if (list.category) {
+    values.push(list.category)
+    where.push(`$${values.length} = any (categories)`)
+  }
+  if (list.subcontractor !== undefined) {
+    values.push(list.subcontractor)
+    where.push(`subcontractor = $${values.length}`)
+  }
+  if (list.search) {
+    values.push(`%${escapeLike(list.search)}%`)
+    const p = `$${values.length}`
+    where.push(
+      `(name ilike ${p} or vat_number ilike ${p} or tax_code ilike ${p}` +
+        ` or email ilike ${p} or city ilike ${p})`,
+    )
+  }
+  return { where, values }
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  materials: 'Materiali',
+  rentals: 'Noli',
+  subcontracting: 'Subappalto',
+  services: 'Servizi',
+  other: 'Altro',
+}
+
 function sendSupplier(reply: FastifyReply, row: SupplierRow, status = 200) {
   return reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row))
 }
@@ -145,24 +176,7 @@ export function supplierRoutes(app: FastifyInstance, config: Config, db: Db): vo
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('suppliers.view')) throw forbidden()
 
-      const where = [list.archived ? 'archived_at is not null' : 'archived_at is null']
-      const values: unknown[] = []
-      if (list.category) {
-        values.push(list.category)
-        where.push(`$${values.length} = any (categories)`)
-      }
-      if (list.subcontractor !== undefined) {
-        values.push(list.subcontractor)
-        where.push(`subcontractor = $${values.length}`)
-      }
-      if (list.search) {
-        values.push(`%${escapeLike(list.search)}%`)
-        const p = `$${values.length}`
-        where.push(
-          `(name ilike ${p} or vat_number ilike ${p} or tax_code ilike ${p}` +
-            ` or email ilike ${p} or city ilike ${p})`,
-        )
-      }
+      const { where, values } = listFilter(list)
       values.push(list.perPage, (list.page - 1) * list.perPage)
       const { rows } = await client.query<SupplierRow & { total: number }>(
         `select ${COLUMNS}, count(*) over ()::int as total
@@ -186,6 +200,65 @@ export function supplierRoutes(app: FastifyInstance, config: Config, db: Db): vo
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('suppliers.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<SupplierRow>(
+          `select ${COLUMNS} from public.suppliers
+           where ${where.join(' and ')}
+           order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Nome',
+            'Partita IVA',
+            'Codice fiscale',
+            'Email',
+            'PEC',
+            'Telefono',
+            'Indirizzo',
+            'CAP',
+            'Città',
+            'Provincia',
+            'Paese',
+            'Categorie',
+            'Subappaltatore',
+            'Note',
+          ],
+          rows.map((r) => [
+            r.name,
+            r.vat_number,
+            r.tax_code,
+            r.email,
+            r.pec,
+            r.phone,
+            r.street,
+            r.postal_code,
+            r.city,
+            r.province,
+            r.country,
+            r.categories.map((c) => CATEGORY_LABELS[c] ?? c).join(', '),
+            r.subcontractor ? 'Sì' : 'No',
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="fornitori.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:supplier`, async (request, reply) => {
     const session = requireSession(request)
