@@ -1368,6 +1368,36 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/daily-reports/today:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: getTodayDailyReport
+      summary: Rapportino del giorno di un cantiere, per il telefono
+      description: |
+        Permesso: reports.view. Il rapportino del cantiere in quel giorno, se c'è; altrimenti
+        una proposta da inviare a createDailyReport, con la squadra del cantiere a 8 ore.
+        Senza date vale oggi, nel calendario italiano. Con i dipendenti e i mezzi attivi da
+        scegliere (solo nomi, niente costi), anche per chi non ha employees.view o vehicles.view.
+      parameters:
+        - name: site
+          in: query
+          required: true
+          schema: { $ref: '#/components/schemas/Id' }
+        - name: date
+          in: query
+          schema: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Il rapportino del giorno o la proposta
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyReportToday' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/daily-reports/{report}:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -4580,6 +4610,45 @@ components:
                   plate: { type: [string, 'null'] }
                   hours: { $ref: '#/components/schemas/Hours' }
                   description: { type: [string, 'null'] }
+    DailyReportToday:
+      type: object
+      required: [date, site, report, proposal, employees, vehicles]
+      properties:
+        date: { $ref: '#/components/schemas/Date' }
+        site:
+          type: object
+          required: [id, name, code]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            name: { type: string }
+            code: { type: [string, 'null'] }
+        report:
+          description: Il rapportino già scritto per quel giorno, oppure null.
+          oneOf:
+            - $ref: '#/components/schemas/DailyReport'
+            - type: 'null'
+        proposal: { $ref: '#/components/schemas/DailyReportInput' }
+        employees:
+          type: array
+          description: Dipendenti attivi, per cognome e nome; in_team se sono nella squadra.
+          items:
+            type: object
+            required: [id, first_name, last_name, in_team]
+            properties:
+              id: { $ref: '#/components/schemas/Id' }
+              first_name: { type: string }
+              last_name: { type: string }
+              in_team: { type: boolean }
+        vehicles:
+          type: array
+          description: Mezzi attivi, per nome.
+          items:
+            type: object
+            required: [id, name, plate]
+            properties:
+              id: { $ref: '#/components/schemas/Id' }
+              name: { type: string }
+              plate: { type: [string, 'null'] }
     DailyReportList:
       type: object
       required: [data, meta]

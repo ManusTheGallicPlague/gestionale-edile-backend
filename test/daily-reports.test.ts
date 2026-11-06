@@ -283,4 +283,68 @@ describe('daily reports', () => {
       ).statusCode,
     ).toBe(403)
   })
+
+  it('today: proposes the team for a new report, or returns the existing one', async () => {
+    const s = await scene(['reports.view'])
+    await ctx.owner.query(
+      'insert into public.site_team (company_id, site_id, employee_id) values ($1, $2, $3)',
+      [s.company.id, s.site, s.bassi],
+    )
+    await ctx.owner.query(
+      `insert into public.employees (company_id, first_name, last_name, active)
+       values ($1, 'Ex', 'Dipendente', false)`,
+      [s.company.id],
+    )
+    const today = `${s.base}/today`
+    type Today = {
+      date: string
+      report: Report | null
+      proposal: { labor: { employee_id: string; hours: string }[]; date: string }
+      employees: { id: string; last_name: string; in_team: boolean }[]
+      vehicles: { id: string }[]
+    }
+    const res = await s.browser.call('GET', `${today}?site=${s.site}&date=2026-11-05`)
+    expect(res.statusCode).toBe(200)
+    const fresh = res.json<Today>()
+    expect(fresh.report).toBeNull()
+    expect(fresh.proposal).toMatchObject({ date: '2026-11-05', site_id: s.site, vehicles: [] })
+    expect(fresh.proposal.labor).toEqual([
+      { employee_id: s.bassi, hours: '8.00', description: null },
+    ])
+    expect(fresh.employees.map((e) => [e.last_name, e.in_team])).toEqual([
+      ['Bassi', true],
+      ['Verdi', false],
+    ])
+    expect(fresh.vehicles.map((v) => v.id)).toEqual([s.digger])
+    expect(JSON.stringify(fresh)).not.toContain('cost')
+
+    const writer = new Browser(ctx.app)
+    const role = await fx.role(s.company.id, 'Scrive', ['reports.view', 'reports.create'])
+    const author = await fx.user()
+    await fx.member(author.id, s.company.id, role)
+    await writer.signIn(author.email)
+    const created = await writer.call('POST', s.base, { body: body(s) })
+    expect(created.statusCode).toBe(201)
+    const again = await s.browser.call('GET', `${today}?site=${s.site}&date=2026-11-05`)
+    expect(again.json<Today>().report?.id).toBe(created.json<Report>().id)
+
+    const now = await s.browser.call('GET', `${today}?site=${s.site}`)
+    expect(now.json<Today>().date).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    expect((await s.browser.call('GET', today)).statusCode).toBe(422)
+    expect((await s.browser.call('GET', `${today}?site=${s.site}&date=ieri`)).statusCode).toBe(422)
+    const foreign = await scene()
+    expect((await s.browser.call('GET', `${today}?site=${foreign.site}`)).statusCode).toBe(404)
+    expect(
+      (
+        await foreign.browser.call(
+          'GET',
+          `${s.base.replace(s.company.slug, foreign.company.slug)}/today?site=${s.site}`,
+        )
+      ).statusCode,
+    ).toBe(404)
+    const none = await scene(['clients.view'])
+    expect(
+      (await none.browser.call('GET', `${none.base}/today?site=${none.site}`)).statusCode,
+    ).toBe(403)
+  })
 })

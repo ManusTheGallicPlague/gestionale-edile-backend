@@ -532,3 +532,93 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
     return reply.code(204).send()
   })
 }
+
+interface OptionRow {
+  id: string
+  first_name?: string
+  last_name?: string
+  name?: string
+  plate?: string | null
+  in_team?: boolean
+}
+
+/** Hours proposed for each team member in a new report: a standard working day. */
+export const STANDARD_DAY_HOURS = '8.00'
+
+export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/daily-reports/today',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const errors: FieldErrors = {}
+      const siteId = request.query.site
+      if (typeof siteId !== 'string' || !UUID.test(siteId)) errors.site = ['Scegli il cantiere.']
+      const day = request.query.date
+      if (day !== undefined && (typeof day !== 'string' || !isIsoDate(day))) {
+        errors.date = ['Data non valida (AAAA-MM-GG).']
+      }
+      if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+      const body = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('reports.view')) throw forbidden()
+        const site = await client.query<{ id: string; name: string; code: string | null }>(
+          'select id, name, code from public.sites where id = $1',
+          [siteId],
+        )
+        const siteRow = site.rows[0]
+        if (!siteRow) throw notFound()
+        // "Today" is the Italian calendar day, whatever the server's time zone.
+        const { rows: dates } = await client.query<{ date: string }>(
+          `select coalesce($1::date, (now() at time zone 'Europe/Rome')::date)::text as date`,
+          [typeof day === 'string' ? day : null],
+        )
+        const date = dates[0]?.date ?? ''
+        const existing = await client.query<{ id: string }>(
+          'select id from public.daily_reports where site_id = $1 and report_date = $2',
+          [siteRow.id, date],
+        )
+        const report = existing.rows[0] ? await readOne(client, existing.rows[0].id) : undefined
+        const employees = await client.query<OptionRow>(
+          `select e.id, e.first_name, e.last_name,
+             exists (select 1 from public.site_team t
+                     where t.site_id = $1 and t.employee_id = e.id) as in_team
+           from public.employees e where e.active
+           order by lower(e.last_name), lower(e.first_name), e.id`,
+          [siteRow.id],
+        )
+        const vehicles = await client.query<OptionRow>(
+          `select id, name, plate from public.vehicles where active
+           order by lower(name), id`,
+        )
+        return {
+          date,
+          site: siteRow,
+          report: report ? toContract(report) : null,
+          proposal: {
+            site_id: siteRow.id,
+            date,
+            weather: null,
+            work_done: null,
+            notes: null,
+            labor: employees.rows
+              .filter((e) => e.in_team)
+              .map((e) => ({ employee_id: e.id, hours: STANDARD_DAY_HOURS, description: null })),
+            vehicles: [],
+          },
+          employees: employees.rows.map((e) => ({
+            id: e.id,
+            first_name: e.first_name ?? '',
+            last_name: e.last_name ?? '',
+            in_team: e.in_team ?? false,
+          })),
+          vehicles: vehicles.rows.map((v) => ({
+            id: v.id,
+            name: v.name ?? '',
+            plate: v.plate ?? null,
+          })),
+        }
+      })
+      return reply.send(body)
+    },
+  )
+}
