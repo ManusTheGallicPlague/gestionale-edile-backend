@@ -686,6 +686,71 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('warehouse items and movements: cannot read, write or attach across companies', async () => {
+    const itemOf = async (companyId: string) =>
+      (
+        await owner.query<{ id: string }>(
+          "insert into public.warehouse_items (company_id, name, unit) values ($1, 'Sabbia', 'm³') returning id",
+          [companyId],
+        )
+      ).rows[0]?.id
+    const itemA = await itemOf(companyA.id)
+    const itemB = await itemOf(companyB.id)
+    const siteB = (
+      await owner.query<{ id: string }>(
+        "insert into public.sites (company_id, name) values ($1, 'Magazzino B') returning id",
+        [companyB.id],
+      )
+    ).rows[0]?.id
+    const movementB = (
+      await owner.query<{ id: string }>(
+        `insert into public.warehouse_movements (company_id, item_id, movement_date, kind, quantity)
+         values ($1, $2, '2026-11-02', 'in', 5) returning id`,
+        [companyB.id, itemB],
+      )
+    ).rows[0]?.id
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const i = await c.query('select * from public.warehouse_items where company_id = $1', [
+        companyB.id,
+      ])
+      const m = await c.query('select * from public.warehouse_movements where company_id = $1', [
+        companyB.id,
+      ])
+      return i.rowCount! + m.rowCount!
+    })
+    expect(seen).toBe(0)
+    const insert = (companyId: string, itemId: unknown, siteId: unknown = null) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
+             quantity, site_id) values ($1, $2, '2026-11-02', 'out', 1, $3)`,
+          [companyId, itemId, siteId],
+        ),
+      )
+    await expect(insert(companyB.id, itemB)).rejects.toThrow(/row-level security/)
+    await expect(insert(companyA.id, itemB)).rejects.toThrow(/foreign key/)
+    await expect(insert(companyA.id, itemA, siteB)).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.warehouse_items set name = 'x' where id = $1", [itemB])
+      const m = await c.query('delete from public.warehouse_movements where id = $1', [movementB])
+      const d = await c.query('delete from public.warehouse_items where id = $1', [itemB])
+      return u.rowCount! + m.rowCount! + d.rowCount!
+    })
+    expect(changed).toBe(0)
+    // Movements never change.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query('update public.warehouse_movements set quantity = 2 where item_id = $1', [itemA]),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    await expect(auth.query('select * from public.warehouse_items')).rejects.toThrow(
+      /permission denied/,
+    )
+    await expect(auth.query('select * from public.warehouse_movements')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('site activities and their dependencies: cannot read, write or attach across companies', async () => {
     const siteOf = async (companyId: string) =>
       (

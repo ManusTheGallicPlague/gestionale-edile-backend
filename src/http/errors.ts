@@ -84,6 +84,10 @@ export const messages = {
   orderMissingIfMatch: 'Manca la versione dell’ordine: ricarica la pagina e riprova.',
   orderNotDraft:
     'L’ordine è già stato inviato al fornitore e non si modifica più: va prima riportato in bozza.',
+  warehouseItemStale:
+    'L’articolo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  warehouseItemMissingIfMatch: 'Manca la versione dell’articolo: ricarica la pagina e riprova.',
+  warehouseItemHasMovements: 'L’articolo ha dei movimenti di magazzino e non si può eliminare.',
   orderInvalidTransition: 'Questo cambio di stato dell’ordine non è ammesso.',
   employeeStale:
     'Il dipendente è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',

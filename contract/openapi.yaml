@@ -1848,6 +1848,208 @@ paths:
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/warehouse/items:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listWarehouseItems
+      summary: Articoli di magazzino con la giacenza
+      description: |
+        Permesso: warehouse.view. La ricerca guarda codice e nome. La giacenza è la somma dei
+        carichi meno quella degli scarichi, e può essere negativa se manca un carico.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [name, -name, code, -code, stock, -stock]
+            default: name
+      responses:
+        '200':
+          description: Una pagina di articoli
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WarehouseItemList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createWarehouseItem
+      summary: Nuovo articolo di magazzino
+      description: 'Permesso: warehouse.create. Il codice, se c''è, è unico nell''azienda (422 su code).'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WarehouseItemInput' }
+      responses:
+        '201':
+          description: Articolo creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WarehouseItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/warehouse/items/{item}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/WarehouseItemId'
+    get:
+      operationId: getWarehouseItem
+      summary: Un articolo di magazzino
+      description: 'Permesso: warehouse.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: L'articolo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WarehouseItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateWarehouseItem
+      summary: Modifica di un articolo
+      description: 'Permesso: warehouse.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WarehouseItemInput' }
+      responses:
+        '200':
+          description: Articolo aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WarehouseItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteWarehouseItem
+      summary: Eliminazione di un articolo senza movimenti
+      description: 'Permesso: warehouse.delete. Con movimenti risponde 409 con code has_documents.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Articolo eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: L'articolo ha movimenti (code has_documents).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/warehouse/movements:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listWarehouseMovements
+      summary: Movimenti di magazzino
+      description: 'Permesso: warehouse.view. Dal più recente.'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[item]=<id>, filter[site]=<id>, filter[kind]=out,
+            filter[from]=2026-11-01 e filter[to]=2026-11-30.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              item: { $ref: '#/components/schemas/Id' }
+              site: { $ref: '#/components/schemas/Id' }
+              kind: { $ref: '#/components/schemas/WarehouseMovementKind' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Una pagina di movimenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WarehouseMovementList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createWarehouseMovement
+      summary: Carico o scarico di un articolo
+      description: |
+        Permesso: warehouse.create. Un movimento non si modifica: si elimina e se ne registra un
+        altro. Lo scarico verso un cantiere indica site_id.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/WarehouseMovementInput' }
+      responses:
+        '201':
+          description: Movimento registrato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WarehouseMovement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/warehouse/movements/{movement}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/WarehouseMovementId'
+    delete:
+      operationId: deleteWarehouseMovement
+      summary: Eliminazione di un movimento
+      description: 'Permesso: warehouse.delete. Il movimento non cambia mai, quindi niente If-Match.'
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Movimento eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/sites/{site}/cost-summary:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -4569,6 +4771,16 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    WarehouseItemId:
+      name: item
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    WarehouseMovementId:
+      name: movement
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     PurchaseOrderId:
       name: order
       in: path
@@ -5038,6 +5250,10 @@ components:
         - purchases.create
         - purchases.update
         - purchases.delete
+        - warehouse.view
+        - warehouse.create
+        - warehouse.update
+        - warehouse.delete
         - quotes.view
         - quotes.create
         - quotes.update
@@ -5153,7 +5369,7 @@ components:
         client: cliente. supplier: fornitore. deadline: scadenza. estimate: computo metrico.
         quote: preventivo. site: cantiere. employee: dipendente. vehicle: mezzo.
         daily_report: rapportino. site_cost: costo. site_document: documento o foto del cantiere.
-        purchase_order: ordine a un fornitore.
+        purchase_order: ordine a un fornitore. warehouse_item: articolo di magazzino.
       enum:
         [
           client,
@@ -5168,6 +5384,7 @@ components:
           site_cost,
           site_document,
           purchase_order,
+          warehouse_item,
         ]
     AuditEntry:
       type: object
@@ -6022,6 +6239,110 @@ components:
           items: { $ref: '#/components/schemas/PurchaseOrderSummary' }
         meta: { $ref: '#/components/schemas/ListMeta' }
         total_amount: { $ref: '#/components/schemas/Amount' }
+    WarehouseItemInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [code, name, unit, notes]
+      properties:
+        code:
+          type: [string, 'null']
+          maxLength: 50
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 20
+          examples: ['sacchi']
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    WarehouseItem:
+      allOf:
+        - $ref: '#/components/schemas/WarehouseItemInput'
+        - type: object
+          required: [id, stock, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            stock: { $ref: '#/components/schemas/Quantity' }
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    WarehouseItemList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/WarehouseItem' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    WarehouseMovementKind:
+      type: string
+      description: 'in: carico. out: scarico.'
+      enum: [in, out]
+    WarehouseMovementInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [item_id, date, kind, quantity, site_id, notes]
+      properties:
+        item_id: { $ref: '#/components/schemas/Id' }
+        date: { $ref: '#/components/schemas/Date' }
+        kind: { $ref: '#/components/schemas/WarehouseMovementKind' }
+        quantity:
+          description: Quantità maggiore di zero, nell'unità dell'articolo.
+          allOf:
+            - $ref: '#/components/schemas/Quantity'
+        site_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    WarehouseMovement:
+      allOf:
+        - $ref: '#/components/schemas/WarehouseMovementInput'
+        - type: object
+          required: [id, item, site, created_by, created_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            item:
+              type: object
+              required: [id, code, name, unit]
+              properties:
+                id: { $ref: '#/components/schemas/Id' }
+                code: { type: [string, 'null'] }
+                name: { type: string }
+                unit: { type: string }
+            site:
+              oneOf:
+                - type: object
+                  required: [id, name, code]
+                  properties:
+                    id: { $ref: '#/components/schemas/Id' }
+                    name: { type: string }
+                    code: { type: [string, 'null'] }
+                - type: 'null'
+            created_by:
+              oneOf:
+                - $ref: '#/components/schemas/UserRef'
+                - type: 'null'
+            created_at:
+              type: string
+              format: date-time
+    WarehouseMovementList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/WarehouseMovement' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
     SiteCostSummary:
       type: object
       required:

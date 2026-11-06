@@ -63,6 +63,10 @@ const ALL = [
   'purchases.create',
   'purchases.update',
   'purchases.delete',
+  'warehouse.view',
+  'warehouse.create',
+  'warehouse.update',
+  'warehouse.delete',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -96,6 +100,9 @@ const ROLES: Record<string, string[]> = {
     'reports.update',
     'documents.view',
     'documents.create',
+    // Takes material to the site from the phone.
+    'warehouse.view',
+    'warehouse.create',
   ],
   // The site manager does not see quotes: prices and margins stay with the office.
 }
@@ -300,6 +307,11 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       // Daily reports point to sites, employees and vehicles: they go first.
       await client.query('delete from public.daily_reports where company_id = $1', [companyId])
       await client.query('delete from public.site_costs where company_id = $1', [companyId])
+      // Warehouse movements point to sites: they go first, then the items.
+      await client.query('delete from public.warehouse_movements where company_id = $1', [
+        companyId,
+      ])
+      await client.query('delete from public.warehouse_items where company_id = $1', [companyId])
       // Purchase orders point to sites and suppliers: they go first.
       await client.query('delete from public.purchase_orders where company_id = $1', [companyId])
       await client.query('delete from public.site_documents where company_id = $1', [companyId])
@@ -634,6 +646,28 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
           ],
         )
       }
+      // A few warehouse items: loaded on 2 November, part taken to the first site.
+      await client.query(
+        `with i as (
+           insert into public.warehouse_items (company_id, code, name, unit)
+           values ($1, 'CEM-325', 'Cemento 32.5 in sacchi da 25 kg', 'sacchi'),
+             ($1, 'SAB-02', 'Sabbia lavata 0-2 mm', 'm³'),
+             ($1, 'TAV-50', 'Tavole da ponte 4 m', 'pz')
+           returning id, code
+         )
+         insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
+           quantity, site_id)
+         select $1, i.id, m.day::date, m.kind, m.quantity::numeric,
+           case when m.kind = 'out' then (select s.id from public.sites s
+             where s.company_id = $1 and s.code = '2026-01') end
+         from i join (values
+           ('CEM-325', '2026-11-02', 'in', '200'),
+           ('CEM-325', '2026-11-04', 'out', '40'),
+           ('SAB-02', '2026-11-02', 'in', '12'),
+           ('TAV-50', '2026-11-02', 'in', '60')
+         ) as m (code, day, kind, quantity) on m.code = i.code`,
+        [companyId],
+      )
       // A document and a photo on the first site, so the archive is not empty.
       for (const file of DEV_FILES) {
         await client.query(
