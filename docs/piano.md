@@ -11,6 +11,8 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 ### 0. Da sistemare prima di tutto
 - [x] Test instabile degli inviti: la risposta partiva dentro `withIdentity()`, prima del `commit` (inviti e ruoli). Corretto; ora l'hook `onSend` rifiuta con 500, e la transazione torna indietro, ogni risposta inviata dentro una transazione aperta (`test/transaction.test.ts`).
 
+- [ ] Eliminare un'intera azienda non funziona se ha SAL con righe: il vincolo `progress_statement_lines_item_fkey` (migrazione 0036) scatta quando la cascata elimina le voci del computo prima delle righe del SAL. Nessuna rotta elimina aziende, ma va corretto con una migrazione nuova (vincolo `deferrable initially deferred` o simile) e un test.
+
 ### 1. Anagrafiche
 - [x] Accesso, sessioni, CSRF, `/api/me`
 - [x] Clienti: elenco, scheda, creazione, modifica
@@ -77,7 +79,7 @@ Aggiunta il 06/11/2026, quando le sezioni 1-6 erano finite. Percorsi del fronten
 ### 8. Fase 3 (amministrazione di `docs/frontend.md`)
 Aggiunta il 06/11/2026, quando la sezione 7 era finita. Percorsi del frontend: `/:azienda/acquisti`, `/:azienda/magazzino`, `/:azienda/fatture`. Il frontend non dà altri dettagli: si parte dal minimo comune di un gestionale edile.
 
-- [ ] Acquisti: ordini ai fornitori (fornitore, cantiere facoltativo, data, righe con descrizione, unità, quantità e prezzo, stato bozza/inviato/ricevuto), elenco con filtri
+- [x] Acquisti: ordini ai fornitori (fornitore, cantiere facoltativo, data, righe con descrizione, unità, quantità e prezzo, stato bozza/inviato/ricevuto), elenco con filtri
 - [ ] Magazzino: articoli con unità e giacenza, movimenti di carico e scarico (anche verso un cantiere), carico dagli ordini ricevuti
 - [ ] Fatture: registro delle fatture emesse e ricevute (numero, data, cliente o fornitore, cantiere, imponibile, IVA, totale, scadenza di pagamento che alimenta lo scadenziario, stato pagata); niente invio allo SDI
 
@@ -165,6 +167,11 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: SAL come `progress_statements` del computo (migrazione 0035), numerati 1, 2, 3… e al massimo uno in bozza per computo (409 `statement_draft_exists`); le righe hanno la quantità eseguita in quel SAL (negativa per correggere) e il prezzo copiato dalla voce, che nel SAL approvato non cambia più. Importi riga per riga arrotondati al centesimo, precedenti e progressivi sommati. Nuovo permesso `estimates.approve` (Titolare e Ufficio) per approvare; creare, modificare ed eliminare la bozza vuole `estimates.update`. Le righe del dettaglio sono solo le voci con quantità in questo SAL o nei precedenti: il resto del computo il frontend lo prende dalla struttura. Il SAL non richiede che il computo sia legato a un cantiere.
 - 06/11/2026: una voce con righe in un SAL, anche in bozza, non si elimina, e nemmeno il capitolo che la contiene; un computo con SAL (anche solo in bozza) non si elimina: prima si elimina la bozza. Vincoli «no action» nella migrazione 0036, così l'eliminazione di un'intera azienda funziona ancora.
 - 06/11/2026: aggiunta la sezione 8 del piano (acquisti, magazzino, fatture) dalla fase 3 di `docs/frontend.md`; le fatture sono un registro interno, senza invio allo SDI (servirebbe un intermediario esterno).
+- 06/11/2026: ordini ai fornitori in `public.purchase_orders` e `public.purchase_order_lines` (migrazione 0037), con `…/purchase-orders` e permessi nuovi `purchases.view/create/update/delete` (Titolare tutti, Ufficio senza `delete`, Capo cantiere nessuno). Fornitore obbligatorio, cantiere facoltativo, data, consegna prevista facoltativa (non prima della data), note; righe con descrizione, unità, quantità maggiore di zero e prezzo senza IVA, sostituite per intero a ogni salvataggio (al massimo 200). Niente IVA sugli ordini: il totale è l'imponibile.
+- 06/11/2026: numero dell'ordine (2026/001) dato alla creazione, per azienda e anno della data dell'ordine, sotto un `pg_advisory_xact_lock` dell'azienda; non cambia se cambia la data. Eliminando una bozza il numero resta libero e non si riusa per i successivi solo se non era l'ultimo: per un documento interno i buchi sono accettati.
+- 06/11/2026: importo di riga = quantità × prezzo arrotondato al centesimo (metà in su), totale = somma delle righe arrotondate; al massimo 100 miliardi di euro per riga, così il totale resta un `Amount`.
+- 06/11/2026: stati dell'ordine `draft` → `sent` → `received`, indietro di un passo (`sent` → `draft`, `received` → `sent`), tutti con `purchases.update`; si modifica e si elimina solo la bozza (409 `order_not_draft`), un ordine senza righe non si invia (422 su `lines`). Fornitori e cantieri con ordini non si eliminano (409 `has_documents`).
+- 06/11/2026: corretto il filtro del registro delle modifiche, che rifiutava `filter[entity]=site_document` (presente nel contratto); aggiunta l'entità `purchase_order`.
 
 ## Registro dei giri
 

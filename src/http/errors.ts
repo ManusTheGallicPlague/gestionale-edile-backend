@@ -79,6 +79,12 @@ export const messages = {
   reportNotDraft:
     'Il rapportino è già stato inviato e non si modifica più: va prima riportato in bozza.',
   reportInvalidTransition: 'Questo cambio di stato del rapportino non è ammesso.',
+  orderStale:
+    'L’ordine è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  orderMissingIfMatch: 'Manca la versione dell’ordine: ricarica la pagina e riprova.',
+  orderNotDraft:
+    'L’ordine è già stato inviato al fornitore e non si modifica più: va prima riportato in bozza.',
+  orderInvalidTransition: 'Questo cambio di stato dell’ordine non è ammesso.',
   employeeStale:
     'Il dipendente è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   employeeHasDocuments:

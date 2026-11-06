@@ -84,6 +84,10 @@ describe('audit log', () => {
     const byUser = await browser.call('GET', `${log}?filter[user]=${user.id}`)
     expect(byUser.json<{ meta: { total: number } }>().meta.total).toBe(3)
     expect((await browser.call('GET', `${log}?filter[entity]=boh`)).statusCode).toBe(422)
+    // Every entity of the contract is a valid filter (site_document was refused with 422).
+    for (const entity of ['site_document', 'purchase_order']) {
+      expect((await browser.call('GET', `${log}?filter[entity]=${entity}`)).statusCode).toBe(200)
+    }
     expect((await browser.call('GET', `${log}?filter[entity_id]=x`)).statusCode).toBe(422)
   })
 

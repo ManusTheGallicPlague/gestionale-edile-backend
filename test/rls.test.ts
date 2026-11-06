@@ -597,6 +597,95 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.site_costs')).rejects.toThrow(/permission denied/)
   })
 
+  it('purchase orders and their lines: cannot read, write or attach across companies', async () => {
+    const supplierOf = async (companyId: string) =>
+      (
+        await owner.query<{ id: string }>(
+          "insert into public.suppliers (company_id, name) values ($1, 'Ordini') returning id",
+          [companyId],
+        )
+      ).rows[0]?.id
+    const supplierA = await supplierOf(companyA.id)
+    const supplierB = await supplierOf(companyB.id)
+    const siteB = (
+      await owner.query<{ id: string }>(
+        "insert into public.sites (company_id, name) values ($1, 'Ordini B') returning id",
+        [companyB.id],
+      )
+    ).rows[0]?.id
+    const orderOf = async (companyId: string, supplierId: unknown) =>
+      (
+        await owner.query<{ id: string }>(
+          `insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
+             order_date) values ($1, 2026, 900, $2, '2026-11-02') returning id`,
+          [companyId, supplierId],
+        )
+      ).rows[0]?.id
+    const orderA = await orderOf(companyA.id, supplierA)
+    const orderB = await orderOf(companyB.id, supplierB)
+    await owner.query(
+      `insert into public.purchase_order_lines (company_id, order_id, position, description,
+         quantity, unit_price_cents) values ($1, $2, 0, 'B', 1, 100)`,
+      [companyB.id, orderB],
+    )
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const o = await c.query('select * from public.purchase_orders where company_id = $1', [
+        companyB.id,
+      ])
+      const l = await c.query('select * from public.purchase_order_lines where order_id = $1', [
+        orderB,
+      ])
+      return o.rowCount! + l.rowCount!
+    })
+    expect(seen).toBe(0)
+    const insertOrder = (companyId: string, supplierId: unknown, siteId: unknown = null) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
+             site_id, order_date) values ($1, 2026, 901, $2, $3, '2026-11-02')`,
+          [companyId, supplierId, siteId],
+        ),
+      )
+    await expect(insertOrder(companyB.id, supplierB)).rejects.toThrow(/row-level security/)
+    await expect(insertOrder(companyA.id, supplierB)).rejects.toThrow(/foreign key/)
+    await expect(insertOrder(companyA.id, supplierA, siteB)).rejects.toThrow(/foreign key/)
+    const insertLine = (companyId: string, orderId: unknown) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.purchase_order_lines (company_id, order_id, position, description,
+             quantity, unit_price_cents) values ($1, $2, 5, 'A', 1, 100)`,
+          [companyId, orderId],
+        ),
+      )
+    await expect(insertLine(companyB.id, orderB)).rejects.toThrow(/row-level security/)
+    await expect(insertLine(companyA.id, orderB)).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.purchase_orders set status = 'draft' where id = $1", [
+        orderB,
+      ])
+      const l = await c.query('delete from public.purchase_order_lines where order_id = $1', [
+        orderB,
+      ])
+      const d = await c.query('delete from public.purchase_orders where id = $1', [orderB])
+      return u.rowCount! + l.rowCount! + d.rowCount!
+    })
+    expect(changed).toBe(0)
+    // Lines are replaced, never updated.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query('update public.purchase_order_lines set quantity = 2 where order_id = $1', [
+          orderA,
+        ]),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    await expect(auth.query('select * from public.purchase_orders')).rejects.toThrow(
+      /permission denied/,
+    )
+    await expect(auth.query('select * from public.purchase_order_lines')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('site activities and their dependencies: cannot read, write or attach across companies', async () => {
     const siteOf = async (companyId: string) =>
       (

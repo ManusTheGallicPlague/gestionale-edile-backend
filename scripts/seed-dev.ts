@@ -59,6 +59,10 @@ const ALL = [
   'price_lists.create',
   'price_lists.update',
   'price_lists.delete',
+  'purchases.view',
+  'purchases.create',
+  'purchases.update',
+  'purchases.delete',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -296,6 +300,8 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       // Daily reports point to sites, employees and vehicles: they go first.
       await client.query('delete from public.daily_reports where company_id = $1', [companyId])
       await client.query('delete from public.site_costs where company_id = $1', [companyId])
+      // Purchase orders point to sites and suppliers: they go first.
+      await client.query('delete from public.purchase_orders where company_id = $1', [companyId])
       await client.query('delete from public.site_documents where company_id = $1', [companyId])
       // Estimates point to sites: they go first.
       // Progress statements keep their estimate: they go first.
@@ -588,6 +594,46 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where s.company_id = $1 and s.code = '2026-01'`,
         [companyId],
       )
+      // Two purchase orders of the first site: one sent, one still a draft.
+      for (const [seq, status, day, lines] of [
+        [
+          1,
+          'sent',
+          '2026-11-02',
+          [
+            ['Calcestruzzo C25/30', 'm³', '12', 13000],
+            ['Pompaggio', 'h', '3', 9000],
+          ],
+        ],
+        [2, 'draft', '2026-11-05', [['Rete elettrosaldata 20×20 Ø8', 'm²', '150', 450]]],
+      ] as const) {
+        await client.query(
+          `with o as (
+             insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
+               site_id, order_date, status, sent_at)
+             select $1, 2026, $2, (select p.id from public.suppliers p where p.company_id = $1
+                 order by p.name limit 1),
+               s.id, $3::date, $4, case when $4 = 'sent' then $3::date + time '09:00' end
+             from public.sites s where s.company_id = $1 and s.code = '2026-01'
+             returning id
+           )
+           insert into public.purchase_order_lines (company_id, order_id, position, description,
+             unit, quantity, unit_price_cents)
+           select $1, o.id, l.position - 1, l.description, l.unit, l.quantity, l.cents
+           from o, unnest($5::text[], $6::text[], $7::numeric[], $8::bigint[])
+             with ordinality as l (description, unit, quantity, cents, position)`,
+          [
+            companyId,
+            seq,
+            day,
+            status,
+            lines.map((l) => l[0]),
+            lines.map((l) => l[1]),
+            lines.map((l) => l[2]),
+            lines.map((l) => l[3]),
+          ],
+        )
+      }
       // A document and a photo on the first site, so the archive is not empty.
       for (const file of DEV_FILES) {
         await client.query(
