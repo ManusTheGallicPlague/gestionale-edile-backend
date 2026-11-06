@@ -23,15 +23,18 @@ type Status = (typeof STATUSES)[number]
 interface EstimateInput {
   title: string
   client_id: string | null
+  site_id: string | null
   site_address: string | null
   status: Status
   notes: string | null
 }
-const FIELDS = ['title', 'client_id', 'site_address', 'status', 'notes'] as const
+const FIELDS = ['title', 'client_id', 'site_id', 'site_address', 'status', 'notes'] as const
 
 interface EstimateRow extends EstimateInput {
   id: string
   client_name: string | null
+  site_name: string | null
+  site_code: string | null
   total_cents: string
   /** Italian calendar day of the last change, for the export. */
   updated_on: string
@@ -42,13 +45,15 @@ interface EstimateRow extends EstimateInput {
 
 type Params = { company: string; estimate?: string }
 
-const SELECT = `select e.id, e.title, e.client_id, e.site_address, e.status, e.notes, e.version,
+const SELECT = `select e.id, e.title, e.client_id, e.site_id, s.name as site_name,
+    s.code as site_code, e.site_address, e.status, e.notes, e.version,
     e.created_at, e.updated_at, c.name as client_name,
     (e.updated_at at time zone 'Europe/Rome')::date::text as updated_on,
     (select coalesce(sum(t.amount_cents), 0)::text from public.estimate_item_totals t
      where t.estimate_id = e.id) as total_cents
   from public.estimates e
-  left join public.clients c on c.id = e.client_id`
+  left join public.clients c on c.id = e.client_id
+  left join public.sites s on s.id = e.site_id`
 
 const SORTS = {
   title: 'lower(e.title) asc, e.id asc',
@@ -65,6 +70,8 @@ function toContract(row: EstimateRow) {
     title: row.title,
     client_id: row.client_id,
     client: row.client_id ? { id: row.client_id, name: row.client_name ?? '' } : null,
+    site_id: row.site_id,
+    site: row.site_id ? { id: row.site_id, name: row.site_name ?? '', code: row.site_code } : null,
     site_address: row.site_address,
     status: row.status,
     notes: row.notes,
@@ -115,16 +122,23 @@ function parseInput(body: unknown): { input: EstimateInput } | { errors: FieldEr
   if (client_id !== null && !UUID.test(client_id) && !errors.client_id) {
     add('client_id', 'Cliente non trovato.')
   }
+  const site_id = text('site_id', 36)
+  if (site_id !== null && !UUID.test(site_id) && !errors.site_id) {
+    add('site_id', 'Cantiere non trovato.')
+  }
   const site_address = text('site_address', 300)
   const statusValue = text('status', 10)
   const status = STATUSES.find((s) => s === statusValue)
   if (!status && !errors.status) add('status', 'Stato non valido.')
   const notes = text('notes', 2000)
   if (Object.keys(errors).length > 0 || !title || !status) return { errors }
-  return { input: { title, client_id, site_address, status, notes } }
+  return { input: { title, client_id, site_id, site_address, status, notes } }
 }
 
 function clientNotFound(error: unknown): never {
+  if (isForeignKeyViolation(error) && error.constraint === 'estimates_site_fkey') {
+    throw new ValidationFailed({ site_id: ['Cantiere non trovato.'] })
+  }
   if (isForeignKeyViolation(error)) {
     throw new ValidationFailed({ client_id: ['Cliente non trovato.'] })
   }
@@ -166,8 +180,12 @@ function readList(query: Record<string, unknown>) {
   if (clientId !== undefined && !UUID.test(clientId)) {
     errors['filter[client]'] = ['Identificativo non valido.']
   }
+  const siteId = single('filter[site]')
+  if (siteId !== undefined && !UUID.test(siteId)) {
+    errors['filter[site]'] = ['Identificativo non valido.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? '-updated_at', search, status, clientId }
+  return { page, perPage, sort: sort ?? '-updated_at', search, status, clientId, siteId }
 }
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -181,6 +199,7 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.status) add((p) => `e.status = ${p}`, list.status)
   if (list.clientId) add((p) => `e.client_id = ${p}`, list.clientId)
+  if (list.siteId) add((p) => `e.site_id = ${p}`, list.siteId)
   if (list.search) {
     add(
       (p) => `(e.title ilike ${p} or e.site_address ilike ${p} or c.name ilike ${p})`,
@@ -364,8 +383,10 @@ export function estimateRoutes(app: FastifyInstance, config: Config, db: Db): vo
       const id = request.params.estimate ?? ''
       if (!UUID.test(id)) throw notFound()
       const { rows } = await client.query<{ id: string }>(
-        `insert into public.estimates (company_id, title, client_id, site_address, status, notes)
-         select company_id, left(title, 192) || ' (copia)', client_id, site_address, 'draft', notes
+        `insert into public.estimates (company_id, title, client_id, site_id, site_address, status,
+           notes)
+         select company_id, left(title, 192) || ' (copia)', client_id, site_id, site_address,
+           'draft', notes
          from public.estimates where id = $1
          returning id`,
         [id],

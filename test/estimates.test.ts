@@ -18,6 +18,7 @@ const ALL: Permission[] = [
   'estimates.update',
   'estimates.delete',
   'clients.delete',
+  'sites.delete',
 ]
 
 function newVat(): string {
@@ -29,6 +30,7 @@ function estimateBody(overrides: Record<string, unknown> = {}) {
   return {
     title: 'Rifacimento copertura',
     client_id: null,
+    site_id: null,
     site_address: 'Via Roma 1, Torino',
     status: 'draft',
     notes: null,
@@ -126,6 +128,55 @@ describe('estimates', () => {
       { headers: { 'if-match': '"1"' } },
     )
     expect(del.statusCode).toBe(409)
+  })
+
+  it('belongs to a site of the same company; the site lists it and cannot be deleted', async () => {
+    const mine = await scene()
+    const theirs = await scene()
+    const siteOf = async (companyId: string) =>
+      (
+        await ctx.owner.query<{ id: string }>(
+          "insert into public.sites (company_id, name, code) values ($1, 'Villetta', 'C-7') returning id",
+          [companyId],
+        )
+      ).rows[0]?.id ?? ''
+    const site = await siteOf(mine.company.id)
+    const foreign = await siteOf(theirs.company.id)
+    const refused = await mine.browser.call('POST', mine.base, {
+      body: estimateBody({ site_id: foreign }),
+    })
+    expect(refused.statusCode).toBe(422)
+    expect(refused.json()).toMatchObject({ errors: { site_id: ['Cantiere non trovato.'] } })
+    expect(
+      (await mine.browser.call('POST', mine.base, { body: estimateBody({ site_id: 'x' }) }))
+        .statusCode,
+    ).toBe(422)
+
+    const created = await mine.browser.call('POST', mine.base, {
+      body: estimateBody({ site_id: site }),
+    })
+    expect(created.statusCode).toBe(201)
+    const estimate = created.json<{ id: string; site: unknown }>()
+    expect(estimate.site).toEqual({ id: site, name: 'Villetta', code: 'C-7' })
+    await mine.browser.call('POST', mine.base, { body: estimateBody({ title: 'Senza cantiere' }) })
+    const listed = await mine.browser.call('GET', `${mine.base}?filter[site]=${site}`)
+    expect(listed.json<Listed>().data.map((e) => e.id)).toEqual([estimate.id])
+    expect((await mine.browser.call('GET', `${mine.base}?filter[site]=x`)).statusCode).toBe(422)
+    const copy = await mine.browser.call('POST', `${mine.base}/${estimate.id}/duplicate`)
+    expect(copy.json<{ site_id: string }>().site_id).toBe(site)
+    const moved = await mine.browser.call('PUT', `${mine.base}/${estimate.id}`, {
+      body: estimateBody({ site_id: foreign }),
+      headers: { 'if-match': '"1"' },
+    })
+    expect(moved.statusCode).toBe(422)
+
+    const del = await mine.browser.call(
+      'DELETE',
+      `/api/companies/${mine.company.slug}/sites/${site}`,
+      { headers: { 'if-match': '"1"' } },
+    )
+    expect(del.statusCode).toBe(409)
+    expect(del.json<{ code: string }>().code).toBe('has_documents')
   })
 
   it('permissions and isolation', async () => {

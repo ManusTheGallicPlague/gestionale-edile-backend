@@ -21,6 +21,7 @@ type Entry = {
 const estimate = (overrides: Record<string, unknown> = {}) => ({
   title: 'Bagno',
   client_id: null,
+  site_id: null,
   site_address: null,
   status: 'draft',
   notes: null,

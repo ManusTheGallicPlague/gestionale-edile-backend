@@ -292,8 +292,9 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       await client.query('delete from public.daily_reports where company_id = $1', [companyId])
       await client.query('delete from public.site_costs where company_id = $1', [companyId])
       await client.query('delete from public.site_documents where company_id = $1', [companyId])
-      await client.query('delete from public.sites where company_id = $1', [companyId])
+      // Estimates point to sites: they go first.
       await client.query('delete from public.estimates where company_id = $1', [companyId])
+      await client.query('delete from public.sites where company_id = $1', [companyId])
       await client.query('delete from public.clients where company_id = $1', [companyId])
       for (const [i, c] of devClients(company.clients, company.seed).entries()) {
         await client.query(
@@ -595,8 +596,11 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       }
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query(
-        `insert into public.estimates (company_id, title, client_id, site_address, status)
-         select $1, e.title, c.id, e.address, e.status
+        `insert into public.estimates (company_id, title, client_id, site_id, site_address, status)
+         select $1, e.title, c.id,
+           (select s.id from public.sites s where s.company_id = $1 and s.code = '2026-01'
+            and e.n = 0),
+           e.address, e.status
          from (values
            ('Rifacimento copertura', 'Via Roma 1, Torino', 'draft', 0),
            ('Ristrutturazione bagno', 'Corso Francia 20, Torino', 'final', 1),

@@ -675,6 +675,33 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('estimates: cannot be attached to a site of another company', async () => {
+    const siteB = await owner.query<{ id: string }>(
+      "insert into public.sites (company_id, name) values ($1, 'Cantiere B') returning id",
+      [companyB.id],
+    )
+    const attach = (sql: string, params: unknown[]) =>
+      as(alice.id, companyA.id, (c) => c.query(sql, params))
+    await expect(
+      attach("insert into public.estimates (company_id, title, site_id) values ($1, 'A', $2)", [
+        companyA.id,
+        siteB.rows[0]?.id,
+      ]),
+    ).rejects.toThrow(/foreign key/)
+    await expect(
+      as(alice.id, companyA.id, async (c) => {
+        const own = await c.query<{ id: string }>(
+          "insert into public.estimates (company_id, title) values ($1, 'A') returning id",
+          [companyA.id],
+        )
+        return c.query('update public.estimates set site_id = $1 where id = $2', [
+          siteB.rows[0]?.id,
+          own.rows[0]?.id,
+        ])
+      }),
+    ).rejects.toThrow(/foreign key/)
+  })
+
   it('estimate chapters and items: cannot read, write or attach across companies', async () => {
     const estimateB = await owner.query<{ id: string }>(
       "insert into public.estimates (company_id, title) values ($1, 'B') returning id",
