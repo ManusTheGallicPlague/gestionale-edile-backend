@@ -5,6 +5,7 @@ import type { Db } from '../db.js'
 import { isForeignKeyViolation, isUniqueViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { amountToCents, centsToAmount } from '../money.js'
+import { italianAmount, italianDate, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 import { UUID } from '../deadlines/input.js'
 import { isIsoDate } from '../suppliers/documents.js'
 import {
@@ -19,6 +20,12 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 
 export const SITE_STATUSES = ['planned', 'active', 'suspended', 'completed'] as const
 type Status = (typeof SITE_STATUSES)[number]
+const STATUS_LABELS: Record<Status, string> = {
+  planned: 'Da iniziare',
+  active: 'In corso',
+  suspended: 'Sospeso',
+  completed: 'Chiuso',
+}
 
 interface SiteValues {
   code: string | null
@@ -268,6 +275,53 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('sites.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<SiteRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Codice',
+            'Nome',
+            'Cliente',
+            'Indirizzo',
+            'Stato',
+            'Inizio',
+            'Fine prevista',
+            'Budget',
+            'Note',
+          ],
+          rows.map((r) => [
+            r.code,
+            r.name,
+            r.client_name,
+            r.address,
+            STATUS_LABELS[r.status],
+            r.start_on && italianDate(r.start_on),
+            r.end_on && italianDate(r.end_on),
+            r.budget_cents && italianAmount(r.budget_cents),
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="cantieri.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:site`, async (request, reply) => {
     const session = requireSession(request)

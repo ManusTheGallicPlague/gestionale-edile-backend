@@ -5,6 +5,7 @@ import type { Db } from '../db.js'
 import { isForeignKeyViolation, isUniqueViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { amountToCents, centsToAmount } from '../money.js'
+import { italianAmount, italianDate, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 import { UUID } from '../deadlines/input.js'
 import { isIsoDate } from '../suppliers/documents.js'
 import { isValidPersonalCodiceFiscale, normalizeTaxId } from '../clients/tax-ids.js'
@@ -272,6 +273,55 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('employees.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<EmployeeRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Cognome',
+            'Nome',
+            'Codice fiscale',
+            'Mansione',
+            'Telefono',
+            'Email',
+            'Assunzione',
+            'Costo orario',
+            'Attivo',
+            'Note',
+          ],
+          rows.map((r) => [
+            r.last_name,
+            r.first_name,
+            r.tax_code,
+            r.job_title,
+            r.phone,
+            r.email,
+            r.hired_on && italianDate(r.hired_on),
+            r.hourly_cost_cents && italianAmount(r.hourly_cost_cents),
+            r.active ? 'Sì' : 'No',
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="dipendenti.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:employee`, async (request, reply) => {
     const session = requireSession(request)

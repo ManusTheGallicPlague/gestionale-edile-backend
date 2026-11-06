@@ -1141,6 +1141,50 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/sites/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportSites
+      summary: Esportazione dei cantieri in CSV
+      description: |
+        Permesso: sites.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti. Stato tradotto (Da iniziare, In corso, Sospeso, Chiuso), date come 30/11/2026, budget con la virgola decimale.
+        Il file si chiama cantieri.csv.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, -name, code, -code, start_on, -start_on, updated_at, -updated_at]
+            default: -updated_at
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/SiteStatus' }
+              client: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/sites/{site}:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -1311,6 +1355,49 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/employees/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportEmployees
+      summary: Esportazione dei dipendenti in CSV
+      description: |
+        Permesso: employees.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti. Costo orario con la virgola decimale, data di assunzione come 30/11/2026, Attivo Sì o No.
+        Il file si chiama dipendenti.csv.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [last_name, -last_name, hired_on, -hired_on, updated_at, -updated_at]
+            default: last_name
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              active: { type: boolean }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/employees/{employee}:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -1441,6 +1528,50 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Vehicle' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/vehicles/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportVehicles
+      summary: Esportazione dei mezzi in CSV
+      description: |
+        Permesso: vehicles.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti. Tipo tradotto (Automezzo, Macchina operatrice, Attrezzatura), costo orario con la virgola decimale.
+        Il file si chiama mezzi.csv.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, -name, updated_at, -updated_at]
+            default: name
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              kind: { $ref: '#/components/schemas/VehicleKind' }
+              active: { type: boolean }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

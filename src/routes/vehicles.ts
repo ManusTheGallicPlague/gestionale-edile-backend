@@ -5,6 +5,7 @@ import type { Db } from '../db.js'
 import { isUniqueViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { amountToCents, centsToAmount } from '../money.js'
+import { italianAmount, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 import { UUID } from '../deadlines/input.js'
 import {
   ApiError,
@@ -18,6 +19,11 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 
 export const VEHICLE_KINDS = ['vehicle', 'machine', 'equipment'] as const
 type Kind = (typeof VEHICLE_KINDS)[number]
+const KIND_LABELS: Record<Kind, string> = {
+  vehicle: 'Automezzo',
+  machine: 'Macchina operatrice',
+  equipment: 'Attrezzatura',
+}
 
 interface VehicleValues {
   name: string
@@ -234,6 +240,41 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('vehicles.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<VehicleRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          ['Nome', 'Tipo', 'Targa', 'Marca e modello', 'Costo orario', 'In uso', 'Note'],
+          rows.map((r) => [
+            r.name,
+            KIND_LABELS[r.kind],
+            r.plate,
+            r.model,
+            r.hourly_cost_cents && italianAmount(r.hourly_cost_cents),
+            r.active ? 'Sì' : 'No',
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="mezzi.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/:vehicle`, async (request, reply) => {
     const session = requireSession(request)
