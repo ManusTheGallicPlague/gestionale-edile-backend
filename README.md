@@ -24,7 +24,8 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Computo metrico: totali per voce, capitolo e computo, calcolati dal backend | Fatto |
 | Computo metrico: riordino e spostamento in blocco con versione dell'albero | Fatto |
 | Computo metrico: duplicazione | Fatto |
-| Preventivi | Da fare, dopo il contratto |
+| Preventivi: testata, invio con numero progressivo per anno senza buchi | Fatto |
+| Preventivi: righe, totali, stati, PDF | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 
 ## Stack
@@ -60,7 +61,7 @@ src/suppliers/      validazione dei fornitori
 src/deadlines/      validazione delle scadenze
 src/money.ts        importi: stringhe nel contratto, centesimi nel database
 src/routes/         auth, me, clients, suppliers, supplier-documents, deadlines, estimates,
-                    estimate-structure
+                    estimate-structure, quotes
 test/               test di integrazione su un database usa e getta
 ```
 

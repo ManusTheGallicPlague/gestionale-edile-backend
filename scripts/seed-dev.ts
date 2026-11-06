@@ -27,11 +27,16 @@ const ALL = [
   'estimates.create',
   'estimates.update',
   'estimates.delete',
+  'quotes.view',
+  'quotes.create',
+  'quotes.update',
+  'quotes.delete',
 ]
 const ROLES: Record<string, string[]> = {
   Titolare: ALL,
   Ufficio: ALL.filter((p) => !p.endsWith('.delete')),
   'Capo cantiere': ['clients.view', 'suppliers.view', 'deadlines.view', 'estimates.view'],
+  // The site manager does not see quotes: prices and margins stay with the office.
 }
 
 const COMPANIES = [
@@ -204,6 +209,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
         }
       }
       await client.query('delete from public.deadlines where company_id = $1', [companyId])
+      await client.query('delete from public.quotes where company_id = $1', [companyId])
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query('delete from public.clients where company_id = $1', [companyId])
       for (const [i, c] of devClients(company.clients, company.seed).entries()) {
@@ -330,6 +336,28 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
 
     for (const company of COMPANIES) {
       const companyId = companyIds[company.slug]
+      await client.query('delete from public.quotes where company_id = $1', [companyId])
+      await client.query('delete from public.quote_counters where company_id = $1', [companyId])
+      await client.query(
+        `insert into public.quotes (company_id, client_id, subject, validity_days, terms, status,
+           number_year, number_seq, issue_date, sent_at)
+         select $1, c.id, q.subject, 30, 'Pagamento: 30% all''ordine, saldo a fine lavori.',
+           q.status, q.year, q.seq, q.issue_date::date, q.issue_date::timestamptz
+         from (values
+           ('Rifacimento copertura', 'sent', 2026, 1, '2026-10-12', 0),
+           ('Ristrutturazione bagno', 'accepted', 2026, 2, '2026-10-20', 1),
+           ('Cappotto termico facciata nord', 'draft', null, null, null, 0)
+         ) as q (subject, status, year, seq, issue_date, n)
+         join lateral (
+           select id from public.clients where company_id = $1 and archived_at is null
+           order by created_at offset q.n limit 1
+         ) c on true`,
+        [companyId],
+      )
+      await client.query(
+        'insert into public.quote_counters (company_id, year, last_number) values ($1, 2026, 2)',
+        [companyId],
+      )
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query(
         `insert into public.estimates (company_id, title, client_id, site_address, status)

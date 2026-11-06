@@ -438,6 +438,70 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('quotes and their counters: cannot read, write or link across companies', async () => {
+    const clientB = await owner.query<{ id: string }>(
+      'select id from public.clients where company_id = $1 limit 1',
+      [companyB.id],
+    )
+    const clientA = await owner.query<{ id: string }>(
+      'select id from public.clients where company_id = $1 limit 1',
+      [companyA.id],
+    )
+    await owner.query(
+      "insert into public.quotes (company_id, client_id, subject) values ($1, $2, 'B')",
+      [companyB.id, clientB.rows[0]?.id],
+    )
+    await owner.query(
+      'insert into public.quote_counters (company_id, year, last_number) values ($1, 2026, 7)',
+      [companyB.id],
+    )
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const q = await c.query('select * from public.quotes where company_id = $1', [companyB.id])
+      const k = await c.query('select * from public.quote_counters where company_id = $1', [
+        companyB.id,
+      ])
+      return (q.rowCount ?? 0) + (k.rowCount ?? 0)
+    })
+    expect(seen).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query("insert into public.quotes (company_id, client_id, subject) values ($1, $2, 'X')", [
+          companyB.id,
+          clientB.rows[0]?.id,
+        ]),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query("insert into public.quotes (company_id, client_id, subject) values ($1, $2, 'X')", [
+          companyA.id,
+          clientB.rows[0]?.id,
+        ]),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          'insert into public.quote_counters (company_id, year, last_number) values ($1, 2027, 0)',
+          [companyB.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.quotes set subject = 'preso'")
+      const d = await c.query('delete from public.quotes')
+      const k = await c.query('update public.quote_counters set last_number = 0')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0) + (k.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    // Counters are never deleted: that would reuse numbers.
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query('delete from public.quote_counters')),
+    ).rejects.toThrow(/permission denied/)
+    expect(clientA.rowCount).toBe(1)
+    await expect(auth.query('select * from public.quotes')).rejects.toThrow(/permission denied/)
+  })
+
   it('cannot see memberships of other users', async () => {
     const other = await fx.user()
     const roleId = await fx.role(companyA.id, `Altro ${other.id.slice(0, 6)}`, [])

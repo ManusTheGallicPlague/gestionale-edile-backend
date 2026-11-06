@@ -1260,6 +1260,177 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/quotes:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listQuotes
+      summary: Elenco dei preventivi
+      description: 'Permesso: quotes.view. La ricerca guarda oggetto, numero e cliente.'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [number, -number, issue_date, -issue_date, updated_at, -updated_at]
+            default: -updated_at
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[status]=sent o filter[client]=<id>.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/QuoteStatus' }
+              client: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Una pagina di preventivi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuoteList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createQuote
+      summary: Nuovo preventivo, in bozza
+      description: 'Permesso: quotes.create. Numero e data arrivano al primo invio.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuoteInput' }
+      responses:
+        '201':
+          description: Preventivo creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/quotes/{quote}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/QuoteId'
+    get:
+      operationId: getQuote
+      summary: Testata di un preventivo
+      description: 'Permesso: quotes.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il preventivo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateQuote
+      summary: Modifica della testata di un preventivo in bozza
+      description: 'Permesso: quotes.update. Si inviano tutti i campi. Solo in bozza.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuoteInput' }
+      responses:
+        '200':
+          description: Preventivo aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il preventivo non è più in bozza (code quote_not_draft).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteQuote
+      summary: Eliminazione di un preventivo in bozza
+      description: 'Permesso: quotes.delete. Un preventivo numerato non si elimina, per non lasciare buchi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Preventivo eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il preventivo non è più in bozza (code quote_not_draft).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/quotes/{quote}/send:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      operationId: sendQuote
+      summary: Invio di un preventivo in bozza
+      description: |
+        Permesso: quotes.update. Segna il preventivo come inviato, gli dà il numero successivo
+        dell'anno (2026/001, senza buchi) e la data di oggi; la validità parte da quella data.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Preventivo inviato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il preventivo non è più in bozza (code quote_not_draft).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
 components:
   securitySchemes:
     session:
@@ -1335,6 +1506,11 @@ components:
       schema: { $ref: '#/components/schemas/Id' }
     MeasurementId:
       name: measurement
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    QuoteId:
+      name: quote
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
@@ -1519,6 +1695,10 @@ components:
         - estimates.create
         - estimates.update
         - estimates.delete
+        - quotes.view
+        - quotes.create
+        - quotes.update
+        - quotes.delete
 
     ClientKind:
       type: string
@@ -2181,3 +2361,70 @@ components:
             properties:
               id: { $ref: '#/components/schemas/Id' }
               chapter_id: { $ref: '#/components/schemas/Id' }
+    QuoteStatus:
+      type: string
+      description: 'draft: bozza. sent: inviato. accepted: accettato. rejected: rifiutato. expired: scaduto.'
+      enum: [draft, sent, accepted, rejected, expired]
+    QuoteInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [client_id, subject, validity_days, notes, terms]
+      properties:
+        client_id: { $ref: '#/components/schemas/Id' }
+        subject:
+          type: string
+          description: Oggetto del preventivo.
+          minLength: 1
+          maxLength: 200
+        validity_days:
+          type: integer
+          description: Giorni di validità dalla data del preventivo.
+          minimum: 1
+          maximum: 365
+        notes:
+          type: [string, 'null']
+          maxLength: 5000
+        terms:
+          type: [string, 'null']
+          description: Condizioni (pagamento, tempi, esclusioni).
+          maxLength: 10000
+    Quote:
+      allOf:
+        - $ref: '#/components/schemas/QuoteInput'
+        - type: object
+          required: [id, client, status, number, issue_date, valid_until, sent_at, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            client: { $ref: '#/components/schemas/SubjectRef' }
+            status: { $ref: '#/components/schemas/QuoteStatus' }
+            number:
+              type: [string, 'null']
+              description: Numero progressivo dell'anno, ad esempio 2026/001; null in bozza.
+              pattern: '^\d{4}/\d{3,}$'
+            issue_date:
+              description: Data del preventivo, quella del primo invio; null in bozza.
+              oneOf:
+                - $ref: '#/components/schemas/Date'
+                - type: 'null'
+            valid_until:
+              description: Data più validity_days; null in bozza.
+              oneOf:
+                - $ref: '#/components/schemas/Date'
+                - type: 'null'
+            sent_at:
+              type: [string, 'null']
+              format: date-time
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    QuoteList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Quote' }
+        meta: { $ref: '#/components/schemas/ListMeta' }

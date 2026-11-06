@@ -59,6 +59,10 @@ export const messages = {
   structureStale:
     'Capitoli o voci sono stati modificati da qualcun altro. Ricarica la pagina e riprova.',
   structureMissingIfMatch: 'Manca la versione: ricarica la pagina e riprova.',
+  quoteStale:
+    'Il preventivo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  quoteMissingIfMatch: 'Manca la versione del preventivo: ricarica la pagina e riprova.',
+  quoteNotDraft: 'Il preventivo è già stato inviato e non si modifica più: fanne una revisione.',
   internal: 'Errore interno. Riprova tra poco.',
   badRequest: 'Richiesta non valida.',
 } as const

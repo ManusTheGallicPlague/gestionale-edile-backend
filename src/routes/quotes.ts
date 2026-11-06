@@ -1,0 +1,365 @@
+import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { PoolClient } from 'pg'
+import type { Config } from '../config.js'
+import type { Db } from '../db.js'
+import { isForeignKeyViolation, withIdentity } from '../db.js'
+import { enterCompany } from '../company.js'
+import { UUID } from '../deadlines/input.js'
+import {
+  ApiError,
+  ValidationFailed,
+  forbidden,
+  messages,
+  notFound,
+  type FieldErrors,
+} from '../http/errors.js'
+import { checkCsrf, requireSession } from '../http/request-context.js'
+
+const STATUSES = ['draft', 'sent', 'accepted', 'rejected', 'expired'] as const
+type Status = (typeof STATUSES)[number]
+
+interface QuoteInput {
+  client_id: string
+  subject: string
+  validity_days: number
+  notes: string | null
+  terms: string | null
+}
+const FIELDS = ['client_id', 'subject', 'validity_days', 'notes', 'terms'] as const
+
+interface QuoteRow extends QuoteInput {
+  id: string
+  client_name: string
+  status: Status
+  number_year: number | null
+  number_seq: number | null
+  issue_date: string | null
+  valid_until: string | null
+  sent_at: Date | null
+  version: number
+  created_at: Date
+  updated_at: Date
+}
+
+type Params = { company: string; quote?: string }
+
+const SELECT = `select q.id, q.client_id, q.subject, q.validity_days, q.notes, q.terms, q.status,
+    q.number_year, q.number_seq, q.issue_date::text as issue_date,
+    (q.issue_date + q.validity_days)::text as valid_until, q.sent_at, q.version,
+    q.created_at, q.updated_at, c.name as client_name
+  from public.quotes q
+  join public.clients c on c.id = q.client_id`
+
+const SORTS = {
+  number: 'q.number_year asc nulls last, q.number_seq asc nulls last, q.id asc',
+  '-number': 'q.number_year desc nulls last, q.number_seq desc nulls last, q.id desc',
+  issue_date: 'q.issue_date asc nulls last, q.id asc',
+  '-issue_date': 'q.issue_date desc nulls last, q.id desc',
+  updated_at: 'q.updated_at asc, q.id asc',
+  '-updated_at': 'q.updated_at desc, q.id desc',
+} as const
+
+const formatNumber = (year: number, seq: number) => `${year}/${String(seq).padStart(3, '0')}`
+
+function toContract(row: QuoteRow) {
+  return {
+    id: row.id,
+    client_id: row.client_id,
+    client: { id: row.client_id, name: row.client_name },
+    subject: row.subject,
+    validity_days: row.validity_days,
+    notes: row.notes,
+    terms: row.terms,
+    status: row.status,
+    number:
+      row.number_year !== null && row.number_seq !== null
+        ? formatNumber(row.number_year, row.number_seq)
+        : null,
+    issue_date: row.issue_date,
+    valid_until: row.valid_until,
+    sent_at: row.sent_at ? row.sent_at.toISOString() : null,
+    created_at: row.created_at.toISOString(),
+    updated_at: row.updated_at.toISOString(),
+  }
+}
+
+const send = (reply: FastifyReply, row: QuoteRow, status = 200) =>
+  reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row))
+
+function expectedVersion(header: string | string[] | undefined): number {
+  if (typeof header !== 'string' || header.trim() === '') {
+    throw new ApiError(428, messages.quoteMissingIfMatch, 'precondition_required')
+  }
+  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  return match ? Number(match[1]) : -1
+}
+
+function parseInput(body: unknown): QuoteInput {
+  const errors: FieldErrors = {}
+  const add = (field: string, message: string) => {
+    ;(errors[field] ??= []).push(message)
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new ValidationFailed({ _: ['Il corpo della richiesta deve essere un oggetto JSON.'] })
+  }
+  const raw = body as Record<string, unknown>
+  const text = (field: string, max: number): string | null => {
+    if (!(field in raw)) {
+      add(field, 'Campo mancante.')
+      return null
+    }
+    const value = raw[field]
+    if (value === null) return null
+    if (typeof value !== 'string') {
+      add(field, 'Deve essere un testo.')
+      return null
+    }
+    const trimmed = value.trim()
+    if (trimmed.length > max) add(field, `Al massimo ${max} caratteri.`)
+    return trimmed === '' ? null : trimmed
+  }
+  const client_id = text('client_id', 36)
+  if (client_id === null && !errors.client_id) add('client_id', 'Il cliente è obbligatorio.')
+  else if (client_id !== null && !UUID.test(client_id) && !errors.client_id) {
+    add('client_id', 'Cliente non trovato.')
+  }
+  const subject = text('subject', 200)
+  if (subject === null && !errors.subject) add('subject', "L'oggetto è obbligatorio.")
+  const days = raw.validity_days
+  if (!('validity_days' in raw)) add('validity_days', 'Campo mancante.')
+  else if (typeof days !== 'number' || !Number.isInteger(days) || days < 1 || days > 365) {
+    add('validity_days', 'Un numero intero di giorni da 1 a 365.')
+  }
+  const notes = text('notes', 5000)
+  const terms = text('terms', 10000)
+  if (Object.keys(errors).length > 0 || !client_id || !subject) throw new ValidationFailed(errors)
+  return { client_id, subject, validity_days: days as number, notes, terms }
+}
+
+function clientNotFound(error: unknown): never {
+  if (isForeignKeyViolation(error)) {
+    throw new ValidationFailed({ client_id: ['Cliente non trovato.'] })
+  }
+  throw error
+}
+
+function readList(query: Record<string, unknown>) {
+  const errors: FieldErrors = {}
+  const single = (name: string): string | undefined => {
+    const value = query[name]
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') {
+      errors[name] = ['Indicalo una volta sola.']
+      return undefined
+    }
+    return value
+  }
+  const integer = (name: string, fallback: number, max?: number): number => {
+    const value = single(name)
+    if (value === undefined) return fallback
+    const n = /^\d{1,6}$/.test(value) ? Number(value) : NaN
+    if (!Number.isInteger(n) || n < 1 || (max !== undefined && n > max)) {
+      errors[name] = [max ? `Un numero intero da 1 a ${max}.` : 'Un numero intero da 1 in su.']
+      return fallback
+    }
+    return n
+  }
+  const page = integer('page', 1)
+  const perPage = integer('per_page', 25, 100)
+  const sortValue = single('sort') ?? '-updated_at'
+  const sort = sortValue in SORTS ? (sortValue as keyof typeof SORTS) : undefined
+  if (!sort) errors.sort = ['Ordinamento non valido.']
+  const search = single('search')?.trim() ?? ''
+  if (search.length > 100) errors.search = ['Al massimo 100 caratteri.']
+  const statusValue = single('filter[status]')
+  const status = STATUSES.find((s) => s === statusValue)
+  if (statusValue !== undefined && !status) errors['filter[status]'] = ['Stato non valido.']
+  const clientId = single('filter[client]')
+  if (clientId !== undefined && !UUID.test(clientId)) {
+    errors['filter[client]'] = ['Identificativo non valido.']
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { page, perPage, sort: sort ?? '-updated_at', search, status, clientId }
+}
+
+const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
+
+async function readOne(client: PoolClient, id: string) {
+  const { rows } = await client.query<QuoteRow>(`${SELECT} where q.id = $1`, [id])
+  return rows[0]
+}
+
+/** After a write that matched no row: 404, 409 if no longer a draft, else 412. */
+async function whyNot(client: PoolClient, id: string, version: number): Promise<never> {
+  const row = await readOne(client, id)
+  if (!row) throw notFound()
+  if (row.version !== version) throw new ApiError(412, messages.quoteStale, 'stale_record')
+  throw new ApiError(409, messages.quoteNotDraft, 'quote_not_draft')
+}
+
+export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void {
+  const base = '/api/companies/:company/quotes'
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(base, async (request) => {
+    const session = requireSession(request)
+    const list = readList(request.query)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.view')) throw forbidden()
+      const where = ['true']
+      const values: unknown[] = []
+      const add = (sql: (p: string) => string, value: unknown) => {
+        values.push(value)
+        where.push(sql(`$${values.length}`))
+      }
+      if (list.status) add((p) => `q.status = ${p}`, list.status)
+      if (list.clientId) add((p) => `q.client_id = ${p}`, list.clientId)
+      if (list.search) {
+        add(
+          (p) =>
+            `(q.subject ilike ${p} or c.name ilike ${p}
+              or (q.number_year::text || '/' || lpad(q.number_seq::text, 3, '0')) ilike ${p})`,
+          `%${escapeLike(list.search)}%`,
+        )
+      }
+      const filters = values.length
+      values.push(list.perPage, (list.page - 1) * list.perPage)
+      const { rows } = await client.query<QuoteRow>(
+        `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+         limit $${filters + 1} offset $${filters + 2}`,
+        values,
+      )
+      const count = await client.query<{ total: number }>(
+        `select count(*)::int as total from public.quotes q
+         join public.clients c on c.id = q.client_id where ${where.join(' and ')}`,
+        values.slice(0, filters),
+      )
+      return {
+        data: rows.map(toContract),
+        meta: { total: count.rows[0]?.total ?? 0, page: list.page, per_page: list.perPage },
+      }
+    })
+  })
+
+  app.get<{ Params: Params }>(`${base}/:quote`, async (request, reply) => {
+    const session = requireSession(request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.view')) throw notFound()
+      const id = request.params.quote ?? ''
+      if (!UUID.test(id)) throw notFound()
+      return readOne(client, id)
+    })
+    if (!row) throw notFound()
+    return send(reply, row)
+  })
+
+  app.post<{ Params: Params }>(base, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.create')) throw forbidden()
+      const input = parseInput(request.body)
+      const { rows } = await client
+        .query<{ id: string }>(
+          `insert into public.quotes (company_id, ${FIELDS.join(', ')})
+           values (app.current_company_id(), ${FIELDS.map((_, i) => `$${i + 1}`).join(', ')})
+           returning id`,
+          FIELDS.map((f) => input[f]),
+        )
+        .catch(clientNotFound)
+      return readOne(client, rows[0]?.id ?? '')
+    })
+    if (!row) throw new Error('insert returned no row')
+    return send(reply, row, 201)
+  })
+
+  app.put<{ Params: Params }>(`${base}/:quote`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.update')) throw forbidden()
+      const id = request.params.quote ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const input = parseInput(request.body)
+      const values: unknown[] = FIELDS.map((f) => input[f])
+      values.push(id, version)
+      const { rowCount } = await client
+        .query(
+          `update public.quotes
+           set ${FIELDS.map((f, i) => `${f} = $${i + 1}`).join(', ')},
+               version = version + 1, updated_at = now()
+           where id = $${values.length - 1} and version = $${values.length}
+             and status = 'draft'`,
+          values,
+        )
+        .catch(clientNotFound)
+      if (!rowCount) return whyNot(client, id, version)
+      return readOne(client, id)
+    })
+    if (!row) throw notFound()
+    return send(reply, row)
+  })
+
+  app.delete<{ Params: Params }>(`${base}/:quote`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.delete')) throw forbidden()
+      const id = request.params.quote ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const { rowCount } = await client.query(
+        "delete from public.quotes where id = $1 and version = $2 and status = 'draft'",
+        [id, version],
+      )
+      if (!rowCount) await whyNot(client, id, version)
+    })
+    return reply.code(204).send()
+  })
+
+  app.post<{ Params: Params }>(`${base}/:quote/send`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.update')) throw forbidden()
+      const id = request.params.quote ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const { rows } = await client.query<{ id: string }>(
+        `select id from public.quotes
+         where id = $1 and version = $2 and status = 'draft' for update`,
+        [id, version],
+      )
+      if (!rows[0]) return whyNot(client, id, version)
+      // The counter row is locked until commit: two sends never get the same number, and a
+      // rolled back send gives its number back, so there are no gaps.
+      const { rows: counter } = await client.query<{ year: number; last_number: number }>(
+        `insert into public.quote_counters (company_id, year, last_number)
+         values (app.current_company_id(),
+           extract(year from (now() at time zone 'Europe/Rome'))::int, 1)
+         on conflict (company_id, year)
+           do update set last_number = public.quote_counters.last_number + 1
+         returning year, last_number`,
+      )
+      const next = counter[0]
+      if (!next) throw new Error('counter returned no row')
+      await client.query(
+        `update public.quotes
+         set status = 'sent', number_year = $2, number_seq = $3,
+             issue_date = (now() at time zone 'Europe/Rome')::date, sent_at = now(),
+             version = version + 1, updated_at = now()
+         where id = $1`,
+        [id, next.year, next.last_number],
+      )
+      return readOne(client, id)
+    })
+    if (!row) throw notFound()
+    return send(reply, row)
+  })
+}

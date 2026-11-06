@@ -31,7 +31,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Duplicazione di un computo
 
 ### 4. Preventivi
-- [ ] Preventivo: cliente, numero progressivo per azienda e anno (`2026/001`, assegnato al primo invio, senza buchi), data, validità, stato (`draft`, `sent`, `accepted`, `rejected`, `expired`), oggetto, note e condizioni
+- [x] Preventivo: cliente, numero progressivo per azienda e anno (`2026/001`, assegnato al primo invio, senza buchi), data, validità, stato (`draft`, `sent`, `accepted`, `rejected`, `expired`), oggetto, note e condizioni
 - [ ] Righe: descrizione, unità, quantità, prezzo unitario, sconto percentuale, aliquota IVA; righe di solo testo e sezioni
 - [ ] Totali: imponibile, IVA per aliquota, totale, calcolati dal backend in centesimi
 - [ ] Creazione di un preventivo da un computo (le voci diventano righe)
@@ -82,11 +82,14 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: totali del computo mai salvati: li calcola la vista `estimate_item_totals` (`security_invoker`, quindi sotto RLS). Quantità della voce = somma delle righe di misura; importo della voce = quantità × prezzo, arrotondato al centesimo (metà lontano da zero) voce per voce; capitoli (sottocapitoli compresi) e computo sommano gli importi arrotondati, in centesimi interi. Gli importi calcolati possono essere negativi (`SignedAmount`). Il totale compare in `…/structure`, in capitoli e voci, nella testata e nell'elenco dei computi.
 - 06/11/2026: modifica in blocco con `PUT …/estimates/{id}/structure`: si mandano tutti i capitoli e tutte le voci con il nuovo genitore, l'ordine dell'elenco dà la posizione. Versione dell'albero separata da quella della testata (`structure_version`, ETag di `…/structure`), aumentata da ogni scrittura su capitoli, voci e misure. Spostare non cambia la versione del singolo capitolo o della voce. Il riordino delle righe di misura resta fuori, per ora.
 - 06/11/2026: duplicazione con `POST …/estimates/{id}/duplicate` (permessi `estimates.view` ed `estimates.create`, nessuno nuovo): copia testata, capitoli, voci e misure con id nuovi in un solo statement; la copia nasce in bozza con «(copia)» in fondo al titolo (accorciato se serve a stare in 200 caratteri) e lo stesso cliente.
+- 06/11/2026: preventivi: cliente obbligatorio (`on delete restrict`); validità come `validity_days` (predefinito 30), `valid_until` calcolata; data (`issue_date`) e numero arrivano con `POST …/quotes/{id}/send`, che usa la data italiana di oggi e il contatore `quote_counters` per azienda e anno, bloccato fino al commit: niente buchi né doppioni, anche con invii concorrenti. Numero `AAAA/NNN` (tre cifre, poi crescono).
+- 06/11/2026: un preventivo non in bozza non si modifica né si elimina (409 `quote_not_draft`), così la numerazione resta senza buchi. Permessi nuovi `quotes.view/create/update/delete`; inviare chiede `quotes.update`. Il Capo cantiere non vede i preventivi (prezzi e margini restano all'ufficio). I contatori non si cancellano (manca il privilegio `delete`).
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 14:40 UTC: testata dei preventivi con numerazione al primo invio (contratto, migrazione 0013 con contatore per anno, `send`, permessi `quotes.*`, dati di sviluppo, test anche su invii concorrenti, caso avversario). Niente a metà; prossimo: righe del preventivo. 241 test.
 - 2026-11-06 14:37 UTC: duplicazione di un computo (contratto `duplicateEstimate`, copia dell'albero, test). Il computo metrico (sezione 3) è completo. Niente a metà; prossimo: preventivi (testata e numerazione). 228 test.
 - 2026-11-06 14:35 UTC: modifica dell'albero in blocco (contratto `arrangeEstimateStructure`, migrazione 0012 con `structure_version`, controlli su insiemi, cicli e profondità, test). Niente a metà; prossimo: duplicazione di un computo. 226 test.
 - 2026-11-06 14:33 UTC: totali del computo per voce, capitolo e computo (contratto con `SignedAmount`, migrazione 0011 con vista sotto RLS, totale anche in testata ed elenco, test e caso avversario). Niente a metà; prossimo: modifica dell'albero in blocco. 218 test.
