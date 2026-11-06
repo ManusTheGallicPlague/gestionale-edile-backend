@@ -170,4 +170,77 @@ describe('site costs', () => {
         .statusCode,
     ).toBe(404)
   })
+
+  it('summarizes approved report hours at hourly cost and manual costs against the budget', async () => {
+    const s = await scene()
+    const summary = `/api/companies/${s.company.slug}/sites/${s.site}/cost-summary`
+    await ctx.owner.query('update public.sites set budget_cents = 100000 where id = $1', [s.site])
+    const empty = await s.browser.call('GET', summary)
+    expect(empty.statusCode).toBe(200)
+    expect(empty.json()).toMatchObject({
+      labor: { hours: '0.00', amount: '0.00' },
+      total: '0.00',
+      budget: '1000.00',
+      budget_remaining: '1000.00',
+      over_budget: false,
+      missing_hourly_costs: 0,
+    })
+    const people = await ctx.owner.query<{ id: string }>(
+      `insert into public.employees (company_id, first_name, last_name, hourly_cost_cents)
+       values ($1, 'Luca', 'Verdi', 2850), ($1, 'Anna', 'Bassi', null) returning id`,
+      [s.company.id],
+    )
+    const machine = await ctx.owner.query<{ id: string }>(
+      `insert into public.vehicles (company_id, name, kind, hourly_cost_cents)
+       values ($1, 'Escavatore', 'machine', 4500) returning id`,
+      [s.company.id],
+    )
+    const reports = await ctx.owner.query<{ id: string }>(
+      `insert into public.daily_reports (company_id, site_id, report_date, status)
+       values ($1, $2, '2026-11-02', 'approved'), ($1, $2, '2026-11-03', 'submitted')
+       returning id`,
+      [s.company.id, s.site],
+    )
+    for (const report of reports.rows) {
+      await ctx.owner.query(
+        `insert into public.daily_report_labor (company_id, report_id, employee_id, hours, position)
+         values ($1, $2, $3, 7.5, 0), ($1, $2, $4, 8, 1)`,
+        [s.company.id, report.id, people.rows[0]?.id, people.rows[1]?.id],
+      )
+      await ctx.owner.query(
+        `insert into public.daily_report_vehicles (company_id, report_id, vehicle_id, hours, position)
+         values ($1, $2, $3, 2.25, 0)`,
+        [s.company.id, report.id, machine.rows[0]?.id],
+      )
+    }
+    await s.browser.call('POST', s.base, { body: input(s, { amount: '900' }) })
+    await s.browser.call('POST', s.base, { body: input(s, { amount: '50', category: 'rentals' }) })
+    await s.browser.call('POST', s.base, { body: input(s, { site_id: s.other, amount: '7' }) })
+    const res = await s.browser.call('GET', summary)
+    // Only the approved report: 7.5 h × 28.50 = 213.75 (Bassi has no rate), 2.25 h × 45 = 101.25.
+    expect(res.json()).toEqual({
+      site: { id: s.site, name: 'Villetta', code: 'C-1' },
+      labor: { hours: '15.50', amount: '213.75' },
+      vehicles: { hours: '2.25', amount: '101.25' },
+      materials: '900.00',
+      rentals: '50.00',
+      subcontract: '0.00',
+      other: '0.00',
+      total: '1265.00',
+      budget: '1000.00',
+      budget_remaining: '-265.00',
+      over_budget: true,
+      missing_hourly_costs: 1,
+    })
+    const foreign = await scene()
+    expect(
+      (await foreign.browser.call('GET', summary.replace(s.company.slug, foreign.company.slug)))
+        .statusCode,
+    ).toBe(404)
+    const reader = await scene(['clients.view'])
+    expect(
+      (await reader.browser.call('GET', summary.replace(s.company.slug, reader.company.slug)))
+        .statusCode,
+    ).toBe(404)
+  })
 })

@@ -1653,6 +1653,27 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/sites/{site}/cost-summary:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: getSiteCostSummary
+      summary: Riepilogo dei costi di un cantiere, confrontato con il budget
+      description: |
+        Permesso: costs.view. Senza permesso risponde 404, non 403. Manodopera e mezzi vengono
+        dai rapportini approvati, alle ore per il costo orario attuale di dipendenti e mezzi
+        (senza costo orario valgono zero e si contano in missing_hourly_costs); poi i costi
+        inseriti a mano per categoria. Importi senza IVA.
+      responses:
+        '200':
+          description: Il riepilogo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteCostSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/employees:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -4853,6 +4874,58 @@ components:
             updated_at:
               type: string
               format: date-time
+    SiteCostSummary:
+      type: object
+      required:
+        - site
+        - labor
+        - vehicles
+        - materials
+        - rentals
+        - subcontract
+        - other
+        - total
+        - budget
+        - budget_remaining
+        - over_budget
+        - missing_hourly_costs
+      properties:
+        site:
+          type: object
+          required: [id, name, code]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            name: { type: string }
+            code: { type: [string, 'null'] }
+        labor: { $ref: '#/components/schemas/HoursCost' }
+        vehicles: { $ref: '#/components/schemas/HoursCost' }
+        materials: { $ref: '#/components/schemas/Amount' }
+        rentals: { $ref: '#/components/schemas/Amount' }
+        subcontract: { $ref: '#/components/schemas/Amount' }
+        other: { $ref: '#/components/schemas/Amount' }
+        total: { $ref: '#/components/schemas/Amount' }
+        budget:
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        budget_remaining:
+          description: Budget meno totale; negativo se il cantiere è sopra budget, null senza budget.
+          oneOf:
+            - $ref: '#/components/schemas/SignedAmount'
+            - type: 'null'
+        over_budget: { type: boolean }
+        missing_hourly_costs:
+          type: integer
+          description: Righe dei rapportini approvati con dipendenti o mezzi senza costo orario.
+    HoursCost:
+      type: object
+      required: [hours, amount]
+      properties:
+        hours:
+          type: string
+          description: Ore totali con due decimali.
+          pattern: '^\d+\.\d{2}$'
+        amount: { $ref: '#/components/schemas/Amount' }
     SiteCostList:
       type: object
       required: [data, meta, total_amount]

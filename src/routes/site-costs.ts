@@ -361,3 +361,101 @@ export function siteCostRoutes(app: FastifyInstance, config: Config, db: Db): vo
     return reply.code(204).send()
   })
 }
+
+interface SummaryRow {
+  id: string
+  name: string
+  code: string | null
+  budget_cents: string | null
+  labor_hours: string
+  labor_cents: string
+  vehicle_hours: string
+  vehicle_cents: string
+  materials: string
+  rentals: string
+  subcontract: string
+  other: string
+  missing_rates: number
+}
+
+/**
+ * Costs of one site: labour and vehicles from approved daily reports at today's hourly
+ * cost, plus the costs entered by hand, against the budget.
+ */
+export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
+  app.get<{ Params: { company: string; site: string } }>(
+    '/api/companies/:company/sites/:site/cost-summary',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('costs.view')) throw notFound()
+        if (!UUID.test(request.params.site)) throw notFound()
+        const { rows } = await client.query<SummaryRow>(
+          `with labor as (
+             select coalesce(sum(l.hours), 0) as hours,
+               coalesce(sum(round(l.hours * coalesce(e.hourly_cost_cents, 0))), 0) as cents,
+               count(*) filter (where e.hourly_cost_cents is null) as missing
+             from public.daily_report_labor l
+             join public.daily_reports r on r.id = l.report_id and r.status = 'approved'
+             join public.employees e on e.id = l.employee_id
+             where r.site_id = $1
+           ), machines as (
+             select coalesce(sum(v.hours), 0) as hours,
+               coalesce(sum(round(v.hours * coalesce(m.hourly_cost_cents, 0))), 0) as cents,
+               count(*) filter (where m.hourly_cost_cents is null) as missing
+             from public.daily_report_vehicles v
+             join public.daily_reports r on r.id = v.report_id and r.status = 'approved'
+             join public.vehicles m on m.id = v.vehicle_id
+             where r.site_id = $1
+           ), manual as (
+             select
+               coalesce(sum(amount_cents) filter (where category = 'materials'), 0) as materials,
+               coalesce(sum(amount_cents) filter (where category = 'rentals'), 0) as rentals,
+               coalesce(sum(amount_cents) filter (where category = 'subcontract'), 0)
+                 as subcontract,
+               coalesce(sum(amount_cents) filter (where category = 'other'), 0) as other
+             from public.site_costs where site_id = $1
+           )
+           select s.id, s.name, s.code, s.budget_cents::text as budget_cents,
+             labor.hours::numeric(10, 2)::text as labor_hours, labor.cents::bigint::text as labor_cents,
+             machines.hours::numeric(10, 2)::text as vehicle_hours,
+             machines.cents::bigint::text as vehicle_cents,
+             manual.materials::text as materials, manual.rentals::text as rentals,
+             manual.subcontract::text as subcontract, manual.other::text as other,
+             (labor.missing + machines.missing)::int as missing_rates
+           from public.sites s, labor, machines, manual
+           where s.id = $1`,
+          [request.params.site],
+        )
+        return rows[0]
+      })
+      if (!row) throw notFound()
+      const parts = [
+        row.labor_cents,
+        row.vehicle_cents,
+        row.materials,
+        row.rentals,
+        row.subcontract,
+        row.other,
+      ]
+      const total = parts.reduce((sum, cents) => sum + BigInt(cents), 0n)
+      const budget = row.budget_cents === null ? null : BigInt(row.budget_cents)
+      const remaining = budget === null ? null : budget - total
+      return reply.send({
+        site: { id: row.id, name: row.name, code: row.code },
+        labor: { hours: row.labor_hours, amount: centsToAmount(row.labor_cents) },
+        vehicles: { hours: row.vehicle_hours, amount: centsToAmount(row.vehicle_cents) },
+        materials: centsToAmount(row.materials),
+        rentals: centsToAmount(row.rentals),
+        subcontract: centsToAmount(row.subcontract),
+        other: centsToAmount(row.other),
+        total: centsToAmount(total.toString()),
+        budget: budget === null ? null : centsToAmount(budget.toString()),
+        budget_remaining: remaining === null ? null : centsToAmount(remaining.toString()),
+        over_budget: remaining !== null && remaining < 0n,
+        missing_hourly_costs: row.missing_rates,
+      })
+    },
+  )
+}
