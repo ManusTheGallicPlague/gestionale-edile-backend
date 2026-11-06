@@ -1463,6 +1463,53 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/quotes/{quote}/status:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      operationId: changeQuoteStatus
+      summary: Esito di un preventivo inviato
+      description: |
+        Permesso: quotes.update. Da sent si passa ad accepted, rejected o expired; da questi
+        si torna a sent per correggere un errore. Una bozza si invia con send. Numero, data e
+        righe non cambiano.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [sent, accepted, rejected, expired]
+      responses:
+        '200':
+          description: Stato cambiato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Passaggio di stato non ammesso (code invalid_transition).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/quotes/{quote}/lines:
     parameters:
       - $ref: '#/components/parameters/Company'

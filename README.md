@@ -28,7 +28,8 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Preventivi: righe (sezioni, testo, prezzo con sconto e IVA) | Fatto |
 | Preventivi: totali con IVA per aliquota | Fatto |
 | Preventivi: creazione da un computo | Fatto |
-| Preventivi: stati e revisioni, PDF | Da fare, dopo il contratto |
+| Preventivi: esito (accettato, rifiutato, scaduto) | Fatto |
+| Preventivi: revisioni, PDF | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 
 ## Stack

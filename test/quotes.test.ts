@@ -225,4 +225,49 @@ describe('quotes', () => {
     const still = await theirs.browser.call('GET', `${theirs.base}/${q.id}`)
     expect(still.json()).toMatchObject({ status: 'draft', number: null })
   })
+
+  it('records the outcome of a sent quote, and can undo it', async () => {
+    const { browser, base, create } = await scene()
+    const q = await create()
+    const status = (value: unknown, version: string) =>
+      browser.call('POST', `${base}/${q.id}/status`, {
+        body: { status: value },
+        headers: { 'if-match': version },
+      })
+    // A draft has no outcome: it must be sent first.
+    const early = await status('accepted', '"1"')
+    expect(early.statusCode).toBe(409)
+    expect(early.json()).toMatchObject({ code: 'invalid_transition' })
+    await browser.call('POST', `${base}/${q.id}/send`, { headers: { 'if-match': '"1"' } })
+    const accepted = await status('accepted', '"2"')
+    expect(accepted.statusCode).toBe(200)
+    expect(accepted.json()).toMatchObject({ status: 'accepted' })
+    const number = accepted.json<Quote>().number
+    expect((await status('rejected', '"3"')).statusCode).toBe(409)
+    expect((await status('sent', '"2"')).statusCode).toBe(412)
+    const undone = await status('sent', '"3"')
+    expect(undone.json()).toMatchObject({ status: 'sent', number })
+    expect((await status('expired', '"4"')).json()).toMatchObject({ status: 'expired' })
+    expect((await status('draft', '"5"')).statusCode).toBe(422)
+    expect((await status('accepted', '"5"')).statusCode).toBe(409)
+    // Another company or a reader cannot change it.
+    const theirs = await scene()
+    expect(
+      (
+        await theirs.browser.call('POST', `${theirs.base}/${q.id}/status`, {
+          body: { status: 'accepted' },
+          headers: { 'if-match': '"5"' },
+        })
+      ).statusCode,
+    ).toBe(404)
+    const reader = await scene(['quotes.view'])
+    expect(
+      (
+        await reader.browser.call('POST', `${reader.base}/${q.id}/status`, {
+          body: { status: 'accepted' },
+          headers: { 'if-match': '"5"' },
+        })
+      ).statusCode,
+    ).toBe(403)
+  })
 })

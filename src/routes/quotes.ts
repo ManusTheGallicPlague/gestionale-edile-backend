@@ -393,6 +393,39 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
     return send(reply, row)
   })
 
+  app.post<{ Params: Params }>(`${base}/:quote/status`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.update')) throw forbidden()
+      const id = request.params.quote ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const body = request.body as Record<string, unknown> | null
+      const target = OUTCOMES.find((s) => s === body?.status)
+      if (!target) throw new ValidationFailed({ status: ['Stato non valido.'] })
+      // From sent to an outcome, or from an outcome back to sent.
+      const from = target === 'sent' ? ['accepted', 'rejected', 'expired'] : ['sent']
+      const { rowCount } = await client.query(
+        `update public.quotes set status = $1, version = version + 1, updated_at = now()
+         where id = $2 and version = $3 and status = any($4::text[])`,
+        [target, id, version, from],
+      )
+      if (!rowCount) {
+        const current = await readOne(client, id)
+        if (!current) throw notFound()
+        if (current.version !== version) {
+          throw new ApiError(412, messages.quoteStale, 'stale_record')
+        }
+        throw new ApiError(409, messages.quoteInvalidTransition, 'invalid_transition')
+      }
+      return readOne(client, id)
+    })
+    if (!row) throw notFound()
+    return send(reply, row)
+  })
+
   app.post<{ Params: Params & { estimate: string } }>(
     '/api/companies/:company/estimates/:estimate/quote',
     async (request, reply) => {
@@ -432,6 +465,7 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
 }
 
 const VAT_RATES = [22, 10, 5, 4, 0] as const
+const OUTCOMES = ['sent', 'accepted', 'rejected', 'expired'] as const
 
 /**
  * Chapters become sections and items become priced lines, depth first: a chapter, its
