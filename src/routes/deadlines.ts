@@ -1,3 +1,4 @@
+import { MAX_EXPORT_ROWS, toCsv } from '../csv.js'
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
@@ -71,6 +72,44 @@ function toContract(row: DeadlineRow) {
     updated_at: row.updated_at.toISOString(),
   }
 }
+
+function listFilter(list: ReturnType<typeof readList>) {
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  if (list.from) add((p) => `d.due_on >= ${p}::date`, list.from)
+  if (list.to) add((p) => `d.due_on <= ${p}::date`, list.to)
+  if (list.kind) add((p) => `d.kind = ${p}`, list.kind)
+  if (list.status) add((p) => `d.status = ${p}`, list.status)
+  if (list.clientId) add((p) => `d.client_id = ${p}`, list.clientId)
+  if (list.supplierId) add((p) => `d.supplier_id = ${p}`, list.supplierId)
+  if (list.search) {
+    add((p) => `(d.title ilike ${p} or d.notes ilike ${p})`, `%${escapeLike(list.search)}%`)
+  }
+  return { where, values }
+}
+
+const KIND_LABELS: Record<string, string> = {
+  durc: 'DURC',
+  insurance: 'Assicurazione',
+  tax: 'Imposte',
+  invoice_in: 'Fattura da pagare',
+  invoice_out: 'Fattura da incassare',
+  contract: 'Contratto',
+  vehicle: 'Mezzo',
+  other: 'Altro',
+}
+const RECURRENCE_LABELS: Record<string, string> = {
+  monthly: 'Mensile',
+  quarterly: 'Trimestrale',
+  yearly: 'Annuale',
+}
+
+/** 2026-11-30 → 30/11/2026, as Italian spreadsheets read dates. */
+const italianDate = (iso: string) => iso.split('-').reverse().join('/')
 
 const send = (reply: FastifyReply, row: DeadlineRow, status = 200) =>
   reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row))
@@ -209,21 +248,7 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('deadlines.view')) throw forbidden()
-      const where = ['true']
-      const values: unknown[] = []
-      const add = (sql: (p: string) => string, value: unknown) => {
-        values.push(value)
-        where.push(sql(`$${values.length}`))
-      }
-      if (list.from) add((p) => `d.due_on >= ${p}::date`, list.from)
-      if (list.to) add((p) => `d.due_on <= ${p}::date`, list.to)
-      if (list.kind) add((p) => `d.kind = ${p}`, list.kind)
-      if (list.status) add((p) => `d.status = ${p}`, list.status)
-      if (list.clientId) add((p) => `d.client_id = ${p}`, list.clientId)
-      if (list.supplierId) add((p) => `d.supplier_id = ${p}`, list.supplierId)
-      if (list.search) {
-        add((p) => `(d.title ilike ${p} or d.notes ilike ${p})`, `%${escapeLike(list.search)}%`)
-      }
+      const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
       const { rows } = await client.query<DeadlineRow>(
@@ -241,6 +266,53 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('deadlines.view')) throw forbidden()
+        const { where, values } = listFilter(list)
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<DeadlineRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS[list.sort]}
+           limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          [
+            'Scadenza',
+            'Titolo',
+            'Tipo',
+            'Importo',
+            'Cliente',
+            'Fornitore',
+            'Stato',
+            'Ricorrenza',
+            'Note',
+          ],
+          rows.map((r) => [
+            italianDate(r.due_on),
+            r.title,
+            KIND_LABELS[r.kind] ?? r.kind,
+            r.amount_cents === null ? null : centsToAmount(r.amount_cents).replace('.', ','),
+            r.client_name,
+            r.supplier_name,
+            r.status === 'done' ? 'Fatta' : 'Aperta',
+            r.recurrence ? (RECURRENCE_LABELS[r.recurrence] ?? r.recurrence) : null,
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="scadenze.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/summary`, async (request) => {
     const session = requireSession(request)

@@ -111,3 +111,42 @@ describe('suppliers export', () => {
     expect((await b.call('GET', url)).statusCode).toBe(404)
   })
 })
+
+describe('deadlines export', () => {
+  it('exports dates and amounts the Italian way, only for the company', async () => {
+    const { company, user } = await fx.companyWithUser(['deadlines.view'])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    await ctx.owner.query(
+      `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, recurrence)
+       values ($1, 'F24 IVA', '2026-12-16', 'tax', 123450, 'monthly'),
+              ($1, 'Revisione furgone', '2026-11-30', 'vehicle', null, null)`,
+      [company.id],
+    )
+    const other = await fx.company()
+    await ctx.owner.query(
+      `insert into public.deadlines (company_id, title, due_on, kind)
+       values ($1, 'Scadenza altrui', '2026-11-01', 'other')`,
+      [other.id],
+    )
+    const url = `/api/companies/${company.slug}/deadlines/export`
+    const res = await browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe('attachment; filename="scadenze.csv"')
+    const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(lines).toEqual([
+      'Scadenza;Titolo;Tipo;Importo;Cliente;Fornitore;Stato;Ricorrenza;Note',
+      '30/11/2026;Revisione furgone;Mezzo;;;;Aperta;;',
+      '16/12/2026;F24 IVA;Imposte;1234,50;;;Aperta;Mensile;',
+    ])
+    const ranged = await browser.call('GET', `${url}?filter[from]=2026-12-01`)
+    expect(ranged.body.trim().split('\r\n')).toHaveLength(2)
+
+    const blind = await fx.companyWithUser(['clients.view'])
+    const b = new Browser(ctx.app)
+    await b.signIn(blind.user.email)
+    const denied = await b.call('GET', `/api/companies/${blind.company.slug}/deadlines/export`)
+    expect(denied.statusCode).toBe(403)
+    expect((await b.call('GET', url)).statusCode).toBe(404)
+  })
+})

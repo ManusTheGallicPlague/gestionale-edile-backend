@@ -858,6 +858,54 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/deadlines/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportDeadlines
+      summary: Esportazione delle scadenze in CSV
+      description: |
+        Permesso: deadlines.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026,
+        importi con la virgola decimale (1234,50). Il file si chiama scadenze.csv.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [due_on, -due_on]
+            default: due_on
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              kind: { $ref: '#/components/schemas/DeadlineKind' }
+              status: { $ref: '#/components/schemas/DeadlineStatus' }
+              client: { $ref: '#/components/schemas/Id' }
+              supplier: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/deadlines/summary:
     parameters:
       - $ref: '#/components/parameters/Company'
