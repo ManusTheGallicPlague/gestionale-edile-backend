@@ -519,6 +519,15 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
       if (!allowed) {
         throw new ApiError(409, messages.orderInvalidTransition, 'invalid_transition')
       }
+      if (from === 'received') {
+        // Locked first, so a load written at the same time is seen.
+        await client.query('select 1 from public.purchase_orders where id = $1 for update', [id])
+        const loads = await client.query(
+          'select 1 from public.warehouse_movements where purchase_order_id = $1 limit 1',
+          [id],
+        )
+        if (loads.rowCount) throw new ApiError(409, messages.orderLoaded, 'has_documents')
+      }
       if (target === 'sent' && current.lines.length === 0) {
         throw new ValidationFailed({ lines: ['Aggiungi almeno una riga prima di inviarlo.'] })
       }

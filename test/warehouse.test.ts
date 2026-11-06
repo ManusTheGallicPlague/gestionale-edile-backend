@@ -17,6 +17,9 @@ const ALL: Permission[] = [
   'warehouse.update',
   'warehouse.delete',
   'sites.delete',
+  'purchases.view',
+  'purchases.create',
+  'purchases.update',
 ]
 
 async function scene(permissions: Permission[] = ALL) {
@@ -178,6 +181,79 @@ describe('warehouse', () => {
     expect((await s.browser.call('GET', `${s.items}/${a.id}`)).json()).toMatchObject({
       stock: '100.000',
     })
+  })
+
+  it('loads the goods of a received order', async () => {
+    const s = await scene()
+    const a = (await s.browser.call('POST', s.items, { body: item() })).json<Item>()
+    const supplier = await ctx.owner.query<{ id: string }>(
+      "insert into public.suppliers (company_id, name) values ($1, 'Edilizia Srl') returning id",
+      [s.company.id],
+    )
+    const orders = `/api/companies/${s.company.slug}/purchase-orders`
+    const order = await s.browser.call('POST', orders, {
+      body: {
+        supplier_id: supplier.rows[0]?.id,
+        site_id: null,
+        date: '2026-11-02',
+        delivery_date: null,
+        notes: null,
+        lines: [{ description: 'Cemento', unit: 'sacchi', quantity: '50', unit_price: '6' }],
+      },
+    })
+    const orderId = order.json<{ id: string }>().id
+    const loads = `${orders}/${orderId}/warehouse-loads`
+    const body = { date: '2026-11-06', lines: [{ item_id: a.id, quantity: '50' }] }
+    const early = await s.browser.call('POST', loads, { body })
+    expect(early.statusCode).toBe(409)
+    expect(early.json()).toMatchObject({ code: 'invalid_transition' })
+    for (const [status, version] of [
+      ['sent', 1],
+      ['received', 2],
+    ] as const) {
+      await s.browser.call('POST', `${orders}/${orderId}/status`, {
+        body: { status },
+        headers: { 'If-Match': `"${version}"` },
+      })
+    }
+    const bad = await s.browser.call('POST', loads, {
+      body: { date: 'x', lines: [{ item_id: crypto.randomUUID(), quantity: '0' }] },
+    })
+    expect(Object.keys(bad.json<{ errors: object }>().errors).sort()).toEqual([
+      'date',
+      'lines.0.quantity',
+    ])
+    const foreign = await scene()
+    const other = (await foreign.browser.call('POST', foreign.items, { body: item() })).json<Item>()
+    const cross = await s.browser.call('POST', loads, {
+      body: { date: '2026-11-06', lines: [{ item_id: other.id, quantity: '1' }] },
+    })
+    expect(Object.keys(cross.json<{ errors: object }>().errors)).toEqual(['lines.0.item_id'])
+    expect(
+      (
+        await foreign.browser.call(
+          'POST',
+          `/api/companies/${foreign.company.slug}/purchase-orders/${orderId}/warehouse-loads`,
+          { body },
+        )
+      ).statusCode,
+    ).toBe(404)
+    const loaded = await s.browser.call('POST', loads, { body })
+    expect(loaded.statusCode).toBe(201)
+    expect(loaded.json()).toMatchObject({
+      data: [
+        { kind: 'in', quantity: '50.000', purchase_order: { id: orderId, number: '2026/001' } },
+      ],
+    })
+    expect((await s.browser.call('GET', `${s.items}/${a.id}`)).json()).toMatchObject({
+      stock: '50.000',
+    })
+    const back = await s.browser.call('POST', `${orders}/${orderId}/status`, {
+      body: { status: 'sent' },
+      headers: { 'If-Match': '"3"' },
+    })
+    expect(back.statusCode).toBe(409)
+    expect(back.json()).toMatchObject({ code: 'has_documents' })
   })
 
   it('needs the warehouse permissions', async () => {

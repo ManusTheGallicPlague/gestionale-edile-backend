@@ -1813,7 +1813,8 @@ paths:
         Permesso: purchases.update. Da draft a sent (inviato al fornitore), da sent a received
         (merce ricevuta), e indietro di un passo: da sent a draft, da received a sent. Un ordine
         senza righe non si invia (422 sotto lines). Gli altri passaggi rispondono 409 con code
-        invalid_transition.
+        invalid_transition; un ordine già caricato in magazzino non torna indietro (409 con code
+        has_documents).
       security:
         - session: []
           csrf: []
@@ -1840,13 +1841,74 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: Passaggio di stato non ammesso (code invalid_transition).
+          description: |
+            Passaggio di stato non ammesso (code invalid_transition) o ordine già caricato in
+            magazzino (code has_documents).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/purchase-orders/{order}/warehouse-loads:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PurchaseOrderId'
+    post:
+      operationId: loadPurchaseOrderIntoWarehouse
+      summary: Carico in magazzino della merce di un ordine ricevuto
+      description: |
+        Permessi: warehouse.create e purchases.view. Solo per ordini received (altrimenti 409
+        con code invalid_transition). Crea un movimento di carico per ogni riga indicata, con
+        la data indicata e collegato all'ordine; gli articoli si scelgono a mano perché le righe
+        dell'ordine sono testo libero. Si può caricare in più volte.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, lines]
+              properties:
+                date: { $ref: '#/components/schemas/Date' }
+                lines:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [item_id, quantity]
+                    properties:
+                      item_id: { $ref: '#/components/schemas/Id' }
+                      quantity:
+                        description: Quantità maggiore di zero, nell'unità dell'articolo.
+                        allOf:
+                          - $ref: '#/components/schemas/Quantity'
+      responses:
+        '201':
+          description: Movimenti di carico registrati
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/WarehouseMovement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: L'ordine non è ricevuto (code invalid_transition).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/warehouse/items:
     parameters:
@@ -6308,9 +6370,18 @@ components:
       allOf:
         - $ref: '#/components/schemas/WarehouseMovementInput'
         - type: object
-          required: [id, item, site, created_by, created_at]
+          required: [id, item, site, purchase_order, created_by, created_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            purchase_order:
+              description: L'ordine ricevuto da cui viene il carico, se c'è.
+              oneOf:
+                - type: object
+                  required: [id, number]
+                  properties:
+                    id: { $ref: '#/components/schemas/Id' }
+                    number: { type: string, examples: ['2026/001'] }
+                - type: 'null'
             item:
               type: object
               required: [id, code, name, unit]

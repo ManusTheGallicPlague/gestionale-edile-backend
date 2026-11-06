@@ -88,6 +88,9 @@ export const messages = {
     'L’articolo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   warehouseItemMissingIfMatch: 'Manca la versione dell’articolo: ricarica la pagina e riprova.',
   warehouseItemHasMovements: 'L’articolo ha dei movimenti di magazzino e non si può eliminare.',
+  orderNotReceived: 'Si carica in magazzino solo la merce di un ordine ricevuto.',
+  orderLoaded:
+    'La merce dell’ordine è già stata caricata in magazzino: prima vanno eliminati i carichi.',
   orderInvalidTransition: 'Questo cambio di stato dell’ordine non è ammesso.',
   employeeStale:
     'Il dipendente è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',

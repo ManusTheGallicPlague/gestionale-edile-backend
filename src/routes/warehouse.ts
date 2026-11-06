@@ -58,12 +58,15 @@ interface MovementRow {
   site_name: string | null
   site_code: string | null
   notes: string | null
+  purchase_order_id: string | null
+  order_year: number | null
+  order_seq: number | null
   created_by: string | null
   created_by_name: string | null
   created_at: Date
 }
 
-type Params = { company: string; item?: string; movement?: string }
+type Params = { company: string; item?: string; movement?: string; order?: string }
 
 const STOCK = `coalesce((select sum(case when m.kind = 'in' then m.quantity else -m.quantity end)
     from public.warehouse_movements m where m.item_id = i.id), 0)`
@@ -84,10 +87,12 @@ const ITEM_SORTS = {
 const MOVEMENT_SELECT = `select m.id, m.item_id, i.code as item_code, i.name as item_name,
     i.unit as item_unit, m.movement_date::text as movement_date, m.kind,
     m.quantity::text as quantity, m.site_id, s.name as site_name, s.code as site_code, m.notes,
+    m.purchase_order_id, o.number_year as order_year, o.number_seq as order_seq,
     m.created_by, cu.name as created_by_name, m.created_at
   from public.warehouse_movements m
   join public.warehouse_items i on i.id = m.item_id
   left join public.sites s on s.id = m.site_id
+  left join public.purchase_orders o on o.id = m.purchase_order_id
   left join lateral app.audit_users(array[m.created_by]) cu on true`
 
 function itemToContract(row: ItemRow) {
@@ -114,6 +119,12 @@ function movementToContract(row: MovementRow) {
     site_id: row.site_id,
     site: row.site_id ? { id: row.site_id, name: row.site_name ?? '', code: row.site_code } : null,
     notes: row.notes,
+    purchase_order: row.purchase_order_id
+      ? {
+          id: row.purchase_order_id,
+          number: `${row.order_year}/${String(row.order_seq).padStart(3, '0')}`,
+        }
+      : null,
     created_by: row.created_by ? { id: row.created_by, name: row.created_by_name ?? '' } : null,
     created_at: row.created_at.toISOString(),
   }
@@ -195,6 +206,46 @@ function parseMovementInput(body: unknown): MovementInput {
     throw new ValidationFailed(errors)
   }
   return { item_id, date, kind, quantity, site_id, notes }
+}
+
+function parseLoadInput(body: unknown): {
+  date: string
+  lines: { item_id: string; quantity: string }[]
+} {
+  const { errors, add, text } = reader(body)
+  const date = text('date', 10)
+  if (date === null && !errors.date) add('date', 'Indica la data del carico.')
+  else if (date !== null && !errors.date && !isIsoDate(date)) {
+    add('date', 'Data non valida (AAAA-MM-GG).')
+  }
+  const raw = (body as Record<string, unknown>).lines
+  const lines: { item_id: string; quantity: string }[] = []
+  if (!Array.isArray(raw) || raw.length === 0) add('lines', 'Indica almeno una riga da caricare.')
+  else if (raw.length > 200) add('lines', 'Al massimo 200 righe.')
+  else {
+    raw.forEach((item: unknown, i) => {
+      const line = (typeof item === 'object' && item !== null ? item : {}) as Record<
+        string,
+        unknown
+      >
+      const itemId = line.item_id
+      const quantity = line.quantity
+      if (typeof itemId !== 'string' || !UUID.test(itemId)) {
+        add(`lines.${i}.item_id`, 'Scegli l’articolo.')
+      }
+      if (typeof quantity !== 'string' || !QUANTITY.test(quantity) || /^[0.]+$/.test(quantity)) {
+        add(
+          `lines.${i}.quantity`,
+          'Una quantità maggiore di zero, con il punto e al massimo tre decimali.',
+        )
+      }
+      if (typeof itemId === 'string' && typeof quantity === 'string') {
+        lines.push({ item_id: itemId, quantity })
+      }
+    })
+  }
+  if (Object.keys(errors).length > 0 || !date) throw new ValidationFailed(errors)
+  return { date, lines }
 }
 
 function listQuery(query: Record<string, unknown>) {
@@ -470,6 +521,63 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
     if (!row) throw new Error('insert returned no row')
     return reply.code(201).send(movementToContract(row))
   })
+
+  app.post<{ Params: Params }>(
+    '/api/companies/:company/purchase-orders/:order/warehouse-loads',
+    async (request, reply) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      const rows = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('purchases.view')) throw notFound()
+        if (!permissions.has('warehouse.create')) throw forbidden()
+        const orderId = request.params.order ?? ''
+        if (!UUID.test(orderId)) throw notFound()
+        const input = parseLoadInput(request.body)
+        // Locked, so it cannot go back from received while the load is written.
+        const order = await client.query<{ status: string }>(
+          'select status from public.purchase_orders where id = $1 for update',
+          [orderId],
+        )
+        if (!order.rows[0]) throw notFound()
+        if (order.rows[0].status !== 'received') {
+          throw new ApiError(409, messages.orderNotReceived, 'invalid_transition')
+        }
+        const { rows: found } = await client.query<{ id: string }>(
+          'select id::text as id from public.warehouse_items where id = any($1::uuid[])',
+          [input.lines.map((l) => l.item_id)],
+        )
+        const known = new Set(found.map((r) => r.id))
+        const errors: FieldErrors = {}
+        input.lines.forEach((l, i) => {
+          if (!known.has(l.item_id)) errors[`lines.${i}.item_id`] = ['Articolo non trovato.']
+        })
+        if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+        const { rows: created } = await client.query<{ id: string }>(
+          `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
+             quantity, purchase_order_id, created_by)
+           select app.current_company_id(), x.item_id, $1, 'in', x.quantity, $2, $3
+           from unnest($4::uuid[], $5::numeric[]) with ordinality as x (item_id, quantity, n)
+           order by x.n
+           returning id`,
+          [
+            input.date,
+            orderId,
+            session.user.id,
+            input.lines.map((l) => l.item_id),
+            input.lines.map((l) => l.quantity),
+          ],
+        )
+        const { rows: movementRows } = await client.query<MovementRow>(
+          `${MOVEMENT_SELECT} where m.id = any($1::uuid[]) order by m.item_id`,
+          [created.map((r) => r.id)],
+        )
+        const order_ = new Map(created.map((r, i) => [r.id, i]))
+        return movementRows.sort((a, b) => (order_.get(a.id) ?? 0) - (order_.get(b.id) ?? 0))
+      })
+      return reply.code(201).send({ data: rows.map(movementToContract) })
+    },
+  )
 
   app.delete<{ Params: Params }>(`${movements}/:movement`, async (request, reply) => {
     const session = requireSession(request)

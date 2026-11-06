@@ -730,6 +730,28 @@ describe('the API role cannot cross companies', () => {
     await expect(insert(companyB.id, itemB)).rejects.toThrow(/row-level security/)
     await expect(insert(companyA.id, itemB)).rejects.toThrow(/foreign key/)
     await expect(insert(companyA.id, itemA, siteB)).rejects.toThrow(/foreign key/)
+    const supplierB = (
+      await owner.query<{ id: string }>(
+        "insert into public.suppliers (company_id, name) values ($1, 'Carico B') returning id",
+        [companyB.id],
+      )
+    ).rows[0]?.id
+    const orderB = (
+      await owner.query<{ id: string }>(
+        `insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
+           order_date) values ($1, 2026, 950, $2, '2026-11-02') returning id`,
+        [companyB.id, supplierB],
+      )
+    ).rows[0]?.id
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
+             quantity, purchase_order_id) values ($1, $2, '2026-11-02', 'in', 1, $3)`,
+          [companyA.id, itemA, orderB],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
     const changed = await as(alice.id, companyA.id, async (c) => {
       const u = await c.query("update public.warehouse_items set name = 'x' where id = $1", [itemB])
       const m = await c.query('delete from public.warehouse_movements where id = $1', [movementB])
