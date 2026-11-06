@@ -33,6 +33,10 @@ const ALL = [
   'sites.create',
   'sites.update',
   'sites.delete',
+  'employees.view',
+  'employees.create',
+  'employees.update',
+  'employees.delete',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -424,6 +428,19 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            ('text', 'Ponteggi esclusi, a carico del committente.', null, null, null, null, null, 3)
          ) as l (kind, description, unit, quantity, cents, discount, vat, position)
          where q.company_id = $1`,
+        [companyId],
+      )
+      await client.query('delete from public.employees where company_id = $1', [companyId])
+      await client.query(
+        `insert into public.employees (company_id, first_name, last_name, job_title, hired_on,
+           hourly_cost_cents, active)
+         select $1, e.first_name, e.last_name, e.job_title, e.hired_on::date, e.cost, e.active
+         from (values
+           ('Marco', 'Ferri', 'Capo squadra', '2015-04-01', 3400, true),
+           ('Luca', 'Galli', 'Muratore', '2019-09-16', 2850, true),
+           ('Paolo', 'Riva', 'Carpentiere', '2021-02-01', 2700, true),
+           ('Andrea', 'Conti', 'Manovale', '2018-06-04', 2400, false)
+         ) as e (first_name, last_name, job_title, hired_on, cost, active)`,
         [companyId],
       )
       await client.query('delete from public.sites where company_id = $1', [companyId])

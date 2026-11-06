@@ -53,6 +53,9 @@ export const messages = {
   siteStale:
     'Il cantiere è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   siteMissingIfMatch: 'Manca la versione del cantiere: ricarica la pagina e riprova.',
+  employeeStale:
+    'Il dipendente è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  employeeMissingIfMatch: 'Manca la versione del dipendente: ricarica la pagina e riprova.',
   chapterStale:
     'Il capitolo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   itemStale:

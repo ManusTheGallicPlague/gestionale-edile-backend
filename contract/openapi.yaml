@@ -1205,6 +1205,132 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/employees:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listEmployees
+      summary: Elenco dei dipendenti
+      description: 'Permesso: employees.view. La ricerca guarda nome e cognome, mansione e codice fiscale.'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [last_name, -last_name, hired_on, -hired_on, updated_at, -updated_at]
+            default: last_name
+        - name: filter
+          in: query
+          description: 'Filtri: filter[active]=true solo gli attivi, false solo i cessati; senza filtro tutti.'
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              active: { type: boolean }
+      responses:
+        '200':
+          description: Una pagina di dipendenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createEmployee
+      summary: Nuovo dipendente
+      description: 'Permesso: employees.create. Il codice fiscale, se c''è, è unico nell''azienda.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeeInput' }
+      responses:
+        '201':
+          description: Dipendente creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/employees/{employee}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      operationId: getEmployee
+      summary: Scheda di un dipendente
+      description: 'Permesso: employees.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il dipendente
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateEmployee
+      summary: Modifica di un dipendente
+      description: 'Permesso: employees.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeeInput' }
+      responses:
+        '200':
+          description: Dipendente aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Employee' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteEmployee
+      summary: Eliminazione di un dipendente
+      description: 'Permesso: employees.delete.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Dipendente eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/estimates:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2775,6 +2901,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    EmployeeId:
+      name: employee
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     EstimateId:
       name: estimate
       in: path
@@ -3188,6 +3319,10 @@ components:
         - sites.create
         - sites.update
         - sites.delete
+        - employees.view
+        - employees.create
+        - employees.update
+        - employees.delete
         - quotes.view
         - quotes.create
         - quotes.update
@@ -3301,8 +3436,8 @@ components:
       type: string
       description: |
         client: cliente. supplier: fornitore. deadline: scadenza. estimate: computo metrico.
-        quote: preventivo. site: cantiere.
-      enum: [client, supplier, deadline, estimate, quote, site]
+        quote: preventivo. site: cantiere. employee: dipendente.
+      enum: [client, supplier, deadline, estimate, quote, site, employee]
     AuditEntry:
       type: object
       required: [id, entity, entity_id, action, fields, user, created_at]
@@ -3742,6 +3877,72 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/Site' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    EmployeeInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required:
+        [first_name, last_name, tax_code, job_title, phone, email, hired_on, hourly_cost, active, notes]
+      properties:
+        first_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        last_name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        tax_code:
+          type: [string, 'null']
+          description: Codice fiscale della persona (16 caratteri), unico nell'azienda. Si salva in maiuscolo, senza spazi.
+          maxLength: 20
+        job_title:
+          type: [string, 'null']
+          description: Mansione, ad esempio Muratore o Carpentiere.
+          maxLength: 100
+        phone:
+          type: [string, 'null']
+          maxLength: 30
+        email:
+          type: [string, 'null']
+          format: email
+          maxLength: 254
+        hired_on:
+          description: Data di assunzione.
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        hourly_cost:
+          description: Costo orario aziendale, per il costo della manodopera nei cantieri.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        active:
+          type: boolean
+          description: false per chi non lavora più in azienda; resta nello storico.
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    Employee:
+      allOf:
+        - $ref: '#/components/schemas/EmployeeInput'
+        - type: object
+          required: [id, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    EmployeeList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Employee' }
         meta: { $ref: '#/components/schemas/ListMeta' }
     EstimateStatus:
       type: string

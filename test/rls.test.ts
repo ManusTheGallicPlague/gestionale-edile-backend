@@ -325,6 +325,35 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.sites')).rejects.toThrow(/permission denied/)
   })
 
+  it('employees: cannot read or write across companies', async () => {
+    await owner.query(
+      "insert into public.employees (company_id, first_name, last_name) values ($1, 'B', 'B')",
+      [companyB.id],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.employees where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.employees (company_id, first_name, last_name) values ($1, 'X', 'X')",
+          [companyB.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query(
+        'update public.employees set hourly_cost_cents = 1 where company_id = $1',
+        [companyB.id],
+      )
+      const d = await c.query('delete from public.employees where company_id = $1', [companyB.id])
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.employees')).rejects.toThrow(/permission denied/)
+  })
+
   it('estimate chapters and items: cannot read, write or attach across companies', async () => {
     const estimateB = await owner.query<{ id: string }>(
       "insert into public.estimates (company_id, title) values ($1, 'B') returning id",

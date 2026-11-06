@@ -8,7 +8,15 @@ import type { FieldErrors } from '../http/errors.js'
 import { UUID } from '../deadlines/input.js'
 import { requireSession } from '../http/request-context.js'
 
-const ENTITIES = ['client', 'supplier', 'deadline', 'estimate', 'quote', 'site'] as const
+const ENTITIES = [
+  'client',
+  'supplier',
+  'deadline',
+  'estimate',
+  'quote',
+  'site',
+  'employee',
+] as const
 
 interface AuditRow {
   id: string
