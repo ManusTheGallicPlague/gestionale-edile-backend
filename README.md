@@ -13,6 +13,7 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Clienti: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
 | Isolamento tra aziende (Row Level Security) | Fatto, con test avversario |
 | Fornitori e subappaltatori: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
+| Documenti di regolarità dei fornitori (DURC, visura, assicurazione) con scadenza e stato | Fatto |
 | Preventivi, computo metrico, scadenziario | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 

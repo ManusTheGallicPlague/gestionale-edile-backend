@@ -41,6 +41,9 @@ export const messages = {
   supplierMissingIfMatch: 'Manca la versione del fornitore: ricarica la scheda e riprova.',
   supplierHasDocuments:
     'Il fornitore ha documenti collegati e non si può eliminare: puoi archiviarlo.',
+  documentStale:
+    'Il documento è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  documentMissingIfMatch: 'Manca la versione del documento: ricarica la pagina e riprova.',
   internal: 'Errore interno. Riprova tra poco.',
   badRequest: 'Richiesta non valida.',
 } as const

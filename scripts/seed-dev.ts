@@ -229,12 +229,14 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
 
     for (const company of COMPANIES) {
       const companyId = companyIds[company.slug]
+      await client.query('delete from public.supplier_documents where company_id = $1', [companyId])
       await client.query('delete from public.suppliers where company_id = $1', [companyId])
       for (const s of devSuppliers(company.seed)) {
-        await client.query(
+        const { rows: inserted } = await client.query<{ id: string }>(
           `insert into public.suppliers (company_id, name, vat_number, email, phone, street,
              postal_code, city, province, categories, subcontractor, created_at, updated_at)
-           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)`,
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)
+           returning id`,
           [
             companyId,
             s.name,
@@ -249,6 +251,15 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
             s.subcontractor,
             s.created_at,
           ],
+        )
+        if (!s.subcontractor) continue
+        // Compliance documents relative to today: one expired, one expiring, one valid.
+        await client.query(
+          `insert into public.supplier_documents (company_id, supplier_id, kind, issued_on, expires_on)
+           select $1, $2, d.kind, current_date + d.issued, current_date + d.expires
+           from (values ('durc', -100, 20), ('insurance', -400, -5), ('chamber_extract', -30, 150))
+             as d (kind, issued, expires)`,
+          [companyId, inserted[0]?.id],
         )
       }
     }

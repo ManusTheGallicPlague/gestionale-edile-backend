@@ -497,6 +497,103 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/suppliers/{supplier}/documents:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SupplierId'
+    get:
+      operationId: listSupplierDocuments
+      summary: Documenti di regolarità di un fornitore
+      description: |
+        Permesso: suppliers.view. Tutti i documenti del fornitore, senza paginazione (sono
+        pochi), ordinati per scadenza: prima quelli che scadono prima, in fondo quelli senza.
+      responses:
+        '200':
+          description: I documenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupplierDocumentList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createSupplierDocument
+      summary: Nuovo documento di regolarità
+      description: 'Permesso: suppliers.update'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierDocumentInput' }
+      responses:
+        '201':
+          description: Documento registrato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupplierDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/suppliers/{supplier}/documents/{document}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SupplierId'
+      - name: document
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    put:
+      operationId: updateSupplierDocument
+      summary: Modifica di un documento di regolarità
+      description: 'Permesso: suppliers.update. Si inviano tutti i campi. If-Match come per i fornitori.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierDocumentInput' }
+      responses:
+        '200':
+          description: Documento aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupplierDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteSupplierDocument
+      summary: Eliminazione di un documento di regolarità
+      description: 'Permesso: suppliers.update. If-Match come per i fornitori.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Documento eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
 components:
   securitySchemes:
     session:
@@ -938,3 +1035,63 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Supplier' }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    SupplierDocumentKind:
+      type: string
+      description: |
+        durc: DURC. chamber_extract: visura camerale. insurance: polizza assicurativa (RCT/RCO).
+        other: altro documento (descrizione obbligatoria).
+      enum: [durc, chamber_extract, insurance, other]
+    Date:
+      type: string
+      format: date
+      description: Data senza ora, AAAA-MM-GG.
+      examples: ['2026-11-30']
+    SupplierDocumentInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [kind, description, issued_on, expires_on, notes]
+      properties:
+        kind: { $ref: '#/components/schemas/SupplierDocumentKind' }
+        description:
+          type: [string, 'null']
+          description: Obbligatoria se kind è other.
+          maxLength: 200
+        issued_on:
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        expires_on:
+          description: Non prima di issued_on. Null se il documento non scade.
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    SupplierDocument:
+      allOf:
+        - $ref: '#/components/schemas/SupplierDocumentInput'
+        - type: object
+          required: [id, supplier_id, status, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            supplier_id: { $ref: '#/components/schemas/Id' }
+            status:
+              type: string
+              description: |
+                Calcolato dal backend sulla data di oggi (ora italiana). valid: valido.
+                expiring: scade entro 30 giorni. expired: scaduto. no_expiry: senza scadenza.
+              enum: [valid, expiring, expired, no_expiry]
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    SupplierDocumentList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/SupplierDocument' }

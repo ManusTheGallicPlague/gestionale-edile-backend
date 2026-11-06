@@ -161,6 +161,46 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.suppliers')).rejects.toThrow(/permission denied/)
   })
 
+  it('supplier documents: cannot read across, nor link to a supplier of another company', async () => {
+    const suppliers = await owner.query<{ id: string; company_id: string }>(
+      "insert into public.suppliers (company_id, name) values ($1, 'DA'), ($2, 'DB') returning id, company_id",
+      [companyA.id, companyB.id],
+    )
+    const supplierOf = (companyId: string) =>
+      suppliers.rows.find((r) => r.company_id === companyId)?.id ?? ''
+    await owner.query(
+      "insert into public.supplier_documents (company_id, supplier_id, kind) values ($1, $2, 'durc')",
+      [companyB.id, supplierOf(companyB.id)],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.supplier_documents where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    // My company, their supplier: the composite foreign key says no.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.supplier_documents (company_id, supplier_id, kind) values ($1, $2, 'durc')",
+          [companyA.id, supplierOf(companyB.id)],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.supplier_documents (company_id, supplier_id, kind) values ($1, $2, 'durc')",
+          [companyB.id, supplierOf(companyB.id)],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.supplier_documents set notes = 'x'")
+      const d = await c.query('delete from public.supplier_documents')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+  })
+
   it('cannot see memberships of other users', async () => {
     const other = await fx.user()
     const roleId = await fx.role(companyA.id, `Altro ${other.id.slice(0, 6)}`, [])

@@ -8,6 +8,7 @@ import { COOKIES } from './http/request-context.js'
 import { authRoutes } from './routes/auth.js'
 import { clientRoutes } from './routes/clients.js'
 import { supplierRoutes } from './routes/suppliers.js'
+import { supplierDocumentRoutes } from './routes/supplier-documents.js'
 import { meRoutes } from './routes/me.js'
 
 export function buildApp(
@@ -74,6 +75,7 @@ export function buildApp(
   meRoutes(app, db)
   clientRoutes(app, config, db)
   supplierRoutes(app, config, db)
+  supplierDocumentRoutes(app, config, db)
 
   return app
 }

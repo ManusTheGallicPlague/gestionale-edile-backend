@@ -13,7 +13,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Clienti: elenco, scheda, creazione, modifica
 - [x] Clienti: archiviazione (`archived_at`, filtro `filter[archived]`, niente cancellazione fisica se ha documenti collegati)
 - [x] Fornitori: come i clienti, più `categories` (es. materiali, noli, subappalto, servizi) e flag `subcontractor`. Permessi `suppliers.view/create/update`
-- [ ] Fornitori: documenti di regolarità dei subappaltatori (DURC, visura, assicurazione) con data di scadenza, che alimentano lo scadenziario
+- [x] Fornitori: documenti di regolarità dei subappaltatori (DURC, visura, assicurazione) con data di scadenza, che alimentano lo scadenziario
 
 ### 2. Scadenziario
 - [ ] Scadenze: titolo, data, tipo (`durc`, `insurance`, `tax`, `invoice_in`, `invoice_out`, `contract`, `vehicle`, `other`), importo facoltativo, collegamento facoltativo a cliente o fornitore, note, stato (`open`/`done`), `done_at`
@@ -63,11 +63,16 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: categorie dei fornitori fisse: `materials`, `rentals`, `subcontracting`, `services`, `other`; un fornitore ne ha zero o più (`text[]`), i doppioni si tolgono.
 - 06/11/2026: fornitori senza `kind` e senza codice destinatario (le fatture le riceviamo noi); per quelli italiani serve partita IVA o codice fiscale. Archiviazione ed eliminazione come i clienti, con il permesso in più `suppliers.delete`.
 - 06/11/2026: `filter[subcontractor]` e `filter[category]` (una categoria) nell'elenco dei fornitori.
+- 06/11/2026: documenti di regolarità come sotto-risorsa `…/suppliers/{id}/documents`, senza paginazione; tipi `durc`, `chamber_extract`, `insurance`, `other` (con descrizione obbligatoria). Leggerli chiede `suppliers.view`, scriverli `suppliers.update`: nessun permesso nuovo.
+- 06/11/2026: `status` del documento calcolato dal backend sulla data italiana (`Europe/Rome`): `expired`, `expiring` (entro 30 giorni, oggi compreso), `valid`, `no_expiry`.
+- 06/11/2026: per ora niente file allegato ai documenti (PDF del DURC): si aggiungerà con gli allegati, quando servirà l'archivio file.
+- 06/11/2026: le date senza ora escono dal database come testo `AAAA-MM-GG` (`::text`), mai come `Date` di JavaScript, per non spostarle col fuso.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 13:32 UTC: documenti di regolarità dei fornitori (contratto, migrazione 0004 con chiave esterna composta, stato calcolato, test e caso avversario). Il collegamento allo scadenziario si fa con il compito «Le scadenze dei documenti dei fornitori compaiono nello scadenziario». Prossimo: scadenze. 130 test.
 - 2026-11-06 13:29 UTC: fornitori (contratto, migrazione 0003, permessi `suppliers.*`, dati di sviluppo, test e caso avversario). Niente a metà; prossimo compito: documenti di regolarità dei subappaltatori. 119 test.
 - 2026-11-06 13:21 UTC: archiviazione ed eliminazione dei clienti (contratto, migrazione 0002, permesso `clients.delete`, test). Niente a metà; prossimo compito: fornitori. 98 test.
 - 2026-11-06: primo pezzo (accesso, `/api/me`, clienti), 87 test.
