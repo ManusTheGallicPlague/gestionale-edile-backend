@@ -810,6 +810,133 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/estimates:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listEstimates
+      summary: Elenco dei computi metrici
+      description: 'Permesso: estimates.view. La ricerca guarda titolo, indirizzo e cliente.'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [title, -title, created_at, -created_at, updated_at, -updated_at]
+            default: -updated_at
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[status]=draft o filter[client]=<id>.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/EstimateStatus' }
+              client: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Una pagina di computi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createEstimate
+      summary: Nuovo computo metrico
+      description: 'Permesso: estimates.create'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateInput' }
+      responses:
+        '201':
+          description: Computo creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Estimate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/estimates/{estimate}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    get:
+      operationId: getEstimate
+      summary: Testata di un computo metrico
+      description: 'Permesso: estimates.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il computo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Estimate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateEstimate
+      summary: Modifica della testata di un computo
+      description: 'Permesso: estimates.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateInput' }
+      responses:
+        '200':
+          description: Computo aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Estimate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteEstimate
+      summary: Eliminazione di un computo metrico
+      description: 'Permesso: estimates.delete.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Computo eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
 components:
   securitySchemes:
     session:
@@ -865,6 +992,11 @@ components:
       schema: { $ref: '#/components/schemas/Id' }
     DeadlineId:
       name: deadline
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    EstimateId:
+      name: estimate
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
@@ -1045,6 +1177,10 @@ components:
         - deadlines.create
         - deadlines.update
         - deadlines.delete
+        - estimates.view
+        - estimates.create
+        - estimates.update
+        - estimates.delete
 
     ClientKind:
       type: string
@@ -1462,4 +1598,54 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/Deadline' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    EstimateStatus:
+      type: string
+      description: 'draft: bozza. final: definitivo.'
+      enum: [draft, final]
+    EstimateInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [title, client_id, site_address, status, notes]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        client_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        site_address:
+          type: [string, 'null']
+          description: Indirizzo del lavoro, in una riga.
+          maxLength: 300
+        status: { $ref: '#/components/schemas/EstimateStatus' }
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    Estimate:
+      allOf:
+        - $ref: '#/components/schemas/EstimateInput'
+        - type: object
+          required: [id, client, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            client:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    EstimateList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Estimate' }
         meta: { $ref: '#/components/schemas/ListMeta' }

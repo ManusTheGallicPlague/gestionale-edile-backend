@@ -23,11 +23,15 @@ const ALL = [
   'deadlines.create',
   'deadlines.update',
   'deadlines.delete',
+  'estimates.view',
+  'estimates.create',
+  'estimates.update',
+  'estimates.delete',
 ]
 const ROLES: Record<string, string[]> = {
   Titolare: ALL,
   Ufficio: ALL.filter((p) => !p.endsWith('.delete')),
-  'Capo cantiere': ['clients.view', 'suppliers.view', 'deadlines.view'],
+  'Capo cantiere': ['clients.view', 'suppliers.view', 'deadlines.view', 'estimates.view'],
 }
 
 const COMPANIES = [
@@ -200,6 +204,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
         }
       }
       await client.query('delete from public.deadlines where company_id = $1', [companyId])
+      await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query('delete from public.clients where company_id = $1', [companyId])
       for (const [i, c] of devClients(company.clients, company.seed).entries()) {
         await client.query(
@@ -319,6 +324,25 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            sd.supplier_id, sd.id
          from public.supplier_documents sd join public.suppliers s on s.id = sd.supplier_id
          where sd.company_id = $1 and sd.expires_on is not null`,
+        [companyId],
+      )
+    }
+
+    for (const company of COMPANIES) {
+      const companyId = companyIds[company.slug]
+      await client.query('delete from public.estimates where company_id = $1', [companyId])
+      await client.query(
+        `insert into public.estimates (company_id, title, client_id, site_address, status)
+         select $1, e.title, c.id, e.address, e.status
+         from (values
+           ('Rifacimento copertura', 'Via Roma 1, Torino', 'draft', 0),
+           ('Ristrutturazione bagno', 'Corso Francia 20, Torino', 'final', 1),
+           ('Cappotto termico facciata nord', null, 'draft', 2)
+         ) as e (title, address, status, n)
+         left join lateral (
+           select id from public.clients where company_id = $1 and archived_at is null
+           order by created_at offset e.n limit 1
+         ) c on e.n < 2`,
         [companyId],
       )
     }

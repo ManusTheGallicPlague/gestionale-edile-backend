@@ -15,6 +15,10 @@ export const PERMISSIONS = [
   'deadlines.create',
   'deadlines.update',
   'deadlines.delete',
+  'estimates.view',
+  'estimates.create',
+  'estimates.update',
+  'estimates.delete',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]

@@ -23,7 +23,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Le scadenze dei documenti dei fornitori compaiono nello scadenziario
 
 ### 3. Computo metrico estimativo
-- [ ] Computo: titolo, cliente facoltativo, indirizzo del lavoro, stato, note
+- [x] Computo: titolo, cliente facoltativo, indirizzo del lavoro, stato, note
 - [ ] Struttura ad albero: capitoli (anche annidati) → voci. Voce: codice (es. del prezzario regionale), descrizione, unità di misura, prezzo unitario, ordine
 - [ ] Righe di misura per ogni voce: descrizione, parti uguali, lunghezza, larghezza, altezza/peso; quantità = prodotto dei valori presenti; quantità negative ammesse (detrazioni)
 - [ ] Totali calcolati dal backend per voce, capitolo e computo. Importi in centesimi interi, quantità in `numeric` con 3 decimali: mai `float`
@@ -73,12 +73,14 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: ricorrenza come campo `recurrence` della scadenza (`monthly`, `quarterly`, `yearly` o null). La successiva nasce a `complete`, una volta sola (`next_deadline_id`); riaprire non la cancella. Data successiva = data + intervallo di Postgres: a fine mese si ferma all'ultimo giorno e la catena può scivolare (31/01 → 28/02 → 28/03), scelta semplice accettata.
 - 06/11/2026: riepilogo `GET …/deadlines/summary` con conteggio e somma degli importi per scadute, prossimi 7 e prossimi 30 giorni (cumulativi, oggi compreso), solo scadenze aperte, data italiana. I documenti dei fornitori entreranno con il compito successivo.
 - 06/11/2026: i documenti dei fornitori con scadenza diventano scadenze vere (`supplier_document_id`), tenute allineate dall'API a ogni salvataggio del documento: titolo «DURC – Fornitore», tipo `durc`/`insurance`/`other`; una nuova data di scadenza riapre la scadenza; senza scadenza o con il documento eliminato la scadenza sparisce. Così elenco, calendario e riepilogo li contano senza casi speciali.
+- 06/11/2026: computo metrico: stati `draft` (bozza) e `final` (definitivo); indirizzo del lavoro in un solo campo di testo `site_address`; elenco ordinato per ultima modifica; permessi nuovi `estimates.view/create/update/delete`, il Capo cantiere vede i computi.
 - 06/11/2026: elenco delle scadenze con `per_page` al massimo 100 come gli altri; il calendario mensile chiede `filter[from]`/`filter[to]` e, se servono, più pagine.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 13:46 UTC: testata del computo metrico (migrazione 0008, CRUD, permessi `estimates.*`, test e caso avversario). Niente a metà; prossimo: struttura ad albero (capitoli e voci). 188 test.
 - 2026-11-06 13:43 UTC: documenti dei fornitori nello scadenziario (migrazione 0007). Lo scadenziario (sezione 2) è completo. Niente a metà; prossimo: computo metrico. 179 test.
 - 2026-11-06 13:42 UTC: riepilogo delle scadenze per la dashboard. Niente a metà; prossimo: documenti dei fornitori nello scadenziario. 177 test.
 - 2026-11-06 13:39 UTC: ricorrenze semplici delle scadenze (migrazione 0006, `recurrence`, `next_deadline_id`, test e caso avversario). Niente a metà; prossimo: riepilogo per la dashboard. 174 test.

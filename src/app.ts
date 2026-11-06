@@ -10,6 +10,7 @@ import { clientRoutes } from './routes/clients.js'
 import { supplierRoutes } from './routes/suppliers.js'
 import { supplierDocumentRoutes } from './routes/supplier-documents.js'
 import { deadlineRoutes } from './routes/deadlines.js'
+import { estimateRoutes } from './routes/estimates.js'
 import { meRoutes } from './routes/me.js'
 
 export function buildApp(
@@ -78,6 +79,7 @@ export function buildApp(
   supplierRoutes(app, config, db)
   supplierDocumentRoutes(app, config, db)
   deadlineRoutes(app, config, db)
+  estimateRoutes(app, config, db)
 
   return app
 }
