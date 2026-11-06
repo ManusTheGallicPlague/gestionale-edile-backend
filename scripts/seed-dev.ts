@@ -19,11 +19,15 @@ const ALL = [
   'suppliers.create',
   'suppliers.update',
   'suppliers.delete',
+  'deadlines.view',
+  'deadlines.create',
+  'deadlines.update',
+  'deadlines.delete',
 ]
 const ROLES: Record<string, string[]> = {
   Titolare: ALL,
   Ufficio: ALL.filter((p) => !p.endsWith('.delete')),
-  'Capo cantiere': ['clients.view', 'suppliers.view'],
+  'Capo cantiere': ['clients.view', 'suppliers.view', 'deadlines.view'],
 }
 
 const COMPANIES = [
@@ -195,6 +199,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
           )
         }
       }
+      await client.query('delete from public.deadlines where company_id = $1', [companyId])
       await client.query('delete from public.clients where company_id = $1', [companyId])
       for (const [i, c] of devClients(company.clients, company.seed).entries()) {
         await client.query(
@@ -229,6 +234,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
 
     for (const company of COMPANIES) {
       const companyId = companyIds[company.slug]
+      await client.query('delete from public.deadlines where company_id = $1', [companyId])
       await client.query('delete from public.supplier_documents where company_id = $1', [companyId])
       await client.query('delete from public.suppliers where company_id = $1', [companyId])
       for (const s of devSuppliers(company.seed)) {
@@ -262,6 +268,40 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
           [companyId, inserted[0]?.id],
         )
       }
+    }
+
+    for (const company of COMPANIES) {
+      const companyId = companyIds[company.slug]
+      await client.query('delete from public.deadlines where company_id = $1', [companyId])
+      // Deadlines relative to today, so the calendar and the dashboard always have something.
+      await client.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, status, done_at)
+         select $1, d.title, current_date + d.days, d.kind, d.cents,
+           case when d.done then 'done' else 'open' end, case when d.done then now() end
+         from (values
+           ('F24 ritenute e contributi', -3, 'tax', 412300::bigint, false),
+           ('Revisione autocarro', 5, 'vehicle', 8900::bigint, false),
+           ('Rata assicurazione RCT/RCO', 12, 'insurance', 185000::bigint, false),
+           ('Rinnovo contratto di noleggio gru', 25, 'contract', null::bigint, false),
+           ('Saldo IVA trimestrale', 45, 'tax', 1250000::bigint, false),
+           ('F24 del mese scorso', -33, 'tax', 398000::bigint, true)
+         ) as d (title, days, kind, cents, done)`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, client_id)
+         select $1, 'Incasso fattura ' || c.name, current_date + 20, 'invoice_out', 2440000, c.id
+         from public.clients c where c.company_id = $1 and c.archived_at is null
+         order by c.created_at limit 1`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, supplier_id)
+         select $1, 'Pagamento fattura ' || s.name, current_date + 8, 'invoice_in', 735000, s.id
+         from public.suppliers s where s.company_id = $1
+         order by s.created_at limit 1`,
+        [companyId],
+      )
     }
 
     const passwordHash = await hashPassword(DEV_PASSWORD)

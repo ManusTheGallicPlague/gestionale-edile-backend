@@ -201,6 +201,45 @@ describe('the API role cannot cross companies', () => {
     expect(changed).toBe(0)
   })
 
+  it('deadlines: cannot read, write or link across companies', async () => {
+    const clientB = await owner.query<{ id: string }>(
+      'select id from public.clients where company_id = $1 limit 1',
+      [companyB.id],
+    )
+    await owner.query(
+      "insert into public.deadlines (company_id, title, due_on, kind) values ($1, 'B', '2026-12-01', 'tax')",
+      [companyB.id],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.deadlines where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.deadlines (company_id, title, due_on, kind) values ($1, 'X', '2026-12-01', 'tax')",
+          [companyB.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    // My company, their client: the composite foreign key says no.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.deadlines (company_id, title, due_on, kind, client_id) values ($1, 'X', '2026-12-01', 'tax', $2)",
+          [companyA.id, clientB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.deadlines set title = 'preso'")
+      const d = await c.query('delete from public.deadlines')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.deadlines')).rejects.toThrow(/permission denied/)
+  })
+
   it('cannot see memberships of other users', async () => {
     const other = await fx.user()
     const roleId = await fx.role(companyA.id, `Altro ${other.id.slice(0, 6)}`, [])

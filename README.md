@@ -14,7 +14,8 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Isolamento tra aziende (Row Level Security) | Fatto, con test avversario |
 | Fornitori e subappaltatori: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
 | Documenti di regolarità dei fornitori (DURC, visura, assicurazione) con scadenza e stato | Fatto |
-| Preventivi, computo metrico, scadenziario | Da fare, dopo il contratto |
+| Scadenze: elenco per intervallo di date, filtri, creazione, modifica, fatta/riaperta, eliminazione | Fatto |
+| Ricorrenze e riepilogo delle scadenze, computo metrico, preventivi | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 
 ## Stack
@@ -47,7 +48,9 @@ src/db.ts           i due pool e withIdentity()
 src/auth/           password, sessioni, CSRF, limite ai tentativi
 src/clients/        validazione dei clienti, partita IVA e codice fiscale
 src/suppliers/      validazione dei fornitori
-src/routes/         auth, me, clients, suppliers
+src/deadlines/      validazione delle scadenze
+src/money.ts        importi: stringhe nel contratto, centesimi nel database
+src/routes/         auth, me, clients, suppliers, supplier-documents, deadlines
 test/               test di integrazione su un database usa e getta
 ```
 

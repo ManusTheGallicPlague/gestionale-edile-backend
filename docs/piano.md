@@ -16,8 +16,8 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Fornitori: documenti di regolarità dei subappaltatori (DURC, visura, assicurazione) con data di scadenza, che alimentano lo scadenziario
 
 ### 2. Scadenziario
-- [ ] Scadenze: titolo, data, tipo (`durc`, `insurance`, `tax`, `invoice_in`, `invoice_out`, `contract`, `vehicle`, `other`), importo facoltativo, collegamento facoltativo a cliente o fornitore, note, stato (`open`/`done`), `done_at`
-- [ ] Elenco con intervallo di date (`filter[from]`, `filter[to]`) per il calendario, filtri per tipo, stato e soggetto; ordinamento per data
+- [x] Scadenze: titolo, data, tipo (`durc`, `insurance`, `tax`, `invoice_in`, `invoice_out`, `contract`, `vehicle`, `other`), importo facoltativo, collegamento facoltativo a cliente o fornitore, note, stato (`open`/`done`), `done_at`
+- [x] Elenco con intervallo di date (`filter[from]`, `filter[to]`) per il calendario, filtri per tipo, stato e soggetto; ordinamento per data
 - [ ] Ricorrenze semplici (mensile, trimestrale, annuale): completare una scadenza ricorrente crea la successiva
 - [ ] Riepilogo per la dashboard: scadute, in scadenza nei prossimi 7 e 30 giorni
 - [ ] Le scadenze dei documenti dei fornitori compaiono nello scadenziario
@@ -67,11 +67,16 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: `status` del documento calcolato dal backend sulla data italiana (`Europe/Rome`): `expired`, `expiring` (entro 30 giorni, oggi compreso), `valid`, `no_expiry`.
 - 06/11/2026: per ora niente file allegato ai documenti (PDF del DURC): si aggiungerà con gli allegati, quando servirà l'archivio file.
 - 06/11/2026: le date senza ora escono dal database come testo `AAAA-MM-GG` (`::text`), mai come `Date` di JavaScript, per non spostarle col fuso.
+- 06/11/2026: nel contratto gli importi sono stringhe `"1234.50"` (come chiede `docs/frontend.md` del frontend), nel database centesimi `bigint`; la conversione è in `src/money.ts`, sulle cifre. In ingresso solo il punto come separatore, niente segno: le scadenze hanno importi non negativi.
+- 06/11/2026: le scadenze cambiano stato solo con `POST …/complete` e `…/reopen` (con `If-Match`), non con `PUT`: servirà alle ricorrenze. Permessi nuovi `deadlines.view/create/update/delete`; il Capo cantiere vede le scadenze.
+- 06/11/2026: una scadenza punta al massimo a un cliente o a un fornitore, con chiave esterna composta `(company_id, id)` e `on delete restrict`; la risposta porta anche `client`/`supplier` con il nome, per l'elenco senza altre chiamate.
+- 06/11/2026: elenco delle scadenze con `per_page` al massimo 100 come gli altri; il calendario mensile chiede `filter[from]`/`filter[to]` e, se servono, più pagine.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 13:36 UTC: scadenze (contratto, migrazione 0005, importi in centesimi con `src/money.ts`, elenco per intervallo di date e filtri, complete/reopen, permessi `deadlines.*`, dati di sviluppo, test e caso avversario). Niente a metà; prossimo: ricorrenze. 168 test.
 - 2026-11-06 13:32 UTC: documenti di regolarità dei fornitori (contratto, migrazione 0004 con chiave esterna composta, stato calcolato, test e caso avversario). Il collegamento allo scadenziario si fa con il compito «Le scadenze dei documenti dei fornitori compaiono nello scadenziario». Prossimo: scadenze. 130 test.
 - 2026-11-06 13:29 UTC: fornitori (contratto, migrazione 0003, permessi `suppliers.*`, dati di sviluppo, test e caso avversario). Niente a metà; prossimo compito: documenti di regolarità dei subappaltatori. 119 test.
 - 2026-11-06 13:21 UTC: archiviazione ed eliminazione dei clienti (contratto, migrazione 0002, permesso `clients.delete`, test). Niente a metà; prossimo compito: fornitori. 98 test.

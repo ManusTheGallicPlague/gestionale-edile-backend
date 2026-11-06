@@ -594,6 +594,197 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/deadlines:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listDeadlines
+      summary: Elenco delle scadenze
+      description: |
+        Permesso: deadlines.view. Per il calendario si chiede un intervallo con filter[from] e
+        filter[to] (compresi) e per_page=100.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          description: Ordinamento per data di scadenza; il segno meno vuol dire decrescente.
+          schema:
+            type: string
+            enum: [due_on, -due_on]
+            default: due_on
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[from]=2026-11-01&filter[to]=2026-11-30&filter[status]=open.
+            filter[client] e filter[supplier] prendono l'id del soggetto.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              kind: { $ref: '#/components/schemas/DeadlineKind' }
+              status: { $ref: '#/components/schemas/DeadlineStatus' }
+              client: { $ref: '#/components/schemas/Id' }
+              supplier: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Una pagina di scadenze
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeadlineList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createDeadline
+      summary: Nuova scadenza
+      description: 'Permesso: deadlines.create. Nasce aperta.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeadlineInput' }
+      responses:
+        '201':
+          description: Scadenza creata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deadline' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/deadlines/{deadline}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/DeadlineId'
+    get:
+      operationId: getDeadline
+      summary: Una scadenza
+      description: 'Permesso: deadlines.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: La scadenza
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deadline' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateDeadline
+      summary: Modifica di una scadenza
+      description: |
+        Permesso: deadlines.update. Si inviano tutti i campi. Lo stato non cambia da qui:
+        si usano complete e reopen.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DeadlineInput' }
+      responses:
+        '200':
+          description: Scadenza aggiornata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deadline' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteDeadline
+      summary: Eliminazione di una scadenza
+      description: 'Permesso: deadlines.delete.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Scadenza eliminata
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/deadlines/{deadline}/complete:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/DeadlineId'
+    post:
+      operationId: completeDeadline
+      summary: Scadenza fatta
+      description: 'Permesso: deadlines.update. Imposta status done e done_at; se è già fatta non cambia done_at.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Scadenza segnata come fatta
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deadline' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/deadlines/{deadline}/reopen:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/DeadlineId'
+    post:
+      operationId: reopenDeadline
+      summary: Scadenza riaperta
+      description: 'Permesso: deadlines.update. Riporta status a open e done_at a null.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Scadenza di nuovo aperta
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Deadline' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
 components:
   securitySchemes:
     session:
@@ -644,6 +835,11 @@ components:
       schema: { $ref: '#/components/schemas/Id' }
     SupplierId:
       name: supplier
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    DeadlineId:
+      name: deadline
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
@@ -820,6 +1016,10 @@ components:
         - suppliers.create
         - suppliers.update
         - suppliers.delete
+        - deadlines.view
+        - deadlines.create
+        - deadlines.update
+        - deadlines.delete
 
     ClientKind:
       type: string
@@ -1095,3 +1295,94 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/SupplierDocument' }
+    Amount:
+      type: string
+      description: |
+        Importo in euro come stringa con due decimali e il punto, mai numero JSON. In ingresso
+        si accettano anche zero o un decimale.
+      pattern: '^\d{1,13}(\.\d{1,2})?$'
+      examples: ['1234.50']
+    DeadlineKind:
+      type: string
+      description: |
+        durc, insurance (assicurazione), tax (imposte e contributi), invoice_in (fattura da
+        pagare), invoice_out (fattura da incassare), contract (contratto), vehicle (mezzo:
+        bollo, revisione), other.
+      enum: [durc, insurance, tax, invoice_in, invoice_out, contract, vehicle, other]
+    DeadlineStatus:
+      type: string
+      enum: [open, done]
+    SubjectRef:
+      type: object
+      description: Cliente o fornitore collegato, con il nome per mostrarlo senza altre chiamate.
+      required: [id, name]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+    DeadlineInput:
+      type: object
+      description: |
+        I campi facoltativi si inviano comunque, con null se vuoti. Al massimo uno tra
+        client_id e supplier_id.
+      required: [title, due_on, kind, amount, client_id, supplier_id, notes]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        due_on: { $ref: '#/components/schemas/Date' }
+        kind: { $ref: '#/components/schemas/DeadlineKind' }
+        amount:
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        client_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        supplier_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    Deadline:
+      allOf:
+        - $ref: '#/components/schemas/DeadlineInput'
+        - type: object
+          required: [id, status, done_at, client, supplier, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            amount:
+              description: In uscita sempre con due decimali.
+              oneOf:
+                - type: string
+                  pattern: '^\d+\.\d{2}$'
+                - type: 'null'
+            status: { $ref: '#/components/schemas/DeadlineStatus' }
+            done_at:
+              type: [string, 'null']
+              format: date-time
+            client:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            supplier:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    DeadlineList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Deadline' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
