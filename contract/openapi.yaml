@@ -1247,7 +1247,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: Il cantiere ha rapportini collegati (code has_documents). Si può chiudere.
+          description: |
+            Il cantiere ha rapportini, costi o documenti collegati (code has_documents). Si può
+            chiudere.
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -1671,6 +1673,197 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/SiteCostSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/companies/{company}/sites/{site}/documents:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: listSiteDocuments
+      summary: Documenti e foto di un cantiere
+      description: |
+        Permesso: documents.view. Senza permesso, o se il cantiere non c'è, risponde 404. Dal più
+        recente. Le foto sono i file JPEG, PNG e WebP; gli altri sono documenti.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[kind]=photo per la scheda delle foto.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              kind: { $ref: '#/components/schemas/SiteDocumentKind' }
+      responses:
+        '200':
+          description: Una pagina di documenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteDocumentList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: uploadSiteDocument
+      summary: Caricamento di un documento o di una foto
+      description: |
+        Permesso: documents.create. Il corpo è il file, con il suo Content-Type: PDF, JPEG, PNG,
+        WebP, Word (.docx) o Excel (.xlsx), al massimo 20 MB. Il contenuto deve corrispondere al
+        tipo dichiarato (altrimenti 422 sotto file). Nome del file e titolo nella query; senza
+        titolo vale il nome del file. Il file non si sostituisce: si elimina e se ne carica un
+        altro.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: file_name
+          in: query
+          required: true
+          description: Nome originale del file; si tiene solo l'ultima parte del percorso.
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: title
+          in: query
+          required: false
+          schema: { type: string, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema: { type: string, format: binary }
+          image/jpeg:
+            schema: { type: string, format: binary }
+          image/png:
+            schema: { type: string, format: binary }
+          image/webp:
+            schema: { type: string, format: binary }
+          application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+            schema: { type: string, format: binary }
+          application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+            schema: { type: string, format: binary }
+      responses:
+        '201':
+          description: File caricato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: File più grande di 20 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Tipo di file non ammesso.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/sites/{site}/documents/{document}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+      - $ref: '#/components/parameters/SiteDocumentId'
+    get:
+      operationId: getSiteDocument
+      summary: Un documento del cantiere
+      description: 'Permesso: documents.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il documento, senza il file
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateSiteDocument
+      summary: Modifica di titolo e note di un documento
+      description: 'Permesso: documents.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteDocumentInput' }
+      responses:
+        '200':
+          description: Documento aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteSiteDocument
+      summary: Eliminazione di un documento
+      description: 'Permesso: documents.delete. Elimina anche il file.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Documento eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/sites/{site}/documents/{document}/content:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+      - $ref: '#/components/parameters/SiteDocumentId'
+    get:
+      operationId: getSiteDocumentContent
+      summary: Il file di un documento
+      description: |
+        Permesso: documents.view. Senza permesso risponde 404. Il file arriva sempre come
+        allegato (Content-Disposition: attachment, con il nome originale); va bene anche come
+        sorgente di un tag img per le anteprime delle foto.
+      responses:
+        '200':
+          description: Il file
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+            image/webp:
+              schema: { type: string, format: binary }
+            application/vnd.openxmlformats-officedocument.wordprocessingml.document:
+              schema: { type: string, format: binary }
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
@@ -3597,6 +3790,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    SiteDocumentId:
+      name: document
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     SiteCostId:
       name: cost
       in: path
@@ -4047,6 +4245,10 @@ components:
         - costs.create
         - costs.update
         - costs.delete
+        - documents.view
+        - documents.create
+        - documents.update
+        - documents.delete
         - quotes.view
         - quotes.create
         - quotes.update
@@ -4161,8 +4363,21 @@ components:
       description: |
         client: cliente. supplier: fornitore. deadline: scadenza. estimate: computo metrico.
         quote: preventivo. site: cantiere. employee: dipendente. vehicle: mezzo.
+        daily_report: rapportino. site_cost: costo. site_document: documento o foto del cantiere.
       enum:
-        [client, supplier, deadline, estimate, quote, site, employee, vehicle, daily_report, site_cost]
+        [
+          client,
+          supplier,
+          deadline,
+          estimate,
+          quote,
+          site,
+          employee,
+          vehicle,
+          daily_report,
+          site_cost,
+          site_document,
+        ]
     AuditEntry:
       type: object
       required: [id, entity, entity_id, action, fields, user, created_at]
@@ -4926,6 +5141,52 @@ components:
           description: Ore totali con due decimali.
           pattern: '^\d+\.\d{2}$'
         amount: { $ref: '#/components/schemas/Amount' }
+    SiteDocumentKind:
+      type: string
+      description: 'photo: foto (JPEG, PNG, WebP). document: gli altri file.'
+      enum: [document, photo]
+    SiteDocumentInput:
+      type: object
+      description: Le note si inviano comunque, con null se vuote.
+      required: [title, notes]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 200 }
+        notes: { type: [string, 'null'], maxLength: 2000 }
+    SiteDocument:
+      allOf:
+        - $ref: '#/components/schemas/SiteDocumentInput'
+        - type: object
+          required:
+            [id, site_id, kind, file_name, content_type, size, uploaded_by, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            site_id: { $ref: '#/components/schemas/Id' }
+            kind: { $ref: '#/components/schemas/SiteDocumentKind' }
+            file_name: { type: string }
+            content_type: { type: string }
+            size:
+              type: integer
+              minimum: 1
+              description: Dimensione del file in byte.
+            uploaded_by:
+              description: Chi l'ha caricato; null se l'utente non c'è più.
+              oneOf:
+                - $ref: '#/components/schemas/UserRef'
+                - type: 'null'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    SiteDocumentList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/SiteDocument' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
     SiteCostList:
       type: object
       required: [data, meta, total_amount]

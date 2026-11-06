@@ -50,6 +50,10 @@ const ALL = [
   'costs.create',
   'costs.update',
   'costs.delete',
+  'documents.view',
+  'documents.create',
+  'documents.update',
+  'documents.delete',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -81,9 +85,37 @@ const ROLES: Record<string, string[]> = {
     'reports.view',
     'reports.create',
     'reports.update',
+    'documents.view',
+    'documents.create',
   ],
   // The site manager does not see quotes: prices and margins stay with the office.
 }
+
+/** A one-page PDF and a 1×1 PNG for the site archive. */
+const DEV_FILES = [
+  {
+    kind: 'document',
+    title: 'Verbale di consegna lavori',
+    name: 'verbale-consegna.pdf',
+    type: 'application/pdf',
+    data: Buffer.from(
+      '%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n' +
+        '2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n' +
+        '3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]>>endobj\n' +
+        'trailer<</Root 1 0 R>>\n%%EOF\n',
+    ),
+  },
+  {
+    kind: 'photo',
+    title: 'Scavo di fondazione',
+    name: 'scavo.png',
+    type: 'image/png',
+    data: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'base64',
+    ),
+  },
+]
 
 const COMPANIES = [
   { slug: 'impresa-rossi', name: 'Impresa Rossi S.r.l.', clients: 60, seed: 1 },
@@ -259,6 +291,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       // Daily reports point to sites, employees and vehicles: they go first.
       await client.query('delete from public.daily_reports where company_id = $1', [companyId])
       await client.query('delete from public.site_costs where company_id = $1', [companyId])
+      await client.query('delete from public.site_documents where company_id = $1', [companyId])
       await client.query('delete from public.sites where company_id = $1', [companyId])
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query('delete from public.clients where company_id = $1', [companyId])
@@ -545,6 +578,21 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where s.company_id = $1 and s.code = '2026-01'`,
         [companyId],
       )
+      // A document and a photo on the first site, so the archive is not empty.
+      for (const file of DEV_FILES) {
+        await client.query(
+          `with d as (
+             insert into public.site_documents (company_id, site_id, kind, title, file_name,
+               content_type, size_bytes)
+             select $1, s.id, $2, $3, $4, $5, $6 from public.sites s
+             where s.company_id = $1 and s.code = '2026-01'
+             returning id
+           )
+           insert into public.site_document_files (document_id, company_id, data)
+           select d.id, $1, $7 from d`,
+          [companyId, file.kind, file.title, file.name, file.type, file.data.length, file.data],
+        )
+      }
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query(
         `insert into public.estimates (company_id, title, client_id, site_address, status)

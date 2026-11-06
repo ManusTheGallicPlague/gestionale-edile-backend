@@ -597,6 +597,84 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.site_costs')).rejects.toThrow(/permission denied/)
   })
 
+  it('site documents and their files: cannot read, write or attach across companies', async () => {
+    const siteOf = async (companyId: string) =>
+      (
+        await owner.query<{ id: string }>(
+          "insert into public.sites (company_id, name) values ($1, 'Documenti') returning id",
+          [companyId],
+        )
+      ).rows[0]?.id
+    const siteA = await siteOf(companyA.id)
+    const siteB = await siteOf(companyB.id)
+    const docOf = (companyId: string, siteId: unknown) =>
+      `insert into public.site_documents (company_id, site_id, kind, title, file_name,
+         content_type, size_bytes) values ('${companyId}', '${String(siteId)}', 'document', 'x',
+         'x.pdf', 'application/pdf', 1) returning id`
+    const docB = await owner.query<{ id: string }>(docOf(companyB.id, siteB))
+    const idB = docB.rows[0]?.id
+    await owner.query(
+      "insert into public.site_document_files (document_id, company_id, data) values ($1, $2, '\\x25')",
+      [idB, companyB.id],
+    )
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const d = await c.query('select * from public.site_documents where company_id = $1', [
+        companyB.id,
+      ])
+      const f = await c.query('select * from public.site_document_files where company_id = $1', [
+        companyB.id,
+      ])
+      return d.rowCount! + f.rowCount!
+    })
+    expect(seen).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query(docOf(companyB.id, siteB))),
+    ).rejects.toThrow(/row-level security/)
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query(docOf(companyA.id, siteB))),
+    ).rejects.toThrow(/foreign key/)
+    // A file of company A cannot be hung on a document of company B, nor written as B.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.site_document_files (document_id, company_id, data) values ($1, $2, '\\x25')",
+          [idB, companyA.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key|duplicate key/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.site_document_files (document_id, company_id, data) values ($1, $2, '\\x25')",
+          [idB, companyB.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.site_documents set title = 'y' where id = $1", [idB])
+      const d = await c.query('delete from public.site_documents where id = $1', [idB])
+      return u.rowCount! + d.rowCount!
+    })
+    expect(changed).toBe(0)
+    // The bytes are written once: the application role cannot change or delete them.
+    await expect(
+      as(alice.id, companyA.id, async (c) => {
+        const own = await c.query<{ id: string }>(docOf(companyA.id, siteA))
+        await c.query(
+          "insert into public.site_document_files (document_id, company_id, data) values ($1, $2, '\\x25')",
+          [own.rows[0]?.id, companyA.id],
+        )
+        return c.query("update public.site_document_files set data = '\\x26'")
+      }),
+    ).rejects.toThrow(/permission denied/)
+    await expect(auth.query('select * from public.site_documents')).rejects.toThrow(
+      /permission denied/,
+    )
+    await expect(auth.query('select * from public.site_document_files')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('estimate chapters and items: cannot read, write or attach across companies', async () => {
     const estimateB = await owner.query<{ id: string }>(
       "insert into public.estimates (company_id, title) values ($1, 'B') returning id",
