@@ -1439,6 +1439,8 @@ paths:
       description: |
         Permesso: quotes.update. Segna il preventivo come inviato, gli dà il numero successivo
         dell'anno (2026/001, senza buchi) e la data di oggi; la validità parte da quella data.
+        Una revisione prende invece il numero del preventivo da cui nasce, con la revisione
+        successiva (2026/001-R1).
       security:
         - session: []
           csrf: []
@@ -1509,6 +1511,39 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/quotes/{quote}/revisions:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      operationId: reviseQuote
+      summary: Revisione di un preventivo inviato
+      description: |
+        Permessi: quotes.view e quotes.create. Crea una bozza con la stessa testata e le stesse
+        righe, collegata al preventivo di partenza (revision_of), che resta com'è. Si rivede un
+        preventivo inviato, rifiutato o scaduto; non una bozza né uno accettato. Al primo invio
+        la revisione prende lo stesso numero con la revisione successiva (2026/001-R1), senza
+        usare un numero nuovo. Senza permesso di vedere il preventivo risponde 404.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '201':
+          description: La revisione in bozza
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il preventivo è in bozza o accettato e non si rivede (code invalid_transition).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/companies/{company}/quotes/{quote}/lines:
     parameters:
@@ -2584,7 +2619,7 @@ components:
         - $ref: '#/components/schemas/QuoteInput'
         - type: object
           required:
-            [id, client, status, number, issue_date, valid_until, sent_at, totals, created_at, updated_at]
+            [id, client, status, number, revision, revision_of, issue_date, valid_until, sent_at, totals, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             totals: { $ref: '#/components/schemas/QuoteTotals' }
@@ -2592,8 +2627,19 @@ components:
             status: { $ref: '#/components/schemas/QuoteStatus' }
             number:
               type: [string, 'null']
-              description: Numero progressivo dell'anno, ad esempio 2026/001; null in bozza.
-              pattern: '^\d{4}/\d{3,}$'
+              description: |
+                Numero progressivo dell'anno, ad esempio 2026/001; le revisioni hanno lo stesso
+                numero con la revisione in fondo (2026/001-R1). Null in bozza.
+              pattern: '^\d{4}/\d{3,}(-R\d+)?$'
+            revision:
+              type: [integer, 'null']
+              description: 0 per il preventivo originale, 1, 2… per le revisioni; null in bozza.
+              minimum: 0
+            revision_of:
+              description: Il preventivo da cui nasce questa revisione; null per un originale.
+              oneOf:
+                - $ref: '#/components/schemas/QuoteRef'
+                - type: 'null'
             issue_date:
               description: Data del preventivo, quella del primo invio; null in bozza.
               oneOf:
@@ -2613,6 +2659,14 @@ components:
             updated_at:
               type: string
               format: date-time
+    QuoteRef:
+      type: object
+      required: [id, number]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        number:
+          type: [string, 'null']
+          pattern: '^\d{4}/\d{3,}(-R\d+)?$'
     QuoteList:
       type: object
       required: [data, meta]

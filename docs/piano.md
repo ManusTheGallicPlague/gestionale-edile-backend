@@ -35,7 +35,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Righe: descrizione, unità, quantità, prezzo unitario, sconto percentuale, aliquota IVA; righe di solo testo e sezioni
 - [x] Totali: imponibile, IVA per aliquota, totale, calcolati dal backend in centesimi
 - [x] Creazione di un preventivo da un computo (le voci diventano righe)
-- [ ] Cambi di stato con le regole (un preventivo inviato non si modifica più, si fa una revisione)
+- [x] Cambi di stato con le regole (un preventivo inviato non si modifica più, si fa una revisione)
 - [ ] Generazione del PDF del preventivo
 
 ### 5. Per usarlo davvero
@@ -88,11 +88,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: totali del preventivo nel campo `totals` della testata (anche nell'elenco): imponibile = somma degli imponibili di riga; IVA calcolata per aliquota sull'imponibile di quell'aliquota e arrotondata al centesimo (non riga per riga, come in fattura); totale = imponibile + IVA. Mai salvati, sempre ricalcolati.
 - 06/11/2026: preventivo da computo con `POST …/estimates/{id}/quote` (corpo come un preventivo nuovo più `vat_rate`, una sola aliquota per tutte le righe; permessi `estimates.view` e `quotes.create`): i capitoli diventano sezioni («codice titolo»), le voci righe con prezzo («codice descrizione», quantità dalle misure, sconto 0), in ordine di albero. Il preventivo non resta collegato al computo: cambiare il computo dopo non cambia il preventivo.
 - 06/11/2026: esito del preventivo con `POST …/quotes/{id}/status` (`If-Match`, permesso `quotes.update`): da `sent` ad `accepted`, `rejected` o `expired` e ritorno a `sent` per correggere; altri passaggi 409 `invalid_transition`. `expired` si segna a mano: nessun processo pianificato lo cambia da solo alla fine della validità (il frontend può confrontare `valid_until`).
+- 06/11/2026: revisione con `POST …/quotes/{id}/revisions` (permessi `quotes.view` e `quotes.create`): copia testata e righe in una bozza nuova con `revision_of_id`; il preventivo di partenza non cambia stato. Si rivede un preventivo `sent`, `rejected` o `expired`, non una bozza né uno `accepted` (409 `invalid_transition`). Al primo invio la revisione prende lo stesso numero con la revisione successiva (`2026/001-R1`, campo `revision`, 0 per gli originali), senza usare il contatore; il numero di revisione si assegna all'invio, così una bozza di revisione eliminata non lascia buchi.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 15:27 UTC: revisione dei preventivi inviati (contratto `reviseQuote`, campi `revision`/`revision_of`, migrazione 0015, numero `2026/001-R1` all'invio, dati di sviluppo, test e caso avversario). Il compito «Cambi di stato» è finito. Niente a metà; prossimo: PDF del preventivo. 261 test.
 - 2026-11-06 14:48 UTC: esito dei preventivi inviati (accettato, rifiutato, scaduto e ritorno a inviato; contratto `changeQuoteStatus`, test). A METÀ: il compito «Cambi di stato» non è spuntato perché manca la revisione di un preventivo inviato (copia in bozza collegata all'originale, da decidere come numerarla); prossimo giro: revisione, poi PDF. 259 test.
 - 2026-11-06 14:47 UTC: preventivo da un computo (contratto `createQuoteFromEstimate`, sezioni e righe in ordine di albero, test). Niente a metà; prossimo: cambi di stato del preventivo (accettato, rifiutato, scaduto, revisione). 258 test.
 - 2026-11-06 14:44 UTC: totali del preventivo (imponibile, IVA per aliquota, totale; contratto `QuoteTotals`, test). Niente a metà; prossimo: preventivo da un computo. 256 test.

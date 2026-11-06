@@ -270,4 +270,109 @@ describe('quotes', () => {
       ).statusCode,
     ).toBe(403)
   })
+
+  it('revises a sent quote: a linked draft that takes the same number with -R1, -R2', async () => {
+    const { browser, base, create } = await scene()
+    const q = await create({ subject: 'Tetto' })
+    await browser.call('POST', `${base}/${q.id}/lines`, {
+      body: {
+        kind: 'item',
+        description: 'Manto in coppi',
+        unit: 'm²',
+        quantity: '120.000',
+        unit_price: '45.00',
+        discount_percent: '0',
+        vat_rate: 10,
+      },
+    })
+    const revise = (id: string) => browser.call('POST', `${base}/${id}/revisions`)
+    // A draft is changed, not revised.
+    const early = await revise(q.id)
+    expect(early.statusCode).toBe(409)
+    expect(early.json()).toMatchObject({ code: 'invalid_transition' })
+    const sent = await browser.call('POST', `${base}/${q.id}/send`, {
+      headers: { 'if-match': '"1"' },
+    })
+    const number = sent.json<Quote>().number ?? ''
+    expect(sent.json()).toMatchObject({ revision: 0, revision_of: null })
+    const other = await create()
+    await browser.call('POST', `${base}/${other.id}/send`, { headers: { 'if-match': '"1"' } })
+
+    const r1 = await revise(q.id)
+    expect(r1.statusCode).toBe(201)
+    expect(r1.headers.etag).toBe('"1"')
+    const draft = r1.json<Quote & { totals: { total: string } }>()
+    expect(draft).toMatchObject({
+      status: 'draft',
+      number: null,
+      revision: null,
+      subject: 'Tetto',
+      revision_of: { id: q.id, number },
+      totals: { total: '5940.00' },
+    })
+    const lines = await browser.call('GET', `${base}/${draft.id}/lines`)
+    expect(lines.json<{ data: unknown[] }>().data).toHaveLength(1)
+    // The original does not change.
+    expect((await browser.call('GET', `${base}/${q.id}`)).json()).toMatchObject({
+      status: 'sent',
+      number,
+    })
+    const s1 = await browser.call('POST', `${base}/${draft.id}/send`, {
+      headers: { 'if-match': '"1"' },
+    })
+    expect(s1.statusCode).toBe(200)
+    expect(s1.json()).toMatchObject({ status: 'sent', number: `${number}-R1`, revision: 1 })
+    // A revision of the revision, and a second one of the original, follow on.
+    const r2 = (await revise(draft.id)).json<Quote>()
+    expect(r2).toMatchObject({ revision_of: { id: draft.id, number: `${number}-R1` } })
+    const r3 = (await revise(q.id)).json<Quote>()
+    const s3 = await browser.call('POST', `${base}/${r3.id}/send`, {
+      headers: { 'if-match': '"1"' },
+    })
+    expect(s3.json()).toMatchObject({ number: `${number}-R2` })
+    const s2 = await browser.call('POST', `${base}/${r2.id}/send`, {
+      headers: { 'if-match': '"1"' },
+    })
+    expect(s2.json()).toMatchObject({ number: `${number}-R3` })
+    // Revisions use no new number.
+    const next = await create()
+    const sn = await browser.call('POST', `${base}/${next.id}/send`, {
+      headers: { 'if-match': '"1"' },
+    })
+    expect(sn.json<Quote>().number?.slice(5)).toBe('003')
+  })
+
+  it('does not revise an accepted quote; revisions need permissions and the same company', async () => {
+    const { browser, base, create } = await scene()
+    const q = await create()
+    await browser.call('POST', `${base}/${q.id}/send`, { headers: { 'if-match': '"1"' } })
+    await browser.call('POST', `${base}/${q.id}/status`, {
+      body: { status: 'accepted' },
+      headers: { 'if-match': '"2"' },
+    })
+    const accepted = await browser.call('POST', `${base}/${q.id}/revisions`)
+    expect(accepted.statusCode).toBe(409)
+    // Back to sent, then rejected: a rejected quote can be revised.
+    await browser.call('POST', `${base}/${q.id}/status`, {
+      body: { status: 'sent' },
+      headers: { 'if-match': '"3"' },
+    })
+    await browser.call('POST', `${base}/${q.id}/status`, {
+      body: { status: 'rejected' },
+      headers: { 'if-match': '"4"' },
+    })
+    expect((await browser.call('POST', `${base}/${q.id}/revisions`)).statusCode).toBe(201)
+    const theirs = await scene()
+    expect((await theirs.browser.call('POST', `${theirs.base}/${q.id}/revisions`)).statusCode).toBe(
+      404,
+    )
+    const reader = await scene(['quotes.view'])
+    expect((await reader.browser.call('POST', `${reader.base}/${q.id}/revisions`)).statusCode).toBe(
+      403,
+    )
+    const blind = await scene(['quotes.create'])
+    expect((await blind.browser.call('POST', `${blind.base}/${q.id}/revisions`)).statusCode).toBe(
+      404,
+    )
+  })
 })

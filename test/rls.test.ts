@@ -494,6 +494,19 @@ describe('the API role cannot cross companies', () => {
       return (u.rowCount ?? 0) + (d.rowCount ?? 0) + (k.rowCount ?? 0)
     })
     expect(changed).toBe(0)
+    // A revision cannot point at another company's quote.
+    const quoteB = await owner.query<{ id: string }>(
+      'select id from public.quotes where company_id = $1 limit 1',
+      [companyB.id],
+    )
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.quotes (company_id, client_id, subject, revision_of_id) values ($1, $2, 'X', $3)",
+          [companyA.id, clientA.rows[0]?.id, quoteB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
     // Counters are never deleted: that would reuse numbers.
     await expect(
       as(alice.id, companyA.id, (c) => c.query('delete from public.quote_counters')),

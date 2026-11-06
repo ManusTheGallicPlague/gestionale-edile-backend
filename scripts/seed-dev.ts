@@ -340,9 +340,10 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       await client.query('delete from public.quote_counters where company_id = $1', [companyId])
       await client.query(
         `insert into public.quotes (company_id, client_id, subject, validity_days, terms, status,
-           number_year, number_seq, issue_date, sent_at)
+           number_year, number_seq, revision, issue_date, sent_at)
          select $1, c.id, q.subject, 30, 'Pagamento: 30% all''ordine, saldo a fine lavori.',
-           q.status, q.year, q.seq, q.issue_date::date, q.issue_date::timestamptz
+           q.status, q.year, q.seq, case when q.seq is not null then 0 end,
+           q.issue_date::date, q.issue_date::timestamptz
          from (values
            ('Rifacimento copertura', 'sent', 2026, 1, '2026-10-12', 0),
            ('Ristrutturazione bagno', 'accepted', 2026, 2, '2026-10-20', 1),
@@ -352,6 +353,14 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            select id from public.clients where company_id = $1 and archived_at is null
            order by created_at offset q.n limit 1
          ) c on true`,
+        [companyId],
+      )
+      // A draft revision of the first quote, sent but not yet answered.
+      await client.query(
+        `insert into public.quotes (company_id, client_id, subject, validity_days, terms,
+           revision_of_id)
+         select company_id, client_id, subject, validity_days, terms, id from public.quotes
+         where company_id = $1 and number_year = 2026 and number_seq = 1`,
         [companyId],
       )
       await client.query(

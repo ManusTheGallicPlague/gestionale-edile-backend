@@ -34,6 +34,11 @@ interface QuoteRow extends QuoteInput {
   status: Status
   number_year: number | null
   number_seq: number | null
+  revision: number | null
+  revision_of_id: string | null
+  revision_of_year: number | null
+  revision_of_seq: number | null
+  revision_of_revision: number | null
   issue_date: string | null
   valid_until: string | null
   sent_at: Date | null
@@ -46,7 +51,9 @@ interface QuoteRow extends QuoteInput {
 type Params = { company: string; quote?: string }
 
 const SELECT = `select q.id, q.client_id, q.subject, q.validity_days, q.notes, q.terms, q.status,
-    q.number_year, q.number_seq, q.issue_date::text as issue_date,
+    q.number_year, q.number_seq, q.revision, q.revision_of_id,
+    src.number_year as revision_of_year, src.number_seq as revision_of_seq,
+    src.revision as revision_of_revision, q.issue_date::text as issue_date,
     (q.issue_date + q.validity_days)::text as valid_until, q.sent_at, q.version,
     q.created_at, q.updated_at, c.name as client_name,
     (select coalesce(jsonb_agg(jsonb_build_object(
@@ -61,7 +68,8 @@ const SELECT = `select q.id, q.client_id, q.subject, q.validity_days, q.notes, q
        ) lines group by vat_rate
      ) r) as vat_breakdown
   from public.quotes q
-  join public.clients c on c.id = q.client_id`
+  join public.clients c on c.id = q.client_id
+  left join public.quotes src on src.id = q.revision_of_id`
 
 const SORTS = {
   number: 'q.number_year asc nulls last, q.number_seq asc nulls last, q.id asc',
@@ -72,7 +80,11 @@ const SORTS = {
   '-updated_at': 'q.updated_at desc, q.id desc',
 } as const
 
-const formatNumber = (year: number, seq: number) => `${year}/${String(seq).padStart(3, '0')}`
+function formatNumber(year: number | null, seq: number | null, revision: number | null) {
+  if (year === null || seq === null) return null
+  const base = `${year}/${String(seq).padStart(3, '0')}`
+  return revision ? `${base}-R${revision}` : base
+}
 
 /** Totals in integer cents (BigInt), from the per-rate sums computed by the database. */
 function totals(breakdown: QuoteRow['vat_breakdown']) {
@@ -100,10 +112,14 @@ function toContract(row: QuoteRow) {
     notes: row.notes,
     terms: row.terms,
     status: row.status,
-    number:
-      row.number_year !== null && row.number_seq !== null
-        ? formatNumber(row.number_year, row.number_seq)
-        : null,
+    number: formatNumber(row.number_year, row.number_seq, row.revision),
+    revision: row.revision,
+    revision_of: row.revision_of_id
+      ? {
+          id: row.revision_of_id,
+          number: formatNumber(row.revision_of_year, row.revision_of_seq, row.revision_of_revision),
+        }
+      : null,
     issue_date: row.issue_date,
     valid_until: row.valid_until,
     sent_at: row.sent_at ? row.sent_at.toISOString() : null,
@@ -361,12 +377,16 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
       const id = request.params.quote ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const { rows } = await client.query<{ id: string }>(
-        `select id from public.quotes
+      const { rows } = await client.query<{ id: string; revision_of_id: string | null }>(
+        `select id, revision_of_id from public.quotes
          where id = $1 and version = $2 and status = 'draft' for update`,
         [id, version],
       )
       if (!rows[0]) return whyNot(client, id, version)
+      if (rows[0].revision_of_id) {
+        await sendRevision(client, id, rows[0].revision_of_id)
+        return readOne(client, id)
+      }
       // The counter row is locked until commit: two sends never get the same number, and a
       // rolled back send gives its number back, so there are no gaps.
       const { rows: counter } = await client.query<{ year: number; last_number: number }>(
@@ -381,7 +401,7 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
       if (!next) throw new Error('counter returned no row')
       await client.query(
         `update public.quotes
-         set status = 'sent', number_year = $2, number_seq = $3,
+         set status = 'sent', number_year = $2, number_seq = $3, revision = 0,
              issue_date = (now() at time zone 'Europe/Rome')::date, sent_at = now(),
              version = version + 1, updated_at = now()
          where id = $1`,
@@ -426,6 +446,44 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
     return send(reply, row)
   })
 
+  app.post<{ Params: Params }>(`${base}/:quote/revisions`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.view')) throw notFound()
+      if (!permissions.has('quotes.create')) throw forbidden()
+      const id = request.params.quote ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const { rows: source } = await client.query<{ status: Status }>(
+        'select status from public.quotes where id = $1',
+        [id],
+      )
+      if (!source[0]) throw notFound()
+      if (!['sent', 'rejected', 'expired'].includes(source[0].status)) {
+        throw new ApiError(409, messages.quoteNotRevisable, 'invalid_transition')
+      }
+      const { rows } = await client.query<{ id: string }>(
+        `insert into public.quotes (company_id, ${FIELDS.join(', ')}, revision_of_id)
+         select company_id, ${FIELDS.join(', ')}, id from public.quotes where id = $1
+         returning id`,
+        [id],
+      )
+      const revisionId = rows[0]?.id ?? ''
+      await client.query(
+        `insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
+           unit_price_cents, discount_percent, vat_rate, position)
+         select company_id, $2, kind, description, unit, quantity, unit_price_cents,
+           discount_percent, vat_rate, position
+         from public.quote_lines where quote_id = $1`,
+        [id, revisionId],
+      )
+      return readOne(client, revisionId)
+    })
+    if (!row) throw new Error('insert returned no row')
+    return send(reply, row, 201)
+  })
+
   app.post<{ Params: Params & { estimate: string } }>(
     '/api/companies/:company/estimates/:estimate/quote',
     async (request, reply) => {
@@ -465,6 +523,35 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
 }
 
 const VAT_RATES = [22, 10, 5, 4, 0] as const
+
+/**
+ * A revision takes the number of the quote it comes from and the next revision of that
+ * number. The counter row of that year is locked until commit, as for a first send, so
+ * two revisions of the same number sent together never get the same revision.
+ */
+async function sendRevision(client: PoolClient, id: string, sourceId: string) {
+  const { rows: source } = await client.query<{ number_year: number; number_seq: number }>(
+    'select number_year, number_seq from public.quotes where id = $1',
+    [sourceId],
+  )
+  const number = source[0]
+  if (!number) throw new Error('revision without a numbered source')
+  await client.query(
+    `select 1 from public.quote_counters
+     where company_id = app.current_company_id() and year = $1 for update`,
+    [number.number_year],
+  )
+  await client.query(
+    `update public.quotes
+     set status = 'sent', number_year = $2, number_seq = $3,
+         revision = (select coalesce(max(revision), 0) + 1 from public.quotes
+                     where number_year = $2 and number_seq = $3),
+         issue_date = (now() at time zone 'Europe/Rome')::date, sent_at = now(),
+         version = version + 1, updated_at = now()
+     where id = $1`,
+    [id, number.number_year, number.number_seq],
+  )
+}
 const OUTCOMES = ['sent', 'accepted', 'rejected', 'expired'] as const
 
 /**
