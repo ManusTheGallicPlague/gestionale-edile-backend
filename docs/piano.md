@@ -12,7 +12,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Accesso, sessioni, CSRF, `/api/me`
 - [x] Clienti: elenco, scheda, creazione, modifica
 - [x] Clienti: archiviazione (`archived_at`, filtro `filter[archived]`, niente cancellazione fisica se ha documenti collegati)
-- [ ] Fornitori: come i clienti, più `categories` (es. materiali, noli, subappalto, servizi) e flag `subcontractor`. Permessi `suppliers.view/create/update`
+- [x] Fornitori: come i clienti, più `categories` (es. materiali, noli, subappalto, servizi) e flag `subcontractor`. Permessi `suppliers.view/create/update`
 - [ ] Fornitori: documenti di regolarità dei subappaltatori (DURC, visura, assicurazione) con data di scadenza, che alimentano lo scadenziario
 
 ### 2. Scadenziario
@@ -60,10 +60,14 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: `DELETE …/clients/{id}` con permesso nuovo `clients.delete` (solo Titolare nei dati di sviluppo; Ufficio no) e `If-Match`; con documenti collegati risponde `409` `code: has_documents`.
 - 06/11/2026: regola per le tabelle future: ogni riferimento a `clients` (e poi `suppliers`) va dichiarato `on delete restrict`, così è il database a impedire la cancellazione di un soggetto con documenti.
 - 06/11/2026: un cliente archiviato resta modificabile con `PUT` e leggibile nella scheda.
+- 06/11/2026: categorie dei fornitori fisse: `materials`, `rentals`, `subcontracting`, `services`, `other`; un fornitore ne ha zero o più (`text[]`), i doppioni si tolgono.
+- 06/11/2026: fornitori senza `kind` e senza codice destinatario (le fatture le riceviamo noi); per quelli italiani serve partita IVA o codice fiscale. Archiviazione ed eliminazione come i clienti, con il permesso in più `suppliers.delete`.
+- 06/11/2026: `filter[subcontractor]` e `filter[category]` (una categoria) nell'elenco dei fornitori.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 13:29 UTC: fornitori (contratto, migrazione 0003, permessi `suppliers.*`, dati di sviluppo, test e caso avversario). Niente a metà; prossimo compito: documenti di regolarità dei subappaltatori. 119 test.
 - 2026-11-06 13:21 UTC: archiviazione ed eliminazione dei clienti (contratto, migrazione 0002, permesso `clients.delete`, test). Niente a metà; prossimo compito: fornitori. 98 test.
 - 2026-11-06: primo pezzo (accesso, `/api/me`, clienti), 87 test.

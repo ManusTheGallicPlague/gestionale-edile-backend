@@ -10,11 +10,20 @@ import { codiceFiscaleCheckLetter, partitaIvaCheckDigit } from '../src/clients/t
 
 export const DEV_PASSWORD = 'cantiere-demo'
 
-const ALL = ['clients.view', 'clients.create', 'clients.update', 'clients.delete']
+const ALL = [
+  'clients.view',
+  'clients.create',
+  'clients.update',
+  'clients.delete',
+  'suppliers.view',
+  'suppliers.create',
+  'suppliers.update',
+  'suppliers.delete',
+]
 const ROLES: Record<string, string[]> = {
   Titolare: ALL,
-  Ufficio: ['clients.view', 'clients.create', 'clients.update'],
-  'Capo cantiere': ['clients.view'],
+  Ufficio: ALL.filter((p) => !p.endsWith('.delete')),
+  'Capo cantiere': ['clients.view', 'suppliers.view'],
 }
 
 const COMPANIES = [
@@ -113,6 +122,38 @@ export function devClients(count: number, seed: number) {
   }))
 }
 
+/** Made-up suppliers: one per category, two subcontractors. */
+export function devSuppliers(seed: number) {
+  const rows = [
+    { name: 'Laterizi del Nord S.r.l.', categories: ['materials'], subcontractor: false },
+    { name: 'Calcestruzzi Pianura S.p.A.', categories: ['materials'], subcontractor: false },
+    { name: 'Noli e Gru S.r.l.', categories: ['rentals'], subcontractor: false },
+    {
+      name: 'Impianti Elettrici Bassi',
+      categories: ['subcontracting'],
+      subcontractor: true,
+    },
+    {
+      name: 'Idraulica Moderna S.n.c.',
+      categories: ['subcontracting', 'materials'],
+      subcontractor: true,
+    },
+    { name: 'Studio Tecnico Associato', categories: ['services'], subcontractor: false },
+  ]
+  return rows.map((row, i) => {
+    const base = seed * 100_000_000 + 50_000_000 + i * 7919
+    return {
+      ...row,
+      vat_number: partitaIva(base),
+      email: `fornitore${i + 1}@example.test`,
+      phone: `011 666 ${1000 + i}`,
+      street: `Via dei Fornitori ${i + 1}`,
+      ...pick(CITIES, i),
+      created_at: new Date(Date.UTC(2026, 1, 1 + i, 9)),
+    }
+  })
+}
+
 export async function seedDev(ownerUrl: string, { force = false } = {}) {
   const client = new pg.Client({ connectionString: ownerUrl })
   await client.connect()
@@ -181,6 +222,32 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
             c.created_at,
             // A few archived clients, to try the archive filter.
             i % 20 === 19,
+          ],
+        )
+      }
+    }
+
+    for (const company of COMPANIES) {
+      const companyId = companyIds[company.slug]
+      await client.query('delete from public.suppliers where company_id = $1', [companyId])
+      for (const s of devSuppliers(company.seed)) {
+        await client.query(
+          `insert into public.suppliers (company_id, name, vat_number, email, phone, street,
+             postal_code, city, province, categories, subcontractor, created_at, updated_at)
+           values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$12)`,
+          [
+            companyId,
+            s.name,
+            s.vat_number,
+            s.email,
+            s.phone,
+            s.street,
+            s.postal_code,
+            s.city,
+            s.province,
+            s.categories,
+            s.subcontractor,
+            s.created_at,
           ],
         )
       }

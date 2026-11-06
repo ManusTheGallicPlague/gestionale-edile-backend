@@ -36,6 +36,11 @@ export const messages = {
     'Il cliente è stato modificato da qualcun altro. Ricarica la scheda per vedere le modifiche.',
   missingIfMatch: 'Manca la versione del cliente: ricarica la scheda e riprova.',
   clientHasDocuments: 'Il cliente ha documenti collegati e non si può eliminare: puoi archiviarlo.',
+  supplierStale:
+    'Il fornitore è stato modificato da qualcun altro. Ricarica la scheda per vedere le modifiche.',
+  supplierMissingIfMatch: 'Manca la versione del fornitore: ricarica la scheda e riprova.',
+  supplierHasDocuments:
+    'Il fornitore ha documenti collegati e non si può eliminare: puoi archiviarlo.',
   internal: 'Errore interno. Riprova tra poco.',
   badRequest: 'Richiesta non valida.',
 } as const

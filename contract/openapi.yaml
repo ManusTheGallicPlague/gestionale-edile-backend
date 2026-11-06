@@ -301,6 +301,202 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/suppliers:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listSuppliers
+      summary: Elenco dei fornitori e dei subappaltatori
+      description: 'Permesso: suppliers.view'
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [name, -name, created_at, -created_at]
+            default: name
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[category]=rentals o filter[subcontractor]=true.
+            filter[archived]=true mostra solo i fornitori archiviati; senza il filtro, o con
+            false, solo quelli attivi.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              category: { $ref: '#/components/schemas/SupplierCategory' }
+              subcontractor: { type: boolean }
+              archived:
+                type: boolean
+                default: false
+      responses:
+        '200':
+          description: Una pagina di fornitori
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupplierList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createSupplier
+      summary: Nuovo fornitore
+      description: 'Permesso: suppliers.create'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierInput' }
+      responses:
+        '201':
+          description: Fornitore creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/suppliers/{supplier}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SupplierId'
+    get:
+      operationId: getSupplier
+      summary: Scheda di un fornitore
+      description: 'Permesso: suppliers.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il fornitore
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateSupplier
+      summary: Modifica di un fornitore
+      description: |
+        Permesso: suppliers.update. Si inviano tutti i campi, come in creazione. If-Match come
+        nella modifica dei clienti.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SupplierInput' }
+      responses:
+        '200':
+          description: Fornitore aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteSupplier
+      summary: Eliminazione di un fornitore
+      description: |
+        Permesso: suppliers.delete. Solo senza documenti collegati: altrimenti 409 con code
+        has_documents, e il fornitore va archiviato.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Fornitore eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il fornitore ha documenti collegati (code has_documents).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/suppliers/{supplier}/archive:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SupplierId'
+    post:
+      operationId: archiveSupplier
+      summary: Archiviazione di un fornitore
+      description: 'Permesso: suppliers.update. Come per i clienti.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Fornitore archiviato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/suppliers/{supplier}/restore:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SupplierId'
+    post:
+      operationId: restoreSupplier
+      summary: Ripristino di un fornitore archiviato
+      description: 'Permesso: suppliers.update. Come per i clienti.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Fornitore di nuovo attivo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Supplier' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
 components:
   securitySchemes:
     session:
@@ -346,6 +542,11 @@ components:
         default: 25
     ClientId:
       name: client
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    SupplierId:
+      name: supplier
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
@@ -513,7 +714,15 @@ components:
     Permission:
       type: string
       description: Nella forma <area>.<azione>. L'elenco cresce con i moduli.
-      enum: [clients.view, clients.create, clients.update, clients.delete]
+      enum:
+        - clients.view
+        - clients.create
+        - clients.update
+        - clients.delete
+        - suppliers.view
+        - suppliers.create
+        - suppliers.update
+        - suppliers.delete
 
     ClientKind:
       type: string
@@ -620,4 +829,112 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/Client' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    SupplierCategory:
+      type: string
+      description: |
+        materials: materiali. rentals: noli (mezzi e attrezzature). subcontracting: subappalto.
+        services: servizi (progettisti, consulenti, trasporti). other: altro.
+      enum: [materials, rentals, subcontracting, services, other]
+    SupplierInput:
+      type: object
+      description: |
+        Dati di un fornitore, uguali in creazione e in modifica. I campi facoltativi si inviano
+        comunque, con null se vuoti.
+      required:
+        - name
+        - vat_number
+        - tax_code
+        - email
+        - pec
+        - phone
+        - street
+        - postal_code
+        - city
+        - province
+        - country
+        - categories
+        - subcontractor
+        - notes
+      properties:
+        name:
+          type: string
+          description: Ragione sociale, oppure nome e cognome della ditta individuale.
+          minLength: 1
+          maxLength: 200
+        vat_number:
+          type: [string, 'null']
+          description: |
+            Partita IVA, unica nell'azienda. Con country IT serve almeno una tra partita IVA e
+            codice fiscale. Restituita normalizzata come per i clienti.
+          maxLength: 20
+        tax_code:
+          type: [string, 'null']
+          description: Codice fiscale, unico nell'azienda. Normalizzato come la partita IVA.
+          maxLength: 16
+        email:
+          type: [string, 'null']
+          format: email
+        pec:
+          type: [string, 'null']
+          format: email
+        phone:
+          type: [string, 'null']
+          maxLength: 30
+        street:
+          type: [string, 'null']
+          maxLength: 200
+        postal_code:
+          type: [string, 'null']
+          maxLength: 10
+        city:
+          type: [string, 'null']
+          maxLength: 100
+        province:
+          type: [string, 'null']
+          description: Sigla della provincia (TO, MI). Vuota per i fornitori esteri.
+          maxLength: 2
+        country:
+          type: string
+          description: Paese, codice ISO 3166-1 alpha-2.
+          pattern: '^[A-Z]{2}$'
+          default: IT
+          examples: [IT]
+        categories:
+          type: array
+          description: Una o più categorie, anche nessuna. I doppioni vengono tolti.
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/SupplierCategory' }
+        subcontractor:
+          type: boolean
+          description: |
+            Subappaltatore: per lui contano i documenti di regolarità (DURC, visura,
+            assicurazione) con le loro scadenze.
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    Supplier:
+      allOf:
+        - $ref: '#/components/schemas/SupplierInput'
+        - type: object
+          required: [id, archived_at, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            archived_at:
+              type: [string, 'null']
+              format: date-time
+              description: Data di archiviazione; null se il fornitore è attivo.
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    SupplierList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Supplier' }
         meta: { $ref: '#/components/schemas/ListMeta' }

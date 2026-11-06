@@ -12,7 +12,8 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | `GET /api/me`: aziende, ruolo e permessi | Fatto |
 | Clienti: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
 | Isolamento tra aziende (Row Level Security) | Fatto, con test avversario |
-| Fornitori, preventivi, computo metrico, scadenziario | Da fare, dopo il contratto |
+| Fornitori e subappaltatori: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
+| Preventivi, computo metrico, scadenziario | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 
 ## Stack
@@ -44,7 +45,8 @@ src/app.ts          server: sessione, errori, rotte
 src/db.ts           i due pool e withIdentity()
 src/auth/           password, sessioni, CSRF, limite ai tentativi
 src/clients/        validazione dei clienti, partita IVA e codice fiscale
-src/routes/         auth, me, clients
+src/suppliers/      validazione dei fornitori
+src/routes/         auth, me, clients, suppliers
 test/               test di integrazione su un database usa e getta
 ```
 

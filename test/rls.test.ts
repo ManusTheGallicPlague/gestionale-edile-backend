@@ -120,6 +120,47 @@ describe('the API role cannot cross companies', () => {
     expect(stillThere.rowCount).toBe(1)
   })
 
+  it('suppliers: sees only its own, cannot insert, move, update or delete across', async () => {
+    for (const [companyId, vat] of [
+      [companyA.id, '33333333336'],
+      [companyB.id, '44444444442'],
+    ] as const) {
+      await owner.query(
+        "insert into public.suppliers (company_id, name, vat_number) values ($1, 'F', $2)",
+        [companyId, vat],
+      )
+    }
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select company_id from public.suppliers'),
+    )
+    expect(seen.rows).toEqual([{ company_id: companyA.id }])
+    const wrongCompany = await as(alice.id, companyB.id, (c) =>
+      c.query('select * from public.suppliers'),
+    )
+    expect(wrongCompany.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query("insert into public.suppliers (company_id, name) values ($1, 'X')", [companyB.id]),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query('update public.suppliers set company_id = $1', [companyB.id]),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.suppliers set name = 'preso' where company_id = $1", [
+        companyB.id,
+      ])
+      const d = await c.query('delete from public.suppliers where company_id = $1', [companyB.id])
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    const none = await app.query('select * from public.suppliers')
+    expect(none.rowCount).toBe(0)
+    await expect(auth.query('select * from public.suppliers')).rejects.toThrow(/permission denied/)
+  })
+
   it('cannot see memberships of other users', async () => {
     const other = await fx.user()
     const roleId = await fx.role(companyA.id, `Altro ${other.id.slice(0, 6)}`, [])

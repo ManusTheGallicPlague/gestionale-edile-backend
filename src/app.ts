@@ -7,6 +7,7 @@ import { ApiError, ValidationFailed, messages } from './http/errors.js'
 import { COOKIES } from './http/request-context.js'
 import { authRoutes } from './routes/auth.js'
 import { clientRoutes } from './routes/clients.js'
+import { supplierRoutes } from './routes/suppliers.js'
 import { meRoutes } from './routes/me.js'
 
 export function buildApp(
@@ -72,6 +73,7 @@ export function buildApp(
   authRoutes(app, config, db)
   meRoutes(app, db)
   clientRoutes(app, config, db)
+  supplierRoutes(app, config, db)
 
   return app
 }
