@@ -8,6 +8,9 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 
 ## Compiti
 
+### 0. Da sistemare prima di tutto
+- [ ] Test instabile: `test/invitations.test.ts` › «a new invitation replaces the old one; deleting kills the link» è fallito una volta in CI (run del commit c1fd566, 06/11 16:48 UTC: `expected 200 to be 404`, il vecchio link dell'invito risultava ancora valido subito dopo il secondo invito) e poi è passato. Trovare la causa vera, non ritentare il test. Ipotesi da verificare per prima: la risposta del `POST` parte prima del `commit` della transazione, oppure due richieste vedono stati diversi. Lanciare il file molte volte di seguito (es. `for i in $(seq 50); do npx vitest run test/invitations.test.ts || break; done`) per riprodurlo, correggere e lasciare un test che fallirebbe senza la correzione. Controllare se lo stesso schema (risposta prima del commit) è presente in altre rotte.
+
 ### 1. Anagrafiche
 - [x] Accesso, sessioni, CSRF, `/api/me`
 - [x] Clienti: elenco, scheda, creazione, modifica
