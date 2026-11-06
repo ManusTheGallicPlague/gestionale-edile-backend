@@ -32,7 +32,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 
 ### 4. Preventivi
 - [x] Preventivo: cliente, numero progressivo per azienda e anno (`2026/001`, assegnato al primo invio, senza buchi), data, validità, stato (`draft`, `sent`, `accepted`, `rejected`, `expired`), oggetto, note e condizioni
-- [ ] Righe: descrizione, unità, quantità, prezzo unitario, sconto percentuale, aliquota IVA; righe di solo testo e sezioni
+- [x] Righe: descrizione, unità, quantità, prezzo unitario, sconto percentuale, aliquota IVA; righe di solo testo e sezioni
 - [ ] Totali: imponibile, IVA per aliquota, totale, calcolati dal backend in centesimi
 - [ ] Creazione di un preventivo da un computo (le voci diventano righe)
 - [ ] Cambi di stato con le regole (un preventivo inviato non si modifica più, si fa una revisione)
@@ -84,11 +84,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: duplicazione con `POST …/estimates/{id}/duplicate` (permessi `estimates.view` ed `estimates.create`, nessuno nuovo): copia testata, capitoli, voci e misure con id nuovi in un solo statement; la copia nasce in bozza con «(copia)» in fondo al titolo (accorciato se serve a stare in 200 caratteri) e lo stesso cliente.
 - 06/11/2026: preventivi: cliente obbligatorio (`on delete restrict`); validità come `validity_days` (predefinito 30), `valid_until` calcolata; data (`issue_date`) e numero arrivano con `POST …/quotes/{id}/send`, che usa la data italiana di oggi e il contatore `quote_counters` per azienda e anno, bloccato fino al commit: niente buchi né doppioni, anche con invii concorrenti. Numero `AAAA/NNN` (tre cifre, poi crescono).
 - 06/11/2026: un preventivo non in bozza non si modifica né si elimina (409 `quote_not_draft`), così la numerazione resta senza buchi. Permessi nuovi `quotes.view/create/update/delete`; inviare chiede `quotes.update`. Il Capo cantiere non vede i preventivi (prezzi e margini restano all'ufficio). I contatori non si cancellano (manca il privilegio `delete`).
+- 06/11/2026: righe del preventivo in `quote_lines` con `kind` `item`/`text`/`section`; solo le `item` hanno unità, quantità (`numeric(14,3)`, anche negativa), prezzo, sconto (`numeric(5,2)`, stringa da 0 a 100) e aliquota (intero tra 22, 10, 5, 4, 0; nature IVA e reverse charge rimandati). Imponibile di riga = quantità × prezzo × (1 − sconto), arrotondato al centesimo dal database. Righe senza paginazione, in fondo alla creazione; il riordino arriverà con un'operazione in blocco. Si scrivono solo in bozza (409 `quote_not_draft`), con `quotes.update`.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 14:43 UTC: righe del preventivo (contratto, migrazione 0014, sezioni, testo e righe con prezzo, sconto e IVA, imponibile di riga, solo in bozza, dati di sviluppo, test e caso avversario). Niente a metà; prossimo: totali del preventivo (imponibile, IVA per aliquota, totale). 255 test.
 - 2026-11-06 14:40 UTC: testata dei preventivi con numerazione al primo invio (contratto, migrazione 0013 con contatore per anno, `send`, permessi `quotes.*`, dati di sviluppo, test anche su invii concorrenti, caso avversario). Niente a metà; prossimo: righe del preventivo. 241 test.
 - 2026-11-06 14:37 UTC: duplicazione di un computo (contratto `duplicateEstimate`, copia dell'albero, test). Il computo metrico (sezione 3) è completo. Niente a metà; prossimo: preventivi (testata e numerazione). 228 test.
 - 2026-11-06 14:35 UTC: modifica dell'albero in blocco (contratto `arrangeEstimateStructure`, migrazione 0012 con `structure_version`, controlli su insiemi, cicli e profondità, test). Niente a metà; prossimo: duplicazione di un computo. 226 test.

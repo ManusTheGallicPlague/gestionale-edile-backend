@@ -13,6 +13,7 @@ import { deadlineRoutes } from './routes/deadlines.js'
 import { estimateRoutes } from './routes/estimates.js'
 import { estimateStructureRoutes } from './routes/estimate-structure.js'
 import { quoteRoutes } from './routes/quotes.js'
+import { quoteLineRoutes } from './routes/quote-lines.js'
 import { meRoutes } from './routes/me.js'
 
 export function buildApp(
@@ -84,6 +85,7 @@ export function buildApp(
   estimateRoutes(app, config, db)
   estimateStructureRoutes(app, config, db)
   quoteRoutes(app, config, db)
+  quoteLineRoutes(app, config, db)
 
   return app
 }

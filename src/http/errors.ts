@@ -63,6 +63,8 @@ export const messages = {
     'Il preventivo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   quoteMissingIfMatch: 'Manca la versione del preventivo: ricarica la pagina e riprova.',
   quoteNotDraft: 'Il preventivo è già stato inviato e non si modifica più: fanne una revisione.',
+  lineStale:
+    'La riga è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   internal: 'Errore interno. Riprova tra poco.',
   badRequest: 'Richiesta non valida.',
 } as const

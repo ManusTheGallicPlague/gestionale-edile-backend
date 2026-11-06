@@ -502,6 +502,53 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.quotes')).rejects.toThrow(/permission denied/)
   })
 
+  it('quote lines: cannot read, write or attach across companies', async () => {
+    const clientB = await owner.query<{ id: string }>(
+      'select id from public.clients where company_id = $1 limit 1',
+      [companyB.id],
+    )
+    const quoteB = await owner.query<{ id: string }>(
+      "insert into public.quotes (company_id, client_id, subject) values ($1, $2, 'B righe') returning id",
+      [companyB.id, clientB.rows[0]?.id],
+    )
+    await owner.query(
+      `insert into public.quote_lines (company_id, quote_id, kind, description, position)
+       values ($1, $2, 'text', 'Riga B', 0)`,
+      [companyB.id, quoteB.rows[0]?.id],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.quote_lines where quote_id = $1', [quoteB.rows[0]?.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.quote_lines (company_id, quote_id, kind, description, position)
+           values ($1, $2, 'text', 'X', 1)`,
+          [companyB.id, quoteB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.quote_lines (company_id, quote_id, kind, description, position)
+           values ($1, $2, 'text', 'X', 1)`,
+          [companyA.id, quoteB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.quote_lines set description = 'preso'")
+      const d = await c.query('delete from public.quote_lines')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.quote_lines')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('cannot see memberships of other users', async () => {
     const other = await fx.user()
     const roleId = await fx.role(companyA.id, `Altro ${other.id.slice(0, 6)}`, [])

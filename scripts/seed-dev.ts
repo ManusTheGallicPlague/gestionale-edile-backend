@@ -358,6 +358,21 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
         'insert into public.quote_counters (company_id, year, last_number) values ($1, 2026, 2)',
         [companyId],
       )
+      await client.query(
+        `insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
+           unit_price_cents, discount_percent, vat_rate, position)
+         select q.company_id, q.id, l.kind, l.description, l.unit, l.quantity, l.cents,
+           l.discount, l.vat, l.position
+         from public.quotes q
+         cross join (values
+           ('section', 'Copertura', null, null, null, null, null, 0),
+           ('item', 'Rimozione del manto di copertura in coppi', 'm²', 120.5, 1840, 0, 10, 1),
+           ('item', 'Fornitura e posa di guaina impermeabilizzante', 'm²', 120.5, 2250, 5, 10, 2),
+           ('text', 'Ponteggi esclusi, a carico del committente.', null, null, null, null, null, 3)
+         ) as l (kind, description, unit, quantity, cents, discount, vat, position)
+         where q.company_id = $1`,
+        [companyId],
+      )
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query(
         `insert into public.estimates (company_id, title, client_id, site_address, status)
