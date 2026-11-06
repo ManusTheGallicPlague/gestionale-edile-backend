@@ -21,7 +21,7 @@ export function meRoutes(app: FastifyInstance, db: Db): void {
          join public.companies c on c.id = m.company_id
          join public.roles r on r.id = m.role_id
          left join public.role_permissions rp on rp.role_id = r.id
-         where m.user_id = app.current_user_id()
+         where m.user_id = app.current_user_id() and m.disabled_at is null
          group by c.slug, c.name, r.name
          order by c.name`,
       )

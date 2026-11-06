@@ -639,6 +639,43 @@ describe('the API role cannot cross companies', () => {
     expect(seen.rows[0]?.m).toBe(false)
   })
 
+  it('members: cannot change or deactivate members of another company', async () => {
+    const roleB = await fx.role(companyB.id, `Membri B ${Math.random()}`, ['users.manage'])
+    const carol = await fx.user()
+    await fx.member(carol.id, companyB.id, roleB)
+    const changed = await as(alice.id, companyA.id, (c) =>
+      c.query<{ f: boolean }>('select app.update_company_member($1, null, false) as f', [carol.id]),
+    )
+    expect(changed.rows[0]?.f).toBe(false)
+    // Declaring a company the user does not belong to does not help either.
+    const declared = await as(alice.id, companyB.id, (c) =>
+      c.query<{ f: boolean }>('select app.update_company_member($1, null, false) as f', [carol.id]),
+    )
+    expect(declared.rows[0]?.f).toBe(false)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query('update public.memberships set disabled_at = now() where user_id = $1', [carol.id]),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    const still = await owner.query<{ disabled_at: Date | null }>(
+      'select disabled_at from public.memberships where user_id = $1',
+      [carol.id],
+    )
+    expect(still.rows[0]?.disabled_at).toBeNull()
+    // A deactivated member loses the company in every identity helper.
+    await owner.query('update public.memberships set disabled_at = now() where user_id = $1', [
+      carol.id,
+    ])
+    const seen = await as(carol.id, companyB.id, async (c) => {
+      const company = await c.query<{ id: string | null }>('select app.current_company_id() as id')
+      const mine = await c.query('select * from app.my_company_ids()')
+      const own = await c.query('select * from public.memberships')
+      const clients = await c.query('select * from public.clients')
+      return [company.rows[0]?.id ?? null, mine.rowCount, own.rowCount, clients.rowCount]
+    })
+    expect(seen).toEqual([null, 0, 0, 0])
+  })
+
   it('quote lines: cannot read, write or attach across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',

@@ -1515,6 +1515,86 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/users/{user}/role:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/UserId'
+    put:
+      operationId: changeUserRole
+      summary: Cambio del ruolo di un utente
+      description: |
+        Permesso: users.manage. Vale subito, anche per le sessioni aperte. Senza If-Match: il
+        valore è assoluto. Se dopo il cambio nessun utente attivo avrebbe più users.manage la
+        risposta è 409 con code last_manager e non cambia niente.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UserRoleInput' }
+      responses:
+        '200':
+          description: Ruolo cambiato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyUser' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LastManager' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/users/{user}/deactivate:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: deactivateUser
+      summary: Disattivazione di un utente in questa azienda
+      description: |
+        Permesso: users.manage. L'utente perde subito l'accesso a questa azienda (le altre e
+        l'account restano); nell'elenco ha active false. Non si disattiva sé stessi (409 code
+        self_deactivation) né l'ultimo utente attivo con users.manage (409 code last_manager).
+        Disattivare due volte non cambia niente.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          description: Utente disattivato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyUser' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LastManager' }
+
+  /api/companies/{company}/users/{user}/reactivate:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/UserId'
+    post:
+      operationId: reactivateUser
+      summary: Riattivazione di un utente in questa azienda
+      description: |
+        Permesso: users.manage. Torna con il ruolo che aveva. Un account disattivato in
+        generale resta con active false.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '200':
+          description: Utente riattivato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyUser' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/invitations:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2118,6 +2198,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    UserId:
+      name: user
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     InvitationToken:
       name: token
       in: path
@@ -2173,6 +2258,13 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     PreconditionRequired:
       description: Manca l'header If-Match (code precondition_required).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    LastManager:
+      description: |
+        Cambio rifiutato: lascerebbe l'azienda senza utenti attivi con users.manage
+        (code last_manager), oppure è la disattivazione di sé stessi (code self_deactivation).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2333,6 +2425,11 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/CompanyUser' }
+    UserRoleInput:
+      type: object
+      required: [role_id]
+      properties:
+        role_id: { $ref: '#/components/schemas/Id' }
     InvitationInput:
       type: object
       required: [email, role_id]

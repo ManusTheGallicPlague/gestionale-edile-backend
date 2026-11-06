@@ -172,7 +172,7 @@ describe('invitations', () => {
     const { company, office, browser } = await ownerWithRole()
     const created = await invite(browser, company.slug, `tardi-${unique()}@example.test`, office)
     await ctx.owner.query(
-      "update public.invitations set expires_at = now() - interval '1 second' where id = $1",
+      "update public.invitations set expires_at = now() - interval '1 day' where id = $1",
       [created.id],
     )
     const list = await browser.call('GET', `/api/companies/${company.slug}/invitations`)

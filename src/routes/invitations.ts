@@ -28,16 +28,19 @@ interface InvitationRow {
   role_name: string
   expires_at: Date
   created_at: Date
+  expired: boolean
 }
 
-const COLUMNS = `i.id, i.email, i.role_id, r.name as role_name, i.expires_at, i.created_at`
+// Expiry is judged by the database clock, the same one the token lookup uses.
+const COLUMNS = `i.id, i.email, i.role_id, r.name as role_name, i.expires_at, i.created_at,
+  i.expires_at <= now() as expired`
 
 function present(row: InvitationRow) {
   return {
     id: row.id,
     email: row.email,
     role: { id: row.role_id, name: row.role_name },
-    status: row.expires_at.getTime() > Date.now() ? 'pending' : 'expired',
+    status: row.expired ? 'expired' : 'pending',
     expires_at: row.expires_at.toISOString(),
     created_at: row.created_at.toISOString(),
   }
