@@ -1246,6 +1246,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il cantiere ha rapportini collegati (code has_documents). Si può chiudere.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
@@ -1292,6 +1297,197 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/daily-reports:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listDailyReports
+      summary: Elenco dei rapportini
+      description: |
+        Permesso: reports.view. Senza le righe delle ore, con i totali. Ordine predefinito: dal
+        giorno più recente, poi per nome del cantiere.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [date, -date, updated_at, -updated_at]
+            default: -date
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[site]=<id>, filter[status]=submitted,
+            filter[from]=2026-11-01 e filter[to]=2026-11-30 (estremi compresi).
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              status: { $ref: '#/components/schemas/DailyReportStatus' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Una pagina di rapportini
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyReportList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createDailyReport
+      summary: Nuovo rapportino
+      description: |
+        Permesso: reports.create. Nasce in bozza. Uno solo per cantiere e giorno (altrimenti
+        422 su date). Dipendenti e mezzi sono quelli dell'azienda, anche fuori dalla squadra.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailyReportInput' }
+      responses:
+        '201':
+          description: Rapportino creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/daily-reports/{report}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/DailyReportId'
+    get:
+      operationId: getDailyReport
+      summary: Un rapportino con le ore
+      description: 'Permesso: reports.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il rapportino
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateDailyReport
+      summary: Modifica di un rapportino in bozza
+      description: |
+        Permesso: reports.update. Si inviano tutti i campi; le righe delle ore sostituiscono le
+        precedenti. Solo in bozza: altrimenti 409 con code report_not_draft.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/DailyReportInput' }
+      responses:
+        '200':
+          description: Rapportino aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il rapportino non è in bozza (code report_not_draft).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteDailyReport
+      summary: Eliminazione di un rapportino in bozza
+      description: 'Permesso: reports.delete. Solo in bozza: altrimenti 409 con code report_not_draft.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Rapportino eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il rapportino non è in bozza (code report_not_draft).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/daily-reports/{report}/status:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/DailyReportId'
+    post:
+      operationId: changeDailyReportStatus
+      summary: Invio, approvazione o ritorno in bozza di un rapportino
+      description: |
+        Da draft a submitted (invio) con reports.update; da submitted ad approved e da
+        submitted o approved a draft (ritorno in bozza per correggere) con reports.approve.
+        Gli altri passaggi rispondono 409 con code invalid_transition.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { $ref: '#/components/schemas/DailyReportStatus' }
+      responses:
+        '200':
+          description: Stato cambiato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DailyReport' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Passaggio di stato non ammesso (code invalid_transition).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
 
   /api/companies/{company}/employees:
     parameters:
@@ -1638,6 +1834,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il mezzo compare in un rapportino (code has_documents). Si può segnare come non in uso.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
@@ -3211,6 +3412,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    DailyReportId:
+      name: report
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     EmployeeId:
       name: employee
       in: path
@@ -3642,6 +3848,11 @@ components:
         - vehicles.create
         - vehicles.update
         - vehicles.delete
+        - reports.view
+        - reports.create
+        - reports.update
+        - reports.delete
+        - reports.approve
         - quotes.view
         - quotes.create
         - quotes.update
@@ -3756,7 +3967,7 @@ components:
       description: |
         client: cliente. supplier: fornitore. deadline: scadenza. estimate: computo metrico.
         quote: preventivo. site: cantiere. employee: dipendente. vehicle: mezzo.
-      enum: [client, supplier, deadline, estimate, quote, site, employee, vehicle]
+      enum: [client, supplier, deadline, estimate, quote, site, employee, vehicle, daily_report]
     AuditEntry:
       type: object
       required: [id, entity, entity_id, action, fields, user, created_at]
@@ -4221,6 +4432,162 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/SiteTeamMember' }
+    DailyReportStatus:
+      type: string
+      description: |
+        draft: bozza. submitted: inviato all'ufficio. approved: approvato.
+      enum: [draft, submitted, approved]
+    Hours:
+      type: string
+      description: Ore come stringa con il punto, da 0.01 a 24; in uscita sempre con due decimali.
+      pattern: '^\d{1,4}(\.\d{1,2})?$'
+      examples: ['8.00', '7.5']
+    DailyReportInput:
+      type: object
+      description: |
+        I campi facoltativi si inviano comunque, con null se vuoti. labor e vehicles sono gli
+        elenchi completi (anche vuoti), al massimo 100 righe ciascuno, senza doppioni; gli
+        errori delle righe usano il percorso con l'indice (labor.0.hours).
+      required: [site_id, date, weather, work_done, notes, labor, vehicles]
+      properties:
+        site_id: { $ref: '#/components/schemas/Id' }
+        date: { $ref: '#/components/schemas/Date' }
+        weather:
+          type: [string, 'null']
+          description: Condizioni meteo, testo libero.
+          maxLength: 100
+        work_done:
+          type: [string, 'null']
+          description: Lavori svolti nella giornata.
+          maxLength: 5000
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+        labor:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [employee_id, hours, description]
+            properties:
+              employee_id: { $ref: '#/components/schemas/Id' }
+              hours: { $ref: '#/components/schemas/Hours' }
+              description:
+                type: [string, 'null']
+                maxLength: 500
+        vehicles:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+            required: [vehicle_id, hours, description]
+            properties:
+              vehicle_id: { $ref: '#/components/schemas/Id' }
+              hours: { $ref: '#/components/schemas/Hours' }
+              description:
+                type: [string, 'null']
+                maxLength: 500
+    UserRef:
+      type: object
+      required: [id, name]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+    DailyReportSummary:
+      type: object
+      required:
+        - id
+        - site_id
+        - site
+        - date
+        - status
+        - weather
+        - work_done
+        - notes
+        - total_labor_hours
+        - total_vehicle_hours
+        - created_by
+        - submitted_at
+        - approved_at
+        - approved_by
+        - created_at
+        - updated_at
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        site_id: { $ref: '#/components/schemas/Id' }
+        site:
+          type: object
+          required: [id, name, code]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            name: { type: string }
+            code: { type: [string, 'null'] }
+        date: { $ref: '#/components/schemas/Date' }
+        status: { $ref: '#/components/schemas/DailyReportStatus' }
+        weather: { type: [string, 'null'] }
+        work_done: { type: [string, 'null'] }
+        notes: { type: [string, 'null'] }
+        total_labor_hours: { $ref: '#/components/schemas/Hours' }
+        total_vehicle_hours: { $ref: '#/components/schemas/Hours' }
+        created_by:
+          description: Chi ha scritto il rapportino; null per i dati caricati fuori dall'API.
+          oneOf:
+            - $ref: '#/components/schemas/UserRef'
+            - type: 'null'
+        submitted_at:
+          type: [string, 'null']
+          format: date-time
+        approved_at:
+          type: [string, 'null']
+          format: date-time
+        approved_by:
+          oneOf:
+            - $ref: '#/components/schemas/UserRef'
+            - type: 'null'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    DailyReport:
+      allOf:
+        - $ref: '#/components/schemas/DailyReportSummary'
+        - type: object
+          required: [labor, vehicles]
+          properties:
+            labor:
+              type: array
+              description: Ore dei dipendenti, senza costi.
+              items:
+                type: object
+                required: [employee_id, first_name, last_name, hours, description]
+                properties:
+                  employee_id: { $ref: '#/components/schemas/Id' }
+                  first_name: { type: string }
+                  last_name: { type: string }
+                  hours: { $ref: '#/components/schemas/Hours' }
+                  description: { type: [string, 'null'] }
+            vehicles:
+              type: array
+              description: Ore dei mezzi, senza costi.
+              items:
+                type: object
+                required: [vehicle_id, name, plate, hours, description]
+                properties:
+                  vehicle_id: { $ref: '#/components/schemas/Id' }
+                  name: { type: string }
+                  plate: { type: [string, 'null'] }
+                  hours: { $ref: '#/components/schemas/Hours' }
+                  description: { type: [string, 'null'] }
+    DailyReportList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/DailyReportSummary' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
     EmployeeInput:
       type: object
       description: I campi facoltativi si inviano comunque, con null se vuoti.

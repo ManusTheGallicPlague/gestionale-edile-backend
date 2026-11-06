@@ -53,6 +53,16 @@ export const messages = {
   siteStale:
     'Il cantiere è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   siteMissingIfMatch: 'Manca la versione del cantiere: ricarica la pagina e riprova.',
+  siteHasDocuments:
+    'Il cantiere ha rapportini o altri documenti collegati e non si può eliminare: puoi chiuderlo.',
+  vehicleHasDocuments:
+    'Il mezzo compare in un rapportino e non si può eliminare: puoi segnarlo come non in uso.',
+  reportStale:
+    'Il rapportino è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  reportMissingIfMatch: 'Manca la versione del rapportino: ricarica la pagina e riprova.',
+  reportNotDraft:
+    'Il rapportino è già stato inviato e non si modifica più: va prima riportato in bozza.',
+  reportInvalidTransition: 'Questo cambio di stato del rapportino non è ammesso.',
   employeeStale:
     'Il dipendente è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   employeeHasDocuments:

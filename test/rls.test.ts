@@ -429,6 +429,129 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.site_team')).rejects.toThrow(/permission denied/)
   })
 
+  it('daily reports and their hours: cannot read, write or attach across companies', async () => {
+    const make = async (companyId: string, label: string) => {
+      const site = await owner.query<{ id: string }>(
+        'insert into public.sites (company_id, name) values ($1, $2) returning id',
+        [companyId, `Cantiere ${label}`],
+      )
+      const employee = await owner.query<{ id: string }>(
+        `insert into public.employees (company_id, first_name, last_name)
+         values ($1, 'Rapportino', $2) returning id`,
+        [companyId, label],
+      )
+      const vehicle = await owner.query<{ id: string }>(
+        `insert into public.vehicles (company_id, name, kind) values ($1, $2, 'vehicle')
+         returning id`,
+        [companyId, `Furgone ${label}`],
+      )
+      return {
+        site: site.rows[0]?.id,
+        employee: employee.rows[0]?.id,
+        vehicle: vehicle.rows[0]?.id,
+      }
+    }
+    const a = await make(companyA.id, 'A')
+    const b = await make(companyB.id, 'B')
+    const reportB = await owner.query<{ id: string }>(
+      `insert into public.daily_reports (company_id, site_id, report_date)
+       values ($1, $2, '2026-11-02') returning id`,
+      [companyB.id, b.site],
+    )
+    await owner.query(
+      `insert into public.daily_report_labor (company_id, report_id, employee_id, hours, position)
+       values ($1, $2, $3, 8, 0)`,
+      [companyB.id, reportB.rows[0]?.id, b.employee],
+    )
+    await owner.query(
+      `insert into public.daily_report_vehicles (company_id, report_id, vehicle_id, hours, position)
+       values ($1, $2, $3, 2, 0)`,
+      [companyB.id, reportB.rows[0]?.id, b.vehicle],
+    )
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const r = await c.query('select * from public.daily_reports where company_id = $1', [
+        companyB.id,
+      ])
+      const l = await c.query('select * from public.daily_report_labor where company_id = $1', [
+        companyB.id,
+      ])
+      const v = await c.query('select * from public.daily_report_vehicles where company_id = $1', [
+        companyB.id,
+      ])
+      return r.rowCount! + l.rowCount! + v.rowCount!
+    })
+    expect(seen).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.daily_reports (company_id, site_id, report_date)
+           values ($1, $2, '2026-11-03')`,
+          [companyB.id, b.site],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    // A report of company A cannot point to a site, employee or vehicle of company B.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.daily_reports (company_id, site_id, report_date)
+           values ($1, $2, '2026-11-03')`,
+          [companyA.id, b.site],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const reportA = await as(alice.id, companyA.id, (c) =>
+      c.query<{ id: string }>(
+        `insert into public.daily_reports (company_id, site_id, report_date)
+         values ($1, $2, '2026-11-03') returning id`,
+        [companyA.id, a.site],
+      ),
+    )
+    for (const [table, column, id] of [
+      ['daily_report_labor', 'employee_id', b.employee],
+      ['daily_report_vehicles', 'vehicle_id', b.vehicle],
+    ] as const) {
+      await expect(
+        as(alice.id, companyA.id, (c) =>
+          c.query(
+            `insert into public.${table} (company_id, report_id, ${column}, hours, position)
+             values ($1, $2, $3, 1, 0)`,
+            [companyA.id, reportA.rows[0]?.id, id],
+          ),
+        ),
+      ).rejects.toThrow(/foreign key/)
+      // Hours of company B cannot be attached to a report of company A, nor the reverse.
+      await expect(
+        as(alice.id, companyA.id, (c) =>
+          c.query(
+            `insert into public.${table} (company_id, report_id, ${column}, hours, position)
+             values ($1, $2, $3, 1, 0)`,
+            [companyB.id, reportB.rows[0]?.id, id],
+          ),
+        ),
+      ).rejects.toThrow(/row-level security/)
+      await expect(
+        as(alice.id, companyA.id, (c) => c.query(`update public.${table} set hours = 1`)),
+      ).rejects.toThrow(/permission denied/)
+    }
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.daily_reports set status = 'approved' where id = $1", [
+        reportB.rows[0]?.id,
+      ])
+      const d = await c.query('delete from public.daily_reports where id = $1', [
+        reportB.rows[0]?.id,
+      ])
+      const l = await c.query('delete from public.daily_report_labor where company_id = $1', [
+        companyB.id,
+      ])
+      return u.rowCount! + d.rowCount! + l.rowCount!
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.daily_reports')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('estimate chapters and items: cannot read, write or attach across companies', async () => {
     const estimateB = await owner.query<{ id: string }>(
       "insert into public.estimates (company_id, title) values ($1, 'B') returning id",

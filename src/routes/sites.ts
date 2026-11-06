@@ -396,10 +396,15 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       const id = request.params.site ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const { rowCount } = await client.query(
-        'delete from public.sites where id = $1 and version = $2',
-        [id, version],
-      )
+      const { rowCount } = await client
+        .query('delete from public.sites where id = $1 and version = $2', [id, version])
+        .catch((error: unknown) => {
+          // Daily reports point here with "on delete restrict".
+          if (isForeignKeyViolation(error)) {
+            throw new ApiError(409, messages.siteHasDocuments, 'has_documents')
+          }
+          throw error
+        })
       if (!rowCount) await missingOrStale(client, id)
     })
     return reply.code(204).send()

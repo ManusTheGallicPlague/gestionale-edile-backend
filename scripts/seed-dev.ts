@@ -41,6 +41,11 @@ const ALL = [
   'vehicles.create',
   'vehicles.update',
   'vehicles.delete',
+  'reports.view',
+  'reports.create',
+  'reports.update',
+  'reports.delete',
+  'reports.approve',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -69,6 +74,9 @@ const ROLES: Record<string, string[]> = {
     'deadlines.view',
     'estimates.view',
     'sites.view',
+    'reports.view',
+    'reports.create',
+    'reports.update',
   ],
   // The site manager does not see quotes: prices and margins stay with the office.
 }
@@ -244,6 +252,8 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       }
       await client.query('delete from public.deadlines where company_id = $1', [companyId])
       await client.query('delete from public.quotes where company_id = $1', [companyId])
+      // Daily reports point to sites, employees and vehicles: they go first.
+      await client.query('delete from public.daily_reports where company_id = $1', [companyId])
       await client.query('delete from public.sites where company_id = $1', [companyId])
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query('delete from public.clients where company_id = $1', [companyId])
@@ -484,6 +494,36 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          from public.sites s
          join public.employees e on e.company_id = s.company_id and e.active
          where s.company_id = $1 and s.code = '2026-01'`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.daily_reports (company_id, site_id, report_date, status, weather,
+           work_done, submitted_at, approved_at)
+         select $1, s.id, r.day::date, r.status, r.weather, r.work_done,
+           case when r.status <> 'draft' then now() end,
+           case when r.status = 'approved' then now() end
+         from public.sites s, (values
+           ('2026-11-04', 'approved', 'Sereno', 'Scavo di fondazione e posa dei ferri'),
+           ('2026-11-05', 'submitted', 'Nuvoloso', 'Getto delle fondazioni'),
+           ('2026-11-06', 'draft', 'Pioggia', 'Disarmo e pulizia del cantiere')
+         ) as r (day, status, weather, work_done)
+         where s.company_id = $1 and s.code = '2026-01'`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.daily_report_labor (company_id, report_id, employee_id, hours, position)
+         select $1, r.id, e.id, 8, row_number() over (partition by r.id order by e.last_name)
+         from public.daily_reports r
+         join public.employees e on e.company_id = r.company_id and e.active
+         where r.company_id = $1`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.daily_report_vehicles (company_id, report_id, vehicle_id, hours, position)
+         select $1, r.id, v.id, 4, 0
+         from public.daily_reports r
+         join public.vehicles v on v.company_id = r.company_id and v.kind = 'machine'
+         where r.company_id = $1 and r.status <> 'draft'`,
         [companyId],
       )
       await client.query('delete from public.estimates where company_id = $1', [companyId])

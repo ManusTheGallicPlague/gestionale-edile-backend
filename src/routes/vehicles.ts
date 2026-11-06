@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
 import type { Db } from '../db.js'
-import { isUniqueViolation, withIdentity } from '../db.js'
+import { isForeignKeyViolation, isUniqueViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { amountToCents, centsToAmount } from '../money.js'
 import { italianAmount, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
@@ -349,10 +349,15 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const id = request.params.vehicle ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const { rowCount } = await client.query(
-        'delete from public.vehicles where id = $1 and version = $2',
-        [id, version],
-      )
+      const { rowCount } = await client
+        .query('delete from public.vehicles where id = $1 and version = $2', [id, version])
+        .catch((error: unknown) => {
+          // Daily reports point here with "on delete restrict".
+          if (isForeignKeyViolation(error)) {
+            throw new ApiError(409, messages.vehicleHasDocuments, 'has_documents')
+          }
+          throw error
+        })
       if (!rowCount) await missingOrStale(client, id)
     })
     return reply.code(204).send()
