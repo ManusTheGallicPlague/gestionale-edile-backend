@@ -38,6 +38,7 @@ const ALL = [
   'users.view',
   'users.manage',
   'roles.manage',
+  'audit.view',
 ]
 const ROLES: Record<string, string[]> = {
   Titolare: ALL,
@@ -47,7 +48,8 @@ const ROLES: Record<string, string[]> = {
       !p.endsWith('.delete') &&
       p !== 'settings.update' &&
       !p.startsWith('users.') &&
-      !p.startsWith('roles.'),
+      !p.startsWith('roles.') &&
+      p !== 'audit.view',
   ),
   'Capo cantiere': ['clients.view', 'suppliers.view', 'deadlines.view', 'estimates.view'],
   // The site manager does not see quotes: prices and margins stay with the office.

@@ -1862,6 +1862,42 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/companies/{company}/audit-log:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listAuditLog
+      summary: Registro delle modifiche
+      description: |
+        Permesso: audit.view. Chi ha creato, modificato o eliminato clienti, fornitori,
+        scadenze, computi e preventivi, e quando; dal più recente. Di una modifica si danno i
+        nomi dei campi cambiati, non i valori. Con filter[entity] e filter[entity_id] si ha
+        la storia di un solo documento.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[entity]=client&filter[entity_id]=<id>.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              entity: { $ref: '#/components/schemas/AuditEntity' }
+              entity_id: { $ref: '#/components/schemas/Id' }
+              user: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Una pagina del registro
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AuditLogList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/users:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2998,6 +3034,7 @@ components:
         - users.view
         - users.manage
         - roles.manage
+        - audit.view
 
     ClientKind:
       type: string
@@ -3097,6 +3134,56 @@ components:
             updated_at:
               type: string
               format: date-time
+    AuditEntity:
+      type: string
+      description: |
+        client: cliente. supplier: fornitore. deadline: scadenza. estimate: computo metrico.
+        quote: preventivo.
+      enum: [client, supplier, deadline, estimate, quote]
+    AuditEntry:
+      type: object
+      required: [id, entity, entity_id, action, fields, user, created_at]
+      properties:
+        id:
+          type: string
+          description: Progressivo del registro, come testo.
+        entity: { $ref: '#/components/schemas/AuditEntity' }
+        entity_id: { $ref: '#/components/schemas/Id' }
+        action:
+          type: string
+          description: create, update o delete.
+          enum: [create, update, delete]
+        fields:
+          type: array
+          description: |
+            Per update, i nomi dei campi cambiati, in ordine alfabetico. Sono i nomi delle
+            colonne del database, quasi sempre uguali ai campi del contratto (name, status,
+            client_id…); gli importi hanno il suffisso _cents (amount_cents). Vuoto per create
+            e delete.
+          items:
+            type: string
+        user:
+          description: Chi ha fatto la modifica; null se non è passata dall'API.
+          oneOf:
+            - type: 'null'
+            - type: object
+              required: [id, name]
+              properties:
+                id: { $ref: '#/components/schemas/Id' }
+                name:
+                  type: string
+                  description: Vuoto se l'account non esiste più.
+        created_at:
+          type: string
+          format: date-time
+    AuditLogList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/AuditEntry' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
     ClientList:
       type: object
       required: [data, meta]

@@ -17,6 +17,7 @@ import { quoteLineRoutes } from './routes/quote-lines.js'
 import { logoRoutes } from './routes/logo.js'
 import { invitationRoutes } from './routes/invitations.js'
 import { roleRoutes } from './routes/roles.js'
+import { auditLogRoutes } from './routes/audit-log.js'
 import { numberingRoutes, settingsRoutes } from './routes/settings.js'
 import { meRoutes } from './routes/me.js'
 import { passwordResetRoutes } from './routes/password-reset.js'
@@ -100,6 +101,7 @@ export function buildApp(
   logoRoutes(app, config, db)
   roleRoutes(app, config, db)
   invitationRoutes(app, config, db, mailer)
+  auditLogRoutes(app, config, db)
 
   return app
 }

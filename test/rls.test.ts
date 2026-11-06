@@ -821,6 +821,51 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('reads only the change log of its company and cannot write it', async () => {
+    // The setup inserted one client per company: each insert left a line in the log.
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query<{ company_id: string }>('select company_id from public.audit_log'),
+    )
+    expect(seen.rowCount).toBeGreaterThan(0)
+    expect(seen.rows.every((r) => r.company_id === companyA.id)).toBe(true)
+    const theirs = await as(alice.id, companyB.id, (c) => c.query('select * from public.audit_log'))
+    expect(theirs.rowCount).toBe(0)
+    for (const sql of [
+      `insert into public.audit_log (company_id, entity, entity_id, action)
+       values ('${companyA.id}', 'client', gen_random_uuid(), 'delete')`,
+      "update public.audit_log set fields = '{x}'",
+      'delete from public.audit_log',
+    ]) {
+      await expect(as(alice.id, companyA.id, (c) => c.query(sql))).rejects.toThrow(
+        /permission denied/,
+      )
+    }
+    // A change through the API role is logged with the declared user, in its company only.
+    const logged = await as(alice.id, companyA.id, async (c) => {
+      await c.query("update public.clients set notes = 'audit' where company_id = $1", [
+        companyA.id,
+      ])
+      return c.query<{ user_id: string; fields: string[] }>(
+        "select user_id, fields from public.audit_log where action = 'update'",
+      )
+    })
+    expect(logged.rows).toEqual([{ user_id: alice.id, fields: ['notes'] }])
+    // Names come only for users in the declared company's log.
+    const bob = await fx.user({ name: 'Bob di B' })
+    await owner.query(
+      `insert into public.audit_log (company_id, entity, entity_id, action, user_id)
+       values ($1, 'client', gen_random_uuid(), 'create', $2)`,
+      [companyB.id, bob.id],
+    )
+    const names = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from app.audit_users($1)', [[bob.id, alice.id]]),
+    )
+    expect(names.rows.map((r: { name: string }) => r.name)).not.toContain('Bob di B')
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query('select app.audit_row()')),
+    ).rejects.toThrow(/permission denied|trigger/)
+  })
+
   it('cannot read password hashes or sessions', async () => {
     await expect(app.query('select * from auth.users')).rejects.toThrow(/permission denied/)
     await expect(app.query('select * from auth.sessions')).rejects.toThrow(/permission denied/)
