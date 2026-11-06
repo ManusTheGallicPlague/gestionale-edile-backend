@@ -719,6 +719,24 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('password resets: the API role cannot read or write them', async () => {
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query('select * from auth.password_resets')),
+    ).rejects.toThrow(/permission denied/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          'insert into auth.password_resets (user_id, token_hash, expires_at) values ($1, $2, now())',
+          [alice.id, 'e'.repeat(64)],
+        ),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    // The auth role can mark a token used, but cannot move it to another account.
+    await expect(
+      auth.query('update auth.password_resets set user_id = $1 where false', [alice.id]),
+    ).rejects.toThrow(/permission denied/)
+  })
+
   it('quote lines: cannot read, write or attach across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',

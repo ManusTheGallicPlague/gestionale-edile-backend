@@ -9,6 +9,7 @@ import { DEFAULT_LOGIN_LIMITS, type Config } from '../src/config.js'
 import { createDb, type Db } from '../src/db.js'
 import type { Permission } from '../src/permissions.js'
 import { expectContract } from './contract.js'
+import { MemoryMailer } from '../src/mail/mailer.js'
 
 export const PASSWORD = 'password-di-prova'
 let hashed: Promise<string> | undefined
@@ -18,6 +19,7 @@ export interface TestContext {
   db: Db
   owner: pg.Pool
   config: Config
+  mailer: MemoryMailer
   close(): Promise<void>
 }
 
@@ -33,16 +35,19 @@ export async function startApp(): Promise<TestContext> {
     trustProxy: false,
     logLevel: 'silent',
     loginLimits: DEFAULT_LOGIN_LIMITS,
+    appUrl: 'https://gestionale.example.test',
   }
   const db = createDb({ app: urls.app, auth: urls.auth })
   const owner = new pg.Pool({ connectionString: urls.owner, max: 3 })
-  const app = buildApp(config, db, { logger: false })
+  const mailer = new MemoryMailer()
+  const app = buildApp(config, db, { logger: false, mailer })
   await app.ready()
   return {
     app,
     db,
     owner,
     config,
+    mailer,
     async close() {
       await app.close()
       await db.close()

@@ -60,6 +60,58 @@ paths:
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
+  /api/auth/password-reset:
+    post:
+      operationId: requestPasswordReset
+      summary: Password dimenticata, richiesta del link
+      description: |
+        Serve il token CSRF (come per l'accesso). Se l'email è di un account attivo il backend
+        manda un messaggio con il link /password-dimenticata/{token}, valido un'ora e una volta
+        sola; al massimo 3 messaggi l'ora per account. La risposta è sempre 204, anche per
+        un'email sconosciuta: non rivela quali account esistono.
+      security:
+        - csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetRequestInput' }
+      responses:
+        '204':
+          description: Richiesta ricevuta
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/auth/password-reset/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 100
+    post:
+      operationId: resetPassword
+      summary: Password dimenticata, scelta della nuova password
+      description: |
+        Serve il token CSRF. Con un link valido la password cambia, tutte le sessioni
+        dell'account si chiudono e gli altri link inviati smettono di funzionare; poi si
+        accede con la nuova password. Un link sconosciuto, già usato o scaduto risponde 404.
+      security:
+        - csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PasswordResetInput' }
+      responses:
+        '204':
+          description: Password cambiata
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/auth/logout:
     post:
       operationId: logout
@@ -2491,6 +2543,23 @@ components:
           format: password
           minLength: 1
           maxLength: 200
+        new_password:
+          type: string
+          format: password
+          minLength: 10
+          maxLength: 200
+    PasswordResetRequestInput:
+      type: object
+      required: [email]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+    PasswordResetInput:
+      type: object
+      required: [new_password]
+      properties:
         new_password:
           type: string
           format: password

@@ -8,6 +8,8 @@ export interface Config {
   trustProxy: boolean
   logLevel: string
   loginLimits: LoginLimits
+  /** Public address of the frontend, for the links in emails (no trailing slash). */
+  appUrl: string
 }
 
 export interface LoginLimits {
@@ -54,5 +56,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: flag(env, 'TRUST_PROXY'),
     logLevel: env.LOG_LEVEL ?? 'info',
     loginLimits: DEFAULT_LOGIN_LIMITS,
+    appUrl: appUrl(env),
   }
+}
+
+function appUrl(env: NodeJS.ProcessEnv): string {
+  const value = (env.APP_URL ?? 'http://localhost:5173').replace(/\/+$/, '')
+  if (!/^https?:\/\/[^\s/]+$/.test(value)) {
+    throw new Error('APP_URL must be like https://gestionale.example.test, without a path')
+  }
+  return value
 }

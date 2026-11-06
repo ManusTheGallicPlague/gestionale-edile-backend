@@ -19,11 +19,13 @@ import { invitationRoutes } from './routes/invitations.js'
 import { roleRoutes } from './routes/roles.js'
 import { numberingRoutes, settingsRoutes } from './routes/settings.js'
 import { meRoutes } from './routes/me.js'
+import { passwordResetRoutes } from './routes/password-reset.js'
+import { LogMailer, type Mailer } from './mail/mailer.js'
 
 export function buildApp(
   config: Config,
   db: Db,
-  options: { logger?: boolean } = {},
+  options: { logger?: boolean; mailer?: Mailer } = {},
 ): FastifyInstance {
   const app = Fastify({
     trustProxy: config.trustProxy,
@@ -40,6 +42,8 @@ export function buildApp(
             ],
           },
   })
+
+  const mailer = options.mailer ?? new LogMailer(app.log)
 
   app.register(cookie)
   app.decorateRequest('session', null)
@@ -81,6 +85,7 @@ export function buildApp(
   })
 
   authRoutes(app, config, db)
+  passwordResetRoutes(app, config, db, mailer)
   meRoutes(app, config, db)
   clientRoutes(app, config, db)
   supplierRoutes(app, config, db)
