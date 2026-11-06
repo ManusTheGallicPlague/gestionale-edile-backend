@@ -575,6 +575,70 @@ describe('the API role cannot cross companies', () => {
     expect([...(still.rows[0]?.data ?? [])]).toEqual([1])
   })
 
+  it('invitations: cannot read, create, delete or read the token hash across companies', async () => {
+    const roleB = await fx.role(companyB.id, `Invito B ${Math.random()}`, [])
+    const hash = 'b'.repeat(63) + String(Math.floor(Math.random() * 10))
+    await owner.query(
+      `insert into public.invitations (company_id, email, role_id, token_hash, expires_at)
+       values ($1, $2, $3, $4, now() + interval '1 day')`,
+      [companyB.id, `b-${hash.slice(-6)}@example.test`, roleB, hash],
+    )
+    const touched = await as(alice.id, companyA.id, async (c) => {
+      const r = await c.query('select id, email from public.invitations where company_id = $1', [
+        companyB.id,
+      ])
+      const d = await c.query('delete from public.invitations where company_id = $1', [companyB.id])
+      return (r.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(touched).toBe(0)
+    // Not even the own company's token hashes are readable, nor can a row be changed.
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query('select token_hash from public.invitations')),
+    ).rejects.toThrow(/permission denied/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query("update public.invitations set expires_at = now() + interval '1 year'"),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.invitations (company_id, email, role_id, token_hash, expires_at)
+           values ($1, 'x@example.test', $2, $3, now())`,
+          [companyB.id, roleB, 'c'.repeat(64)],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    // Own company, but a role of the other one: the composite key refuses it.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.invitations (company_id, email, role_id, token_hash, expires_at)
+           values ($1, 'y@example.test', $2, $3, now())`,
+          [companyA.id, roleB, 'd'.repeat(64)],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key|permission denied/)
+    // The API role cannot call the token functions, which run without an identity.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query('select * from auth.invitation_by_token($1)', [hash]),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query('select * from auth.accept_invitation($1, null, null, null)', [hash]),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    // Membership of the other company is not revealed.
+    const bob = await fx.user()
+    await fx.member(bob.id, companyB.id, roleB)
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query<{ m: boolean }>('select app.is_company_member($1) as m', [bob.email]),
+    )
+    expect(seen.rows[0]?.m).toBe(false)
+  })
+
   it('quote lines: cannot read, write or attach across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',

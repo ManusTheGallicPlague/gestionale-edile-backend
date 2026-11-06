@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { Config } from '../config.js'
 import type { Db } from '../db.js'
 import { issueCsrfToken, preSessionBinding, sessionBinding } from '../auth/csrf.js'
@@ -30,6 +30,28 @@ function readLogin(body: unknown): { email: string; password: string } {
   else if (password.length > 200) errors.password = ['Al massimo 200 caratteri.']
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return { email, password }
+}
+
+/**
+ * Opens a fresh session for the user, closing the one this browser had, if any, and
+ * renews the CSRF token. Used at sign-in and when an invitation is accepted.
+ */
+export async function startSession(
+  config: Config,
+  db: Db,
+  request: FastifyRequest,
+  reply: FastifyReply,
+  userId: string,
+): Promise<void> {
+  if (request.session) await destroySession(db.auth, request.session.id)
+  const session = await createSession(db.auth, userId)
+  reply.setCookie(COOKIES.session, session.token, {
+    ...cookieOptions(config),
+    httpOnly: true,
+    expires: session.expiresAt,
+  })
+  reply.clearCookie(COOKIES.preSession, cookieOptions(config))
+  setCsrfCookie(config, reply, issueCsrfToken(config.csrfSecret, sessionBinding(session.id)))
 }
 
 export function authRoutes(app: FastifyInstance, config: Config, db: Db): void {
@@ -76,17 +98,7 @@ export function authRoutes(app: FastifyInstance, config: Config, db: Db): void {
     }
 
     await clearFailures(db.auth, email)
-    // A fresh session at every sign-in; the one this browser had, if any, is closed.
-    if (request.session) await destroySession(db.auth, request.session.id)
-    const session = await createSession(db.auth, user.id)
-
-    reply.setCookie(COOKIES.session, session.token, {
-      ...cookieOptions(config),
-      httpOnly: true,
-      expires: session.expiresAt,
-    })
-    reply.clearCookie(COOKIES.preSession, cookieOptions(config))
-    setCsrfCookie(config, reply, issueCsrfToken(config.csrfSecret, sessionBinding(session.id)))
+    await startSession(config, db, request, reply, user.id)
     return reply.code(204).send()
   })
 

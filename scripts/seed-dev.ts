@@ -5,10 +5,12 @@
  */
 import { fileURLToPath } from 'node:url'
 import pg from 'pg'
+import { sha256 } from '../src/auth/crypto.js'
 import { hashPassword } from '../src/auth/password.js'
 import { codiceFiscaleCheckLetter, partitaIvaCheckDigit } from '../src/clients/tax-ids.js'
 
 export const DEV_PASSWORD = 'cantiere-demo'
+export const DEV_INVITATION_TOKEN = 'invito-di-sviluppo-impresa-rossi'
 
 const ALL = [
   'clients.view',
@@ -34,12 +36,13 @@ const ALL = [
   'settings.view',
   'settings.update',
   'users.view',
+  'users.manage',
 ]
 const ROLES: Record<string, string[]> = {
   Titolare: ALL,
   // The office sees the company data but only the owner changes it, or sees users and roles.
   Ufficio: ALL.filter(
-    (p) => !p.endsWith('.delete') && p !== 'settings.update' && p !== 'users.view',
+    (p) => !p.endsWith('.delete') && p !== 'settings.update' && !p.startsWith('users.'),
   ),
   'Capo cantiere': ['clients.view', 'suppliers.view', 'deadlines.view', 'estimates.view'],
   // The site manager does not see quotes: prices and margins stay with the office.
@@ -477,6 +480,24 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
         )
       }
     }
+    // A pending invitation with a known link, for the page /invito/:token.
+    await client.query(
+      `delete from public.invitations
+       where company_id = $1 and email = $2 and accepted_at is null and token_hash <> $3`,
+      [companyIds['impresa-rossi'], 'nuovo.collega@example.test', sha256(DEV_INVITATION_TOKEN)],
+    )
+    await client.query(
+      `insert into public.invitations (company_id, email, role_id, token_hash, expires_at)
+       values ($1, $2, $3, $4, now() + interval '7 days')
+       on conflict (token_hash) do update set expires_at = excluded.expires_at,
+         accepted_at = null, accepted_user_id = null`,
+      [
+        companyIds['impresa-rossi'],
+        'nuovo.collega@example.test',
+        roleIds['impresa-rossi/Ufficio'],
+        sha256(DEV_INVITATION_TOKEN),
+      ],
+    )
     await client.query('commit')
   } catch (error) {
     await client.query('rollback').catch(() => {})
@@ -497,6 +518,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
       console.log('✓ Development data ready')
       console.log(`  users: ${USERS.map((u) => u.email).join(', ')}`)
       console.log(`  password for all of them: ${DEV_PASSWORD} (development only)`)
+      console.log(`  invitation: /invito/${DEV_INVITATION_TOKEN}`)
       console.log(`  companies: ${COMPANIES.map((c) => c.slug).join(', ')}`)
     })
     .catch((error: unknown) => {

@@ -1515,6 +1515,132 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/invitations:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listInvitations
+      summary: Inviti in attesa
+      description: |
+        Permesso: users.manage. Gli inviti non ancora accettati, dal più recente, senza
+        paginazione; status è expired per quelli scaduti, che si possono eliminare o rifare.
+        Gli inviti accettati non compaiono: la persona è tra gli utenti.
+      responses:
+        '200':
+          description: Gli inviti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createInvitation
+      summary: Invito di una persona con un ruolo
+      description: |
+        Permesso: users.manage. Il link è /invito/{token}, vale 7 giorni e una volta sola.
+        Il token compare solo in questa risposta: il backend ne tiene l'impronta. Un nuovo
+        invito per la stessa email sostituisce quello in attesa. Se l'email è già di un
+        membro dell'azienda la risposta è 409 con code already_member.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvitationInput' }
+      responses:
+        '201':
+          description: Invito creato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationCreated' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: L'email è già di un membro dell'azienda (code already_member).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/invitations/{invitation}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - name: invitation
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    delete:
+      operationId: deleteInvitation
+      summary: Annullamento di un invito in attesa
+      description: |
+        Permesso: users.manage. Il link smette di funzionare. Un invito non si modifica, quindi
+        niente If-Match; uno già accettato risponde 404.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Invito annullato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/invitations/{token}:
+    parameters:
+      - $ref: '#/components/parameters/InvitationToken'
+    get:
+      operationId: getInvitation
+      summary: Invito dietro un link, per la pagina /invito/:token
+      description: |
+        Non serve la sessione. Un token sconosciuto, già usato o scaduto risponde 404, sempre
+        con lo stesso messaggio. account_exists dice se l'email ha già un account: in quel
+        caso la pagina chiede solo la password, altrimenti anche il nome.
+      security: []
+      responses:
+        '200':
+          description: L'invito
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/InvitationPreview' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/invitations/{token}/accept:
+    parameters:
+      - $ref: '#/components/parameters/InvitationToken'
+    post:
+      operationId: acceptInvitation
+      summary: Accettazione di un invito
+      description: |
+        Serve il token CSRF (come per l'accesso). Senza account si inviano nome e password
+        nuova (almeno 10 caratteri) e il backend crea l'account; con un account si invia la
+        sua password (name è ignorato). Se va a buon fine l'utente entra nell'azienda con il
+        ruolo dell'invito e il backend apre una sessione nuova, come all'accesso. Una
+        password sbagliata risponde 422 sul campo password e conta come tentativo di accesso
+        fallito. Un utente già membro riceve 409 con code already_member.
+      security:
+        - csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvitationAcceptInput' }
+      responses:
+        '204':
+          description: Invito accettato, sessione aperta
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: L'utente fa già parte dell'azienda (code already_member).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
   /api/companies/{company}/quotes:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -1992,6 +2118,14 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    InvitationToken:
+      name: token
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
     IfMatch:
       name: If-Match
       in: header
@@ -2199,6 +2333,81 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/CompanyUser' }
+    InvitationInput:
+      type: object
+      required: [email, role_id]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        role_id: { $ref: '#/components/schemas/Id' }
+    Invitation:
+      type: object
+      required: [id, email, role, status, expires_at, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        email:
+          type: string
+          format: email
+        role:
+          type: object
+          required: [id, name]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            name: { type: string }
+        status:
+          type: string
+          enum: [pending, expired]
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+    InvitationCreated:
+      allOf:
+        - $ref: '#/components/schemas/Invitation'
+        - type: object
+          required: [token]
+          properties:
+            token:
+              type: string
+              description: Da mettere nel link /invito/{token}. Non si può più rileggere.
+    InvitationList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/Invitation' }
+    InvitationPreview:
+      type: object
+      required: [company_name, email, role_name, expires_at, account_exists]
+      properties:
+        company_name: { type: string }
+        email:
+          type: string
+          format: email
+        role_name: { type: string }
+        expires_at:
+          type: string
+          format: date-time
+        account_exists: { type: boolean }
+    InvitationAcceptInput:
+      type: object
+      required: [password]
+      properties:
+        name:
+          type: [string, 'null']
+          description: Obbligatorio solo se l'account non esiste.
+          minLength: 1
+          maxLength: 200
+        password:
+          type: string
+          format: password
+          minLength: 1
+          maxLength: 200
     Permission:
       type: string
       description: Nella forma <area>.<azione>. L'elenco cresce con i moduli.
@@ -2226,6 +2435,7 @@ components:
         - settings.view
         - settings.update
         - users.view
+        - users.manage
 
     ClientKind:
       type: string
