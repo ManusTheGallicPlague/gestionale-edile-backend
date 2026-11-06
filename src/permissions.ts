@@ -19,6 +19,7 @@ export const PERMISSIONS = [
   'estimates.create',
   'estimates.update',
   'estimates.delete',
+  'estimates.approve',
   'quotes.view',
   'quotes.create',
   'quotes.update',

@@ -29,6 +29,7 @@ const ALL = [
   'estimates.create',
   'estimates.update',
   'estimates.delete',
+  'estimates.approve',
   'sites.view',
   'sites.create',
   'sites.update',
@@ -693,6 +694,32 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            ('IDR.010', 'Lavabo, bidet, doccia', 3, null, null, 0)
          ) as v (code, description, parts, length, width, position) on v.code = i.code
          where i.company_id = $1`,
+        [companyId],
+      )
+      // Progress statements of the bathroom: the first approved at half of each item, the
+      // second still a draft.
+      await client.query(
+        `with e as (
+           select id from public.estimates
+           where company_id = $1 and title = 'Ristrutturazione bagno'
+         ), s as (
+           insert into public.progress_statements (company_id, estimate_id, number,
+             statement_date, status, approved_at)
+           select $1, e.id, v.number, v.day::date, v.status,
+             case when v.status = 'approved' then now() end
+           from e, (values (1, '2026-10-31', 'approved'), (2, '2026-11-30', 'draft'))
+             as v (number, day, status)
+           returning id, estimate_id, number
+         )
+         insert into public.progress_statement_lines (company_id, estimate_id, statement_id,
+           item_id, quantity, unit_price_cents)
+         select $1, s.estimate_id, s.id, t.item_id,
+           round(t.quantity * case when s.number = 1 then 0.5 else 0.25 end, 3),
+           i.unit_price_cents
+         from s
+         join public.estimate_item_totals t on t.estimate_id = s.estimate_id
+         join public.estimate_items i on i.id = t.item_id
+         where t.quantity > 0`,
         [companyId],
       )
     }

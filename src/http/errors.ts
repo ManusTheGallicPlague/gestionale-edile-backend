@@ -63,6 +63,11 @@ export const messages = {
   activityStale:
     'L’attività è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   activityMissingIfMatch: 'Manca la versione dell’attività: ricarica la pagina e riprova.',
+  statementStale:
+    'Il SAL è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  statementMissingIfMatch: 'Manca la versione del SAL: ricarica la pagina e riprova.',
+  statementNotDraft: 'Il SAL è già approvato e non si modifica più.',
+  statementDraftExists: 'C’è già un SAL in bozza per questo computo: completa o elimina quello.',
   costStale:
     'Il costo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   costMissingIfMatch: 'Manca la versione del costo: ricarica la pagina e riprova.',

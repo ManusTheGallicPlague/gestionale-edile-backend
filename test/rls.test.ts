@@ -680,6 +680,95 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('progress statements and their lines: cannot read, write or attach across companies', async () => {
+    const one = <T extends object>(sql: string, values: unknown[]) =>
+      owner.query<T & { id: string }>(sql, values).then((r) => r.rows[0]?.id)
+    const estimateOf = async (companyId: string) => {
+      const estimate = await one(
+        "insert into public.estimates (company_id, title) values ($1, 'SAL') returning id",
+        [companyId],
+      )
+      const chapter = await one(
+        `insert into public.estimate_chapters (company_id, estimate_id, title, position)
+         values ($1, $2, 'C', 0) returning id`,
+        [companyId, estimate],
+      )
+      const item = await one(
+        `insert into public.estimate_items (company_id, estimate_id, chapter_id, description,
+           unit, unit_price_cents, position) values ($1, $2, $3, 'V', 'm²', 100, 0) returning id`,
+        [companyId, estimate, chapter],
+      )
+      const statement = await one(
+        `insert into public.progress_statements (company_id, estimate_id, number, statement_date)
+         values ($1, $2, 1, '2026-10-31') returning id`,
+        [companyId, estimate],
+      )
+      return { estimate, item, statement }
+    }
+    const a = await estimateOf(companyA.id)
+    const b = await estimateOf(companyB.id)
+    await owner.query(
+      `insert into public.progress_statement_lines (company_id, estimate_id, statement_id,
+         item_id, quantity, unit_price_cents) values ($1, $2, $3, $4, 1, 100)`,
+      [companyB.id, b.estimate, b.statement, b.item],
+    )
+    const statement = (companyId: string, estimateId: unknown) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.progress_statements (company_id, estimate_id, number, statement_date,
+             status, approved_at) values ($1, $2, 2, '2026-11-30', 'approved', now())`,
+          [companyId, estimateId],
+        ),
+      )
+    const line = (companyId: string, estimateId: unknown, statementId: unknown, itemId: unknown) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.progress_statement_lines (company_id, estimate_id, statement_id,
+             item_id, quantity, unit_price_cents) values ($1, $2, $3, $4, 1, 100)`,
+          [companyId, estimateId, statementId, itemId],
+        ),
+      )
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const s = await c.query('select * from public.progress_statements where company_id = $1', [
+        companyB.id,
+      ])
+      const l = await c.query(
+        'select * from public.progress_statement_lines where company_id = $1',
+        [companyB.id],
+      )
+      return s.rowCount! + l.rowCount!
+    })
+    expect(seen).toBe(0)
+    await expect(statement(companyB.id, b.estimate)).rejects.toThrow(/row-level security/)
+    await expect(statement(companyA.id, b.estimate)).rejects.toThrow(/foreign key/)
+    await expect(line(companyB.id, b.estimate, b.statement, b.item)).rejects.toThrow(
+      /row-level security/,
+    )
+    await expect(line(companyA.id, a.estimate, a.statement, b.item)).rejects.toThrow(/foreign key/)
+    await expect(line(companyA.id, a.estimate, b.statement, a.item)).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query(
+        "update public.progress_statements set status = 'approved', approved_at = now() where id = $1",
+        [b.statement],
+      )
+      const l = await c.query(
+        'delete from public.progress_statement_lines where statement_id = $1',
+        [b.statement],
+      )
+      const d = await c.query('delete from public.progress_statements where id = $1', [b.statement])
+      return u.rowCount! + l.rowCount! + d.rowCount!
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.progress_statements')).rejects.toThrow(
+      /permission denied/,
+    )
+    await expect(auth.query('select * from public.progress_statement_lines')).rejects.toThrow(
+      /permission denied/,
+    )
+    // Other cases count every estimate row of company A: leave none behind.
+    await owner.query('delete from public.estimates where id = $1', [a.estimate])
+  })
+
   it('site documents and their files: cannot read, write or attach across companies', async () => {
     const siteOf = async (companyId: string) =>
       (

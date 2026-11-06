@@ -19,6 +19,7 @@ import { siteActivityRoutes } from './routes/site-activities.js'
 import { dailyReportRoutes, dailyReportTodayRoutes } from './routes/daily-reports.js'
 import { siteCostRoutes, siteCostSummaryRoutes } from './routes/site-costs.js'
 import { estimateStructureRoutes } from './routes/estimate-structure.js'
+import { progressStatementRoutes } from './routes/progress-statements.js'
 import { quoteRoutes } from './routes/quotes.js'
 import { quoteLineRoutes } from './routes/quote-lines.js'
 import { logoRoutes } from './routes/logo.js'
@@ -124,6 +125,7 @@ export function buildApp(
   priceListRoutes(app, config, db)
   siteCostSummaryRoutes(app, db)
   estimateStructureRoutes(app, config, db)
+  progressStatementRoutes(app, config, db)
   quoteRoutes(app, config, db)
   quoteLineRoutes(app, config, db)
   settingsRoutes(app, config, db)

@@ -1992,6 +1992,174 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/estimates/{estimate}/progress-statements:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    get:
+      operationId: listProgressStatements
+      summary: SAL del computo
+      description: |
+        Permesso: estimates.view. Senza permesso risponde 404. Tutti gli stati di avanzamento
+        lavori del computo, in ordine di numero, senza le righe.
+      responses:
+        '200':
+          description: I SAL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressStatementList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createProgressStatement
+      summary: Nuovo SAL
+      description: |
+        Permesso: estimates.update. Il SAL nasce in bozza con il numero successivo. Le quantità
+        sono quelle eseguite in questo SAL, voce per voce; il prezzo si copia dalla voce del
+        computo. Se c'è già un SAL in bozza risponde 409 con code statement_draft_exists.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProgressStatementInput' }
+      responses:
+        '201':
+          description: SAL creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressStatement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: C'è già un SAL in bozza (code statement_draft_exists).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/estimates/{estimate}/progress-statements/{statement}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+      - $ref: '#/components/parameters/ProgressStatementId'
+    get:
+      operationId: getProgressStatement
+      summary: Dettaglio di un SAL
+      description: |
+        Permesso: estimates.view. Le righe sono le voci con una quantità in questo SAL o in uno
+        precedente, con quantità e importi del SAL, dei precedenti e progressivi.
+      responses:
+        '200':
+          description: Il SAL
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressStatement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateProgressStatement
+      summary: Modifica di un SAL in bozza
+      description: |
+        Permesso: estimates.update. Si inviano tutti i campi; le righe sostituiscono le
+        precedenti e riprendono il prezzo attuale delle voci. Solo in bozza: altrimenti 409 con
+        code statement_not_draft.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProgressStatementInput' }
+      responses:
+        '200':
+          description: SAL aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressStatement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il SAL è già approvato (code statement_not_draft).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteProgressStatement
+      summary: Eliminazione di un SAL in bozza
+      description: |
+        Permesso: estimates.update. Solo in bozza: altrimenti 409 con code statement_not_draft.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: SAL eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il SAL è già approvato (code statement_not_draft).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/estimates/{estimate}/progress-statements/{statement}/approve:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+      - $ref: '#/components/parameters/ProgressStatementId'
+    post:
+      operationId: approveProgressStatement
+      summary: Approvazione di un SAL
+      description: |
+        Permesso: estimates.approve (oltre a estimates.view). Il SAL in bozza diventa approvato
+        e non si modifica più: quantità e prezzi restano quelli del momento. Se è già approvato
+        risponde 409 con code statement_not_draft.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: SAL approvato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressStatement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il SAL è già approvato (code statement_not_draft).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/price-lists:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -4183,6 +4351,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    ProgressStatementId:
+      name: statement
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     SiteDocumentId:
       name: document
       in: path
@@ -4345,7 +4518,8 @@ components:
           type: string
           description: |
             Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
-            Per ora: csrf_invalid, stale_record, precondition_required, has_documents.
+            Per ora: csrf_invalid, stale_record, precondition_required, has_documents,
+            statement_draft_exists, statement_not_draft.
     ValidationError:
       type: object
       required: [message, errors]
@@ -4617,6 +4791,7 @@ components:
         - estimates.create
         - estimates.update
         - estimates.delete
+        - estimates.approve
         - sites.view
         - sites.create
         - sites.update
@@ -5798,6 +5973,105 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/SiteActivity' }
+    ProgressStatementStatus:
+      type: string
+      description: 'draft: bozza, si modifica. approved: approvato, non si modifica più.'
+      enum: [draft, approved]
+    ProgressStatementInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [statement_date, notes, lines]
+      properties:
+        statement_date:
+          $ref: '#/components/schemas/Date'
+          description: Data del SAL («lavori eseguiti a tutto il»).
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+        lines:
+          type: array
+          maxItems: 2000
+          description: Una riga per voce del computo, senza doppioni.
+          items:
+            type: object
+            required: [item_id, quantity]
+            properties:
+              item_id: { $ref: '#/components/schemas/Id' }
+              quantity:
+                $ref: '#/components/schemas/Quantity'
+                description: Quantità eseguita in questo SAL; negativa per una correzione.
+    ProgressStatementSummary:
+      type: object
+      required:
+        [id, estimate_id, number, statement_date, status, notes, amount, previous_amount,
+         cumulative_amount, approved_at, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        estimate_id: { $ref: '#/components/schemas/Id' }
+        number:
+          type: integer
+          minimum: 1
+          description: Numero progressivo del SAL nel computo.
+        statement_date: { $ref: '#/components/schemas/Date' }
+        status: { $ref: '#/components/schemas/ProgressStatementStatus' }
+        notes: { type: [string, 'null'] }
+        amount:
+          $ref: '#/components/schemas/SignedAmount'
+          description: Importo dei lavori di questo SAL.
+        previous_amount:
+          $ref: '#/components/schemas/SignedAmount'
+          description: Importo dei SAL precedenti.
+        cumulative_amount:
+          $ref: '#/components/schemas/SignedAmount'
+          description: Importo maturato a tutto questo SAL.
+        approved_at:
+          type: [string, 'null']
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    ProgressStatementLine:
+      type: object
+      required:
+        [item_id, code, description, unit, unit_price, contract_quantity, quantity,
+         previous_quantity, cumulative_quantity, amount, previous_amount, cumulative_amount]
+      properties:
+        item_id: { $ref: '#/components/schemas/Id' }
+        code: { type: [string, 'null'] }
+        description: { type: string }
+        unit: { type: string }
+        unit_price:
+          $ref: '#/components/schemas/Amount'
+          description: Prezzo usato in questo SAL (0.00 se la voce non ha righe in questo SAL).
+        contract_quantity:
+          $ref: '#/components/schemas/Quantity'
+          description: Quantità attuale della voce nel computo.
+        quantity: { $ref: '#/components/schemas/Quantity' }
+        previous_quantity: { $ref: '#/components/schemas/Quantity' }
+        cumulative_quantity: { $ref: '#/components/schemas/Quantity' }
+        amount: { $ref: '#/components/schemas/SignedAmount' }
+        previous_amount: { $ref: '#/components/schemas/SignedAmount' }
+        cumulative_amount: { $ref: '#/components/schemas/SignedAmount' }
+    ProgressStatement:
+      allOf:
+        - $ref: '#/components/schemas/ProgressStatementSummary'
+        - type: object
+          required: [lines]
+          properties:
+            lines:
+              type: array
+              description: In ordine di codice e descrizione della voce.
+              items: { $ref: '#/components/schemas/ProgressStatementLine' }
+    ProgressStatementList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ProgressStatementSummary' }
     SiteCostList:
       type: object
       required: [data, meta, total_amount]
