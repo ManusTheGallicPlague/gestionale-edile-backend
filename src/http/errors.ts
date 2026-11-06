@@ -50,6 +50,11 @@ export const messages = {
   estimateStale:
     'Il computo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   estimateMissingIfMatch: 'Manca la versione del computo: ricarica la pagina e riprova.',
+  chapterStale:
+    'Il capitolo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  itemStale:
+    'La voce è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  structureMissingIfMatch: 'Manca la versione: ricarica la pagina e riprova.',
   internal: 'Errore interno. Riprova tra poco.',
   badRequest: 'Richiesta non valida.',
 } as const

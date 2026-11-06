@@ -24,7 +24,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 
 ### 3. Computo metrico estimativo
 - [x] Computo: titolo, cliente facoltativo, indirizzo del lavoro, stato, note
-- [ ] Struttura ad albero: capitoli (anche annidati) → voci. Voce: codice (es. del prezzario regionale), descrizione, unità di misura, prezzo unitario, ordine
+- [x] Struttura ad albero: capitoli (anche annidati) → voci. Voce: codice (es. del prezzario regionale), descrizione, unità di misura, prezzo unitario, ordine
 - [ ] Righe di misura per ogni voce: descrizione, parti uguali, lunghezza, larghezza, altezza/peso; quantità = prodotto dei valori presenti; quantità negative ammesse (detrazioni)
 - [ ] Totali calcolati dal backend per voce, capitolo e computo. Importi in centesimi interi, quantità in `numeric` con 3 decimali: mai `float`
 - [ ] Modifica dell'albero in blocco (riordino, spostamento) con controllo di versione (`If-Match`)
@@ -75,11 +75,15 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: i documenti dei fornitori con scadenza diventano scadenze vere (`supplier_document_id`), tenute allineate dall'API a ogni salvataggio del documento: titolo «DURC – Fornitore», tipo `durc`/`insurance`/`other`; una nuova data di scadenza riapre la scadenza; senza scadenza o con il documento eliminato la scadenza sparisce. Così elenco, calendario e riepilogo li contano senza casi speciali.
 - 06/11/2026: computo metrico: stati `draft` (bozza) e `final` (definitivo); indirizzo del lavoro in un solo campo di testo `site_address`; elenco ordinato per ultima modifica; permessi nuovi `estimates.view/create/update/delete`, il Capo cantiere vede i computi.
 - 06/11/2026: elenco delle scadenze con `per_page` al massimo 100 come gli altri; il calendario mensile chiede `filter[from]`/`filter[to]` e, se servono, più pagine.
+- 06/11/2026: albero del computo in due tabelle, `estimate_chapters` (con `parent_id`, al massimo 4 livelli) ed `estimate_items`; una voce sta sempre in un capitolo. `GET …/estimates/{id}/structure` restituisce due elenchi piatti ordinati per posizione, l'albero lo ricostruisce il frontend.
+- 06/11/2026: capitoli e voci si creano in fondo al loro livello e hanno ognuno la sua versione (`ETag` e campo `version`, per l'`If-Match` dalle righe della tabella). Con `PUT` non si spostano: spostamento e riordino arrivano con la modifica in blocco. Eliminare un capitolo elimina sottocapitoli e voci.
+- 06/11/2026: prezzo unitario come gli altri importi (stringa, centesimi, non negativo); le detrazioni passano dalle quantità negative delle misure. Scrivere nell'albero chiede `estimates.update` e aggiorna `updated_at` del computo; anche un computo `final` resta modificabile, per ora.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 14:22 UTC: struttura ad albero del computo (contratto, migrazione 0009 con capitoli annidati e voci, `…/structure`, CRUD di capitoli e voci con `If-Match`, dati di sviluppo, test e caso avversario). Niente a metà; prossimo: righe di misura. 202 test.
 - 2026-11-06 13:46 UTC: testata del computo metrico (migrazione 0008, CRUD, permessi `estimates.*`, test e caso avversario). Niente a metà; prossimo: struttura ad albero (capitoli e voci). 188 test.
 - 2026-11-06 13:43 UTC: documenti dei fornitori nello scadenziario (migrazione 0007). Lo scadenziario (sezione 2) è completo. Niente a metà; prossimo: computo metrico. 179 test.
 - 2026-11-06 13:42 UTC: riepilogo delle scadenze per la dashboard. Niente a metà; prossimo: documenti dei fornitori nello scadenziario. 177 test.

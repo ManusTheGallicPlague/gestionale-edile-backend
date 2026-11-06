@@ -345,6 +345,27 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          ) c on e.n < 2`,
         [companyId],
       )
+      await client.query(
+        `with e as (
+           select id from public.estimates
+           where company_id = $1 and title = 'Ristrutturazione bagno'
+         ), ch as (
+           insert into public.estimate_chapters (company_id, estimate_id, code, title, position)
+           select $1, e.id, v.code, v.title, v.position
+           from e, (values ('A', 'Demolizioni e rimozioni', 0), ('B', 'Impianti', 1))
+             as v (code, title, position)
+           returning id, code, estimate_id
+         )
+         insert into public.estimate_items
+           (company_id, estimate_id, chapter_id, code, description, unit, unit_price_cents, position)
+         select $1, ch.estimate_id, ch.id, v.code, v.description, v.unit, v.cents, v.position
+         from ch join (values
+           ('A', 'DEM.001', 'Demolizione di pavimento in piastrelle, compreso il sottofondo', 'm²', 1850, 0),
+           ('A', 'DEM.002', 'Rimozione di sanitari, compreso il trasporto a discarica', 'cad', 4500, 1),
+           ('B', 'IDR.010', 'Punto acqua calda e fredda in multistrato', 'cad', 12000, 0)
+         ) as v (chapter, code, description, unit, cents, position) on v.chapter = ch.code`,
+        [companyId],
+      )
     }
 
     const passwordHash = await hashPassword(DEV_PASSWORD)

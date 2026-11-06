@@ -19,7 +19,8 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Riepilogo delle scadenze per la dashboard | Fatto |
 | Documenti dei fornitori nello scadenziario | Fatto |
 | Computo metrico: testata (titolo, cliente, indirizzo, stato) | Fatto |
-| Computo metrico: capitoli, voci, misure, totali; preventivi | Da fare, dopo il contratto |
+| Computo metrico: capitoli annidati e voci (codice, descrizione, unità, prezzo) | Fatto |
+| Computo metrico: misure, totali, modifica in blocco; preventivi | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 
 ## Stack
@@ -54,7 +55,8 @@ src/clients/        validazione dei clienti, partita IVA e codice fiscale
 src/suppliers/      validazione dei fornitori
 src/deadlines/      validazione delle scadenze
 src/money.ts        importi: stringhe nel contratto, centesimi nel database
-src/routes/         auth, me, clients, suppliers, supplier-documents, deadlines
+src/routes/         auth, me, clients, suppliers, supplier-documents, deadlines, estimates,
+                    estimate-structure
 test/               test di integrazione su un database usa e getta
 ```
 

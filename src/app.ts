@@ -11,6 +11,7 @@ import { supplierRoutes } from './routes/suppliers.js'
 import { supplierDocumentRoutes } from './routes/supplier-documents.js'
 import { deadlineRoutes } from './routes/deadlines.js'
 import { estimateRoutes } from './routes/estimates.js'
+import { estimateStructureRoutes } from './routes/estimate-structure.js'
 import { meRoutes } from './routes/me.js'
 
 export function buildApp(
@@ -80,6 +81,7 @@ export function buildApp(
   supplierDocumentRoutes(app, config, db)
   deadlineRoutes(app, config, db)
   estimateRoutes(app, config, db)
+  estimateStructureRoutes(app, config, db)
 
   return app
 }

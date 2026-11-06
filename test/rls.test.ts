@@ -291,6 +291,84 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.estimates')).rejects.toThrow(/permission denied/)
   })
 
+  it('estimate chapters and items: cannot read, write or attach across companies', async () => {
+    const estimateB = await owner.query<{ id: string }>(
+      "insert into public.estimates (company_id, title) values ($1, 'B') returning id",
+      [companyB.id],
+    )
+    const chapterB = await owner.query<{ id: string }>(
+      `insert into public.estimate_chapters (company_id, estimate_id, title, position)
+       values ($1, $2, 'Capitolo B', 0) returning id`,
+      [companyB.id, estimateB.rows[0]?.id],
+    )
+    await owner.query(
+      `insert into public.estimate_items
+         (company_id, estimate_id, chapter_id, description, unit, unit_price_cents, position)
+       values ($1, $2, $3, 'Voce B', 'm²', 1000, 0)`,
+      [companyB.id, estimateB.rows[0]?.id, chapterB.rows[0]?.id],
+    )
+    const estimateA = await as(alice.id, companyA.id, (c) =>
+      c.query<{ id: string }>(
+        "insert into public.estimates (company_id, title) values ($1, 'A') returning id",
+        [companyA.id],
+      ),
+    )
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const ch = await c.query('select * from public.estimate_chapters where company_id = $1', [
+        companyB.id,
+      ])
+      const it = await c.query('select * from public.estimate_items where company_id = $1', [
+        companyB.id,
+      ])
+      return (ch.rowCount ?? 0) + (it.rowCount ?? 0)
+    })
+    expect(seen).toBe(0)
+    // Writing into company B is refused by the policy.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.estimate_chapters (company_id, estimate_id, title, position)
+           values ($1, $2, 'X', 0)`,
+          [companyB.id, estimateB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    // A chapter of company A under B's estimate or B's chapter: the foreign keys refuse it.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.estimate_chapters (company_id, estimate_id, title, position)
+           values ($1, $2, 'X', 0)`,
+          [companyA.id, estimateB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.estimate_items
+             (company_id, estimate_id, chapter_id, description, unit, unit_price_cents, position)
+           values ($1, $2, $3, 'X', 'm', 0, 0)`,
+          [companyA.id, estimateA.rows[0]?.id, chapterB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u1 = await c.query("update public.estimate_chapters set title = 'preso'")
+      const u2 = await c.query("update public.estimate_items set description = 'preso'")
+      const d1 = await c.query('delete from public.estimate_items')
+      const d2 = await c.query('delete from public.estimate_chapters')
+      return [u1, u2, d1, d2].reduce((n, r) => n + (r.rowCount ?? 0), 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.estimate_chapters')).rejects.toThrow(
+      /permission denied/,
+    )
+    await expect(auth.query('select * from public.estimate_items')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('cannot see memberships of other users', async () => {
     const other = await fx.user()
     const roleId = await fx.role(companyA.id, `Altro ${other.id.slice(0, 6)}`, [])

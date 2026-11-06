@@ -1,0 +1,394 @@
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
+import type { PoolClient } from 'pg'
+import type { Config } from '../config.js'
+import type { Db } from '../db.js'
+import { isForeignKeyViolation, withIdentity } from '../db.js'
+import { enterCompany } from '../company.js'
+import { UUID } from '../deadlines/input.js'
+import { amountToCents, centsToAmount } from '../money.js'
+import {
+  ApiError,
+  ValidationFailed,
+  forbidden,
+  messages,
+  notFound,
+  type FieldErrors,
+} from '../http/errors.js'
+import { checkCsrf, requireSession } from '../http/request-context.js'
+
+/** Chapters can be nested up to this many levels (the first level is 1). */
+export const MAX_CHAPTER_DEPTH = 4
+
+type Params = { company: string; estimate: string; chapter?: string; item?: string }
+
+interface ChapterRow {
+  id: string
+  parent_id: string | null
+  code: string | null
+  title: string
+  position: number
+  version: number
+}
+
+interface ItemRow {
+  id: string
+  chapter_id: string
+  code: string | null
+  description: string
+  unit: string
+  unit_price_cents: string
+  position: number
+  version: number
+}
+
+const CHAPTER_SELECT = `select id, parent_id, code, title, position, version
+  from public.estimate_chapters`
+const ITEM_SELECT = `select id, chapter_id, code, description, unit,
+    unit_price_cents::text as unit_price_cents, position, version
+  from public.estimate_items`
+
+const etag = (version: number) => `"${version}"`
+
+const chapterToContract = (row: ChapterRow) => ({
+  id: row.id,
+  parent_id: row.parent_id,
+  code: row.code,
+  title: row.title,
+  position: row.position,
+  version: etag(row.version),
+})
+
+const itemToContract = (row: ItemRow) => ({
+  id: row.id,
+  chapter_id: row.chapter_id,
+  code: row.code,
+  description: row.description,
+  unit: row.unit,
+  unit_price: centsToAmount(row.unit_price_cents),
+  position: row.position,
+  version: etag(row.version),
+})
+
+function expectedVersion(header: string | string[] | undefined): number {
+  if (typeof header !== 'string' || header.trim() === '') {
+    throw new ApiError(428, messages.structureMissingIfMatch, 'precondition_required')
+  }
+  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  return match ? Number(match[1]) : -1
+}
+
+/** Reads the body as an object with a helper for optional/required trimmed texts. */
+function reader(body: unknown) {
+  const errors: FieldErrors = {}
+  const add = (field: string, message: string) => {
+    ;(errors[field] ??= []).push(message)
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new ValidationFailed({ _: ['Il corpo della richiesta deve essere un oggetto JSON.'] })
+  }
+  const raw = body as Record<string, unknown>
+  const text = (field: string, max: number, required?: string): string | null => {
+    if (!(field in raw)) {
+      add(field, 'Campo mancante.')
+      return null
+    }
+    const value = raw[field]
+    if (value === null) {
+      if (required) add(field, required)
+      return null
+    }
+    if (typeof value !== 'string') {
+      add(field, 'Deve essere un testo.')
+      return null
+    }
+    const trimmed = value.trim()
+    if (trimmed.length > max) add(field, `Al massimo ${max} caratteri.`)
+    if (trimmed === '' && required) add(field, required)
+    return trimmed === '' ? null : trimmed
+  }
+  const id = (field: string, message: string): string | null => {
+    const value = text(field, 36)
+    if (value !== null && !UUID.test(value) && !errors[field]) add(field, message)
+    return value
+  }
+  const done = () => {
+    if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  }
+  return { raw, text, id, add, errors, done }
+}
+
+function parseChapter(body: unknown, withParent: boolean) {
+  const r = reader(body)
+  const code = r.text('code', 50)
+  const title = r.text('title', 200, 'Il titolo è obbligatorio.')
+  const parent_id = withParent ? r.id('parent_id', 'Capitolo non trovato.') : null
+  r.done()
+  return { code, title: title ?? '', parent_id }
+}
+
+function parseItem(body: unknown, withChapter: boolean) {
+  const r = reader(body)
+  const chapter_id = withChapter ? r.id('chapter_id', 'Capitolo non trovato.') : null
+  if (withChapter && chapter_id === null && !r.errors.chapter_id) {
+    r.add('chapter_id', 'Il capitolo è obbligatorio.')
+  }
+  const code = r.text('code', 50)
+  const description = r.text('description', 5000, 'La descrizione è obbligatoria.')
+  const unit = r.text('unit', 20, "L'unità di misura è obbligatoria.")
+  let unitPriceCents: string | null = null
+  if (!('unit_price' in r.raw)) r.add('unit_price', 'Campo mancante.')
+  else {
+    const value = r.raw.unit_price
+    unitPriceCents = typeof value === 'string' ? amountToCents(value.trim()) : null
+    if (unitPriceCents === null) {
+      r.add('unit_price', 'Un importo come 1234.50, con il punto e al massimo due decimali.')
+    }
+  }
+  r.done()
+  return {
+    chapter_id,
+    code,
+    description: description ?? '',
+    unit: unit ?? '',
+    unitPriceCents: unitPriceCents ?? '0',
+  }
+}
+
+/** Opens the company, checks the permission and that the estimate exists (else 404). */
+async function enterEstimate(
+  client: PoolClient,
+  request: FastifyRequest<{ Params: Params }>,
+  permission: 'estimates.view' | 'estimates.update',
+) {
+  const permissions = await enterCompany(client, request.params.company)
+  if (!permissions.has(permission)) {
+    if (permission === 'estimates.view') throw notFound()
+    throw forbidden()
+  }
+  const id = request.params.estimate
+  if (!UUID.test(id)) throw notFound()
+  const { rowCount } = await client.query('select 1 from public.estimates where id = $1', [id])
+  if (!rowCount) throw notFound()
+  return id
+}
+
+/** The estimate's last change, for the "last modified" order of the list. */
+const touch = (client: PoolClient, estimateId: string) =>
+  client.query('update public.estimates set updated_at = now() where id = $1', [estimateId])
+
+async function chapterDepth(client: PoolClient, estimateId: string, chapterId: string) {
+  const { rows } = await client.query<{ depth: number }>(
+    `with recursive up as (
+       select id, parent_id, 1 as depth from public.estimate_chapters
+       where id = $1 and estimate_id = $2
+       union all
+       select c.id, c.parent_id, up.depth + 1 from public.estimate_chapters c
+       join up on c.id = up.parent_id
+     ) select max(depth)::int as depth from up`,
+    [chapterId, estimateId],
+  )
+  return rows[0]?.depth ?? null
+}
+
+async function missingOrStale(
+  client: PoolClient,
+  table: 'estimate_chapters' | 'estimate_items',
+  estimateId: string,
+  id: string,
+): Promise<never> {
+  const { rowCount } = await client.query(
+    `select 1 from public.${table} where id = $1 and estimate_id = $2`,
+    [id, estimateId],
+  )
+  if (!rowCount) throw notFound()
+  const message = table === 'estimate_chapters' ? messages.chapterStale : messages.itemStale
+  throw new ApiError(412, message, 'stale_record')
+}
+
+const sendChapter = (reply: FastifyReply, row: ChapterRow, status = 200) =>
+  reply.code(status).header('ETag', etag(row.version)).send(chapterToContract(row))
+const sendItem = (reply: FastifyReply, row: ItemRow, status = 200) =>
+  reply.code(status).header('ETag', etag(row.version)).send(itemToContract(row))
+
+export function estimateStructureRoutes(app: FastifyInstance, config: Config, db: Db): void {
+  const base = '/api/companies/:company/estimates/:estimate'
+
+  app.get<{ Params: Params }>(`${base}/structure`, async (request) => {
+    const session = requireSession(request)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.view')
+      const chapters = await client.query<ChapterRow>(
+        `${CHAPTER_SELECT} where estimate_id = $1 order by parent_id nulls first, position, id`,
+        [estimateId],
+      )
+      const items = await client.query<ItemRow>(
+        `${ITEM_SELECT} where estimate_id = $1 order by chapter_id, position, id`,
+        [estimateId],
+      )
+      return {
+        chapters: chapters.rows.map(chapterToContract),
+        items: items.rows.map(itemToContract),
+      }
+    })
+  })
+
+  app.post<{ Params: Params }>(`${base}/chapters`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const input = parseChapter(request.body, true)
+      if (input.parent_id) {
+        const depth = await chapterDepth(client, estimateId, input.parent_id)
+        if (depth === null) throw new ValidationFailed({ parent_id: ['Capitolo non trovato.'] })
+        if (depth >= MAX_CHAPTER_DEPTH) {
+          throw new ValidationFailed({
+            parent_id: [`I capitoli si annidano al massimo su ${MAX_CHAPTER_DEPTH} livelli.`],
+          })
+        }
+      }
+      const { rows } = await client
+        .query<ChapterRow>(
+          `insert into public.estimate_chapters
+             (company_id, estimate_id, parent_id, code, title, position)
+           values (app.current_company_id(), $1, $2, $3, $4,
+             (select coalesce(max(position) + 1, 0) from public.estimate_chapters
+              where estimate_id = $1 and parent_id is not distinct from $2))
+           returning id, parent_id, code, title, position, version`,
+          [estimateId, input.parent_id, input.code, input.title],
+        )
+        .catch((error: unknown) => {
+          if (isForeignKeyViolation(error)) {
+            throw new ValidationFailed({ parent_id: ['Capitolo non trovato.'] })
+          }
+          throw error
+        })
+      await touch(client, estimateId)
+      return rows[0]
+    })
+    if (!row) throw new Error('insert returned no row')
+    return sendChapter(reply, row, 201)
+  })
+
+  app.put<{ Params: Params }>(`${base}/chapters/:chapter`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const id = request.params.chapter ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const input = parseChapter(request.body, false)
+      const { rows } = await client.query<ChapterRow>(
+        `update public.estimate_chapters
+         set code = $1, title = $2, version = version + 1, updated_at = now()
+         where id = $3 and estimate_id = $4 and version = $5
+         returning id, parent_id, code, title, position, version`,
+        [input.code, input.title, id, estimateId, version],
+      )
+      if (!rows[0]) return missingOrStale(client, 'estimate_chapters', estimateId, id)
+      await touch(client, estimateId)
+      return rows[0]
+    })
+    return sendChapter(reply, row)
+  })
+
+  app.delete<{ Params: Params }>(`${base}/chapters/:chapter`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const id = request.params.chapter ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const { rowCount } = await client.query(
+        'delete from public.estimate_chapters where id = $1 and estimate_id = $2 and version = $3',
+        [id, estimateId, version],
+      )
+      if (!rowCount) await missingOrStale(client, 'estimate_chapters', estimateId, id)
+      await touch(client, estimateId)
+    })
+    return reply.code(204).send()
+  })
+
+  app.post<{ Params: Params }>(`${base}/items`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const input = parseItem(request.body, true)
+      const { rows } = await client
+        .query<ItemRow>(
+          `insert into public.estimate_items
+             (company_id, estimate_id, chapter_id, code, description, unit, unit_price_cents,
+              position)
+           values (app.current_company_id(), $1, $2, $3, $4, $5, $6,
+             (select coalesce(max(position) + 1, 0) from public.estimate_items
+              where estimate_id = $1 and chapter_id = $2))
+           returning id, chapter_id, code, description, unit,
+             unit_price_cents::text as unit_price_cents, position, version`,
+          [
+            estimateId,
+            input.chapter_id,
+            input.code,
+            input.description,
+            input.unit,
+            input.unitPriceCents,
+          ],
+        )
+        .catch((error: unknown) => {
+          if (isForeignKeyViolation(error)) {
+            throw new ValidationFailed({ chapter_id: ['Capitolo non trovato.'] })
+          }
+          throw error
+        })
+      await touch(client, estimateId)
+      return rows[0]
+    })
+    if (!row) throw new Error('insert returned no row')
+    return sendItem(reply, row, 201)
+  })
+
+  app.put<{ Params: Params }>(`${base}/items/:item`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const id = request.params.item ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const input = parseItem(request.body, false)
+      const { rows } = await client.query<ItemRow>(
+        `update public.estimate_items
+         set code = $1, description = $2, unit = $3, unit_price_cents = $4,
+             version = version + 1, updated_at = now()
+         where id = $5 and estimate_id = $6 and version = $7
+         returning id, chapter_id, code, description, unit,
+           unit_price_cents::text as unit_price_cents, position, version`,
+        [input.code, input.description, input.unit, input.unitPriceCents, id, estimateId, version],
+      )
+      if (!rows[0]) return missingOrStale(client, 'estimate_items', estimateId, id)
+      await touch(client, estimateId)
+      return rows[0]
+    })
+    return sendItem(reply, row)
+  })
+
+  app.delete<{ Params: Params }>(`${base}/items/:item`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const id = request.params.item ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const { rowCount } = await client.query(
+        'delete from public.estimate_items where id = $1 and estimate_id = $2 and version = $3',
+        [id, estimateId, version],
+      )
+      if (!rowCount) await missingOrStale(client, 'estimate_items', estimateId, id)
+      await touch(client, estimateId)
+    })
+    return reply.code(204).send()
+  })
+}

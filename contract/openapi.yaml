@@ -937,6 +937,186 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/estimates/{estimate}/structure:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    get:
+      operationId: getEstimateStructure
+      summary: Capitoli e voci di un computo
+      description: |
+        Permesso: estimates.view. Senza permesso risponde 404, non 403.
+        Due elenchi piatti, già ordinati per posizione: l'albero si ricostruisce con
+        parent_id (capitoli) e chapter_id (voci).
+      responses:
+        '200':
+          description: La struttura del computo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateStructure' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/companies/{company}/estimates/{estimate}/chapters:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    post:
+      operationId: createEstimateChapter
+      summary: Nuovo capitolo
+      description: 'Permesso: estimates.update. Il capitolo va in fondo al suo livello; al massimo 4 livelli.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateChapterCreate' }
+      responses:
+        '201':
+          description: Creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateChapter' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/estimates/{estimate}/chapters/{chapter}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+      - $ref: '#/components/parameters/ChapterId'
+    put:
+      operationId: updateEstimateChapter
+      summary: Modifica di un capitolo
+      description: 'Permesso: estimates.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateChapterInput' }
+      responses:
+        '200':
+          description: Aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateChapter' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteEstimateChapter
+      summary: Eliminazione di un capitolo
+      description: 'Permesso: estimates.update. Elimina anche i sottocapitoli e le voci contenute.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/estimates/{estimate}/items:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    post:
+      operationId: createEstimateItem
+      summary: Nuova voce
+      description: 'Permesso: estimates.update. La voce va in fondo al suo capitolo.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateItemCreate' }
+      responses:
+        '201':
+          description: Creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/estimates/{estimate}/items/{item}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+      - $ref: '#/components/parameters/ItemId'
+    put:
+      operationId: updateEstimateItem
+      summary: Modifica di una voce
+      description: 'Permesso: estimates.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateItemInput' }
+      responses:
+        '200':
+          description: Aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteEstimateItem
+      summary: Eliminazione di una voce
+      description: 'Permesso: estimates.update.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
 components:
   securitySchemes:
     session:
@@ -997,6 +1177,16 @@ components:
       schema: { $ref: '#/components/schemas/Id' }
     EstimateId:
       name: estimate
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    ChapterId:
+      name: chapter
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    ItemId:
+      name: item
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
@@ -1649,3 +1839,90 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Estimate' }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    EstimateChapterInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [code, title]
+      properties:
+        code:
+          type: [string, 'null']
+          maxLength: 50
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+    EstimateChapterCreate:
+      allOf:
+        - $ref: '#/components/schemas/EstimateChapterInput'
+        - type: object
+          required: [parent_id]
+          properties:
+            parent_id:
+              description: Capitolo che lo contiene, null per il primo livello.
+              oneOf:
+                - $ref: '#/components/schemas/Id'
+                - type: 'null'
+    EstimateChapter:
+      allOf:
+        - $ref: '#/components/schemas/EstimateChapterCreate'
+        - type: object
+          required: [id, position, version]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            position:
+              type: integer
+              minimum: 0
+              description: Ordine tra i capitoli con lo stesso parent_id.
+            version:
+              type: string
+              description: Lo stesso valore dell'ETag, da rimandare in If-Match.
+    EstimateItemInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [code, description, unit, unit_price]
+      properties:
+        code:
+          type: [string, 'null']
+          description: Codice della voce, ad esempio quello del prezzario regionale.
+          maxLength: 50
+        description:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        unit:
+          type: string
+          description: Unità di misura, ad esempio m², m³, kg, cad.
+          minLength: 1
+          maxLength: 20
+        unit_price: { $ref: '#/components/schemas/Amount' }
+    EstimateItemCreate:
+      allOf:
+        - $ref: '#/components/schemas/EstimateItemInput'
+        - type: object
+          required: [chapter_id]
+          properties:
+            chapter_id: { $ref: '#/components/schemas/Id' }
+    EstimateItem:
+      allOf:
+        - $ref: '#/components/schemas/EstimateItemCreate'
+        - type: object
+          required: [id, position, version]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            position:
+              type: integer
+              minimum: 0
+              description: Ordine tra le voci dello stesso capitolo.
+            version:
+              type: string
+              description: Lo stesso valore dell'ETag, da rimandare in If-Match.
+    EstimateStructure:
+      type: object
+      required: [chapters, items]
+      properties:
+        chapters:
+          type: array
+          items: { $ref: '#/components/schemas/EstimateChapter' }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/EstimateItem' }
