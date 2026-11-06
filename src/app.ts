@@ -15,6 +15,7 @@ import { siteRoutes } from './routes/sites.js'
 import { employeeRoutes } from './routes/employees.js'
 import { vehicleRoutes } from './routes/vehicles.js'
 import { siteTeamRoutes } from './routes/site-team.js'
+import { siteActivityRoutes } from './routes/site-activities.js'
 import { dailyReportRoutes, dailyReportTodayRoutes } from './routes/daily-reports.js'
 import { siteCostRoutes, siteCostSummaryRoutes } from './routes/site-costs.js'
 import { estimateStructureRoutes } from './routes/estimate-structure.js'
@@ -114,6 +115,7 @@ export function buildApp(
   employeeRoutes(app, config, db)
   vehicleRoutes(app, config, db)
   siteTeamRoutes(app, config, db)
+  siteActivityRoutes(app, config, db)
   dailyReportTodayRoutes(app, db)
   dailyReportRoutes(app, config, db)
   siteCostRoutes(app, config, db)

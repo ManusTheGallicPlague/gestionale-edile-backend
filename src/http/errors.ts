@@ -60,6 +60,9 @@ export const messages = {
   priceListStale:
     'Il prezzario è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   priceListMissingIfMatch: 'Manca la versione del prezzario: ricarica la pagina e riprova.',
+  activityStale:
+    'L’attività è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  activityMissingIfMatch: 'Manca la versione dell’attività: ricarica la pagina e riprova.',
   costStale:
     'Il costo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   costMissingIfMatch: 'Manca la versione del costo: ricarica la pagina e riprova.',

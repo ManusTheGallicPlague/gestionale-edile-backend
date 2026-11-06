@@ -597,6 +597,89 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.site_costs')).rejects.toThrow(/permission denied/)
   })
 
+  it('site activities and their dependencies: cannot read, write or attach across companies', async () => {
+    const siteOf = async (companyId: string) =>
+      (
+        await owner.query<{ id: string }>(
+          "insert into public.sites (company_id, name) values ($1, 'Gantt') returning id",
+          [companyId],
+        )
+      ).rows[0]?.id
+    const activityOf = async (companyId: string, siteId: unknown) =>
+      (
+        await owner.query<{ id: string }>(
+          `insert into public.site_activities (company_id, site_id, name, start_on, end_on)
+           values ($1, $2, 'Scavi', '2026-11-09', '2026-11-13') returning id`,
+          [companyId, siteId],
+        )
+      ).rows[0]?.id
+    const siteA = await siteOf(companyA.id)
+    const siteA2 = await siteOf(companyA.id)
+    const siteB = await siteOf(companyB.id)
+    const activityA = await activityOf(companyA.id, siteA)
+    const activityA2 = await activityOf(companyA.id, siteA2)
+    const activityB = await activityOf(companyB.id, siteB)
+    const activityB2 = await activityOf(companyB.id, siteB)
+    await owner.query(
+      `insert into public.site_activity_dependencies (company_id, site_id, activity_id,
+         depends_on_id) values ($1, $2, $3, $4)`,
+      [companyB.id, siteB, activityB2, activityB],
+    )
+    const insert = (companyId: string, siteId: unknown) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.site_activities (company_id, site_id, name, start_on, end_on)
+           values ($1, $2, 'A', '2026-11-09', '2026-11-13')`,
+          [companyId, siteId],
+        ),
+      )
+    const depend = (companyId: string, siteId: unknown, activityId: unknown, dependsOn: unknown) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.site_activity_dependencies (company_id, site_id, activity_id,
+             depends_on_id) values ($1, $2, $3, $4)`,
+          [companyId, siteId, activityId, dependsOn],
+        ),
+      )
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const a = await c.query('select * from public.site_activities where company_id = $1', [
+        companyB.id,
+      ])
+      const d = await c.query(
+        'select * from public.site_activity_dependencies where company_id = $1',
+        [companyB.id],
+      )
+      return a.rowCount! + d.rowCount!
+    })
+    expect(seen).toBe(0)
+    await expect(insert(companyB.id, siteB)).rejects.toThrow(/row-level security/)
+    await expect(insert(companyA.id, siteB)).rejects.toThrow(/foreign key/)
+    await expect(depend(companyB.id, siteB, activityB, activityB2)).rejects.toThrow(
+      /row-level security/,
+    )
+    await expect(depend(companyA.id, siteA, activityA, activityB)).rejects.toThrow(/foreign key/)
+    // Both ends of a dependency stay on the same site.
+    await expect(depend(companyA.id, siteA, activityA, activityA2)).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query('update public.site_activities set progress = 100 where id = $1', [
+        activityB,
+      ])
+      const d = await c.query(
+        'delete from public.site_activity_dependencies where activity_id = $1',
+        [activityB2],
+      )
+      const a = await c.query('delete from public.site_activities where id = $1', [activityB])
+      return u.rowCount! + d.rowCount! + a.rowCount!
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.site_activities')).rejects.toThrow(
+      /permission denied/,
+    )
+    await expect(auth.query('select * from public.site_activity_dependencies')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('site documents and their files: cannot read, write or attach across companies', async () => {
     const siteOf = async (companyId: string) =>
       (

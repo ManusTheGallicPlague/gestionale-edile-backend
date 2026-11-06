@@ -598,6 +598,31 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
           [companyId, file.kind, file.title, file.name, file.type, file.data.length, file.data],
         )
       }
+      // Schedule of the first site: a chain of activities for the Gantt chart.
+      await client.query(
+        `insert into public.site_activities (company_id, site_id, name, start_on, end_on, progress)
+         select $1, s.id, a.name, a.start_on::date, a.end_on::date, a.progress
+         from public.sites s, (values
+           ('Allestimento del cantiere', '2026-10-05', '2026-10-07', 100),
+           ('Scavi', '2026-10-08', '2026-10-16', 100),
+           ('Fondazioni', '2026-10-19', '2026-11-06', 70),
+           ('Murature', '2026-11-09', '2026-12-04', 0)
+         ) as a (name, start_on, end_on, progress)
+         where s.company_id = $1 and s.code = '2026-01'`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.site_activity_dependencies (company_id, site_id, activity_id,
+           depends_on_id)
+         select $1, a.site_id, a.id, p.id
+         from public.site_activities a
+         join public.site_activities p on p.site_id = a.site_id and p.start_on = (
+           select max(q.start_on) from public.site_activities q
+           where q.site_id = a.site_id and q.start_on < a.start_on
+         )
+         where a.company_id = $1`,
+        [companyId],
+      )
       await client.query('delete from public.price_lists where company_id = $1', [companyId])
       await client.query(
         `with l as (

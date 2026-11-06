@@ -1891,6 +1891,107 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/sites/{site}/activities:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: listSiteActivities
+      summary: Cronoprogramma del cantiere
+      description: |
+        Permesso: sites.view. Senza permesso risponde 404, non 403. Tutte le attività del
+        cantiere (al massimo 500), senza paginazione, per disegnare il Gantt: in ordine di inizio,
+        fine e nome.
+      responses:
+        '200':
+          description: Le attività
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteActivityList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createSiteActivity
+      summary: Nuova attività del cronoprogramma
+      description: |
+        Permesso: sites.update. Le dipendenze sono attività dello stesso cantiere che devono
+        finire prima che questa inizi; un ciclo di dipendenze dà 422 sotto depends_on. Al
+        massimo 500 attività per cantiere (422 sotto `_`).
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteActivityInput' }
+      responses:
+        '201':
+          description: Attività creata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteActivity' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/sites/{site}/activities/{activity}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+      - $ref: '#/components/parameters/SiteActivityId'
+    put:
+      operationId: updateSiteActivity
+      summary: Modifica di un'attività del cronoprogramma
+      description: |
+        Permesso: sites.update. Si inviano tutti i campi; depends_on sostituisce le dipendenze
+        precedenti.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteActivityInput' }
+      responses:
+        '200':
+          description: Attività aggiornata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteActivity' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteSiteActivity
+      summary: Eliminazione di un'attività del cronoprogramma
+      description: |
+        Permesso: sites.update. Le attività che dipendevano da questa perdono la dipendenza.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Attività eliminata
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/price-lists:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -4077,6 +4178,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    SiteActivityId:
+      name: activity
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     SiteDocumentId:
       name: document
       in: path
@@ -5643,6 +5749,55 @@ components:
           type: array
           items: { $ref: '#/components/schemas/PriceListItem' }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    SiteActivityInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [name, start_on, end_on, progress, depends_on, notes]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        start_on: { $ref: '#/components/schemas/Date' }
+        end_on:
+          $ref: '#/components/schemas/Date'
+          description: Ultimo giorno dell'attività, uguale o dopo start_on.
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Avanzamento in percentuale.
+        depends_on:
+          type: array
+          maxItems: 50
+          description: |
+            Attività dello stesso cantiere che devono finire prima che questa inizi (fine-inizio).
+            I doppioni si tolgono.
+          items: { $ref: '#/components/schemas/Id' }
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    SiteActivity:
+      allOf:
+        - $ref: '#/components/schemas/SiteActivityInput'
+        - type: object
+          required: [id, site_id, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            site_id: { $ref: '#/components/schemas/Id' }
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    SiteActivityList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/SiteActivity' }
     SiteCostList:
       type: object
       required: [data, meta, total_amount]
