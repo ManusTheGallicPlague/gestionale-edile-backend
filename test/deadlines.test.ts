@@ -35,6 +35,7 @@ function deadlineBody(overrides: Record<string, unknown> = {}) {
     client_id: null,
     supplier_id: null,
     notes: null,
+    recurrence: null,
     ...overrides,
   }
 }
@@ -255,5 +256,86 @@ describe('deadlines', () => {
     const still = await theirs.browser.call('GET', `${theirs.base}/${id}`)
     expect(still.headers.etag).toBe('"1"')
     expect((await mine.browser.call('GET', mine.base)).json<Listed>().meta.total).toBe(0)
+  })
+})
+
+describe('recurrences', () => {
+  type Deadline = {
+    id: string
+    due_on: string
+    status: string
+    recurrence: string | null
+    next_deadline_id: string | null
+    amount: string | null
+    client: { id: string } | null
+  }
+
+  it.each([
+    ['monthly', '2026-01-31', '2026-02-28'],
+    ['quarterly', '2026-11-16', '2027-02-16'],
+    ['yearly', '2028-02-29', '2029-02-28'],
+  ])('completing a %s deadline due %s creates the next on %s', async (recurrence, due, next) => {
+    const { browser, base, clientId } = await scene()
+    const created = await browser.call('POST', base, {
+      body: deadlineBody({ recurrence, due_on: due, client_id: clientId }),
+    })
+    const url = `${base}/${created.json<Deadline>().id}`
+    const done = await browser.call('POST', `${url}/complete`, { headers: { 'if-match': '"1"' } })
+    expect(done.statusCode).toBe(200)
+    const nextId = done.json<Deadline>().next_deadline_id
+    expect(nextId).not.toBeNull()
+
+    const following = await browser.call('GET', `${base}/${nextId}`)
+    expect(following.json()).toMatchObject({
+      due_on: next,
+      status: 'open',
+      recurrence,
+      amount: '1234.50',
+      next_deadline_id: null,
+      client: { id: clientId },
+    })
+  })
+
+  it('reopening and completing again creates no duplicate', async () => {
+    const { browser, base } = await scene()
+    const created = await browser.call('POST', base, {
+      body: deadlineBody({ recurrence: 'monthly' }),
+    })
+    const url = `${base}/${created.json<Deadline>().id}`
+    const first = await browser.call('POST', `${url}/complete`, { headers: { 'if-match': '"1"' } })
+    await browser.call('POST', `${url}/reopen`, { headers: { 'if-match': '"2"' } })
+    const second = await browser.call('POST', `${url}/complete`, {
+      headers: { 'if-match': '"3"' },
+    })
+    expect(second.json<Deadline>().next_deadline_id).toBe(first.json<Deadline>().next_deadline_id)
+    const all = await browser.call('GET', base)
+    expect(all.json<Listed>().meta.total).toBe(2)
+  })
+
+  it('a deadline without recurrence creates nothing; a wrong recurrence is 422', async () => {
+    const { browser, base } = await scene()
+    const created = await browser.call('POST', base, { body: deadlineBody() })
+    const url = `${base}/${created.json<Deadline>().id}`
+    const done = await browser.call('POST', `${url}/complete`, { headers: { 'if-match': '"1"' } })
+    expect(done.json()).toMatchObject({ next_deadline_id: null })
+    expect((await browser.call('GET', base)).json<Listed>().meta.total).toBe(1)
+
+    const wrong = await browser.call('POST', base, { body: deadlineBody({ recurrence: 'weekly' }) })
+    expect(wrong.statusCode).toBe(422)
+    expect(wrong.json()).toMatchObject({ errors: { recurrence: ['Ricorrenza non valida.'] } })
+  })
+
+  it('deleting the next deadline leaves the completed one pointing to nothing', async () => {
+    const { browser, base } = await scene()
+    const created = await browser.call('POST', base, {
+      body: deadlineBody({ recurrence: 'yearly' }),
+    })
+    const url = `${base}/${created.json<Deadline>().id}`
+    const done = await browser.call('POST', `${url}/complete`, { headers: { 'if-match': '"1"' } })
+    const nextUrl = `${base}/${done.json<Deadline>().next_deadline_id}`
+    expect(
+      (await browser.call('DELETE', nextUrl, { headers: { 'if-match': '"1"' } })).statusCode,
+    ).toBe(204)
+    expect((await browser.call('GET', url)).json()).toMatchObject({ next_deadline_id: null })
   })
 })

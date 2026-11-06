@@ -272,12 +272,18 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
 
     for (const company of COMPANIES) {
       const companyId = companyIds[company.slug]
+      await client.query(
+        'update public.deadlines set next_deadline_id = null where company_id = $1',
+        [companyId],
+      )
       await client.query('delete from public.deadlines where company_id = $1', [companyId])
       // Deadlines relative to today, so the calendar and the dashboard always have something.
       await client.query(
-        `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, status, done_at)
+        `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, status, done_at,
+           recurrence)
          select $1, d.title, current_date + d.days, d.kind, d.cents,
-           case when d.done then 'done' else 'open' end, case when d.done then now() end
+           case when d.done then 'done' else 'open' end, case when d.done then now() end,
+           case when d.kind = 'tax' and d.title like 'F24%' and not d.done then 'monthly' end
          from (values
            ('F24 ritenute e contributi', -3, 'tax', 412300::bigint, false),
            ('Revisione autocarro', 5, 'vehicle', 8900::bigint, false),

@@ -15,7 +15,8 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Fornitori e subappaltatori: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
 | Documenti di regolarità dei fornitori (DURC, visura, assicurazione) con scadenza e stato | Fatto |
 | Scadenze: elenco per intervallo di date, filtri, creazione, modifica, fatta/riaperta, eliminazione | Fatto |
-| Ricorrenze e riepilogo delle scadenze, computo metrico, preventivi | Da fare, dopo il contratto |
+| Ricorrenze mensili, trimestrali e annuali delle scadenze | Fatto |
+| Riepilogo delle scadenze, computo metrico, preventivi | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 
 ## Stack

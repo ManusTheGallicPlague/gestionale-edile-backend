@@ -14,6 +14,9 @@ export const DEADLINE_KINDS = [
 ] as const
 export type DeadlineKind = (typeof DEADLINE_KINDS)[number]
 
+export const RECURRENCES = ['monthly', 'quarterly', 'yearly'] as const
+export type Recurrence = (typeof RECURRENCES)[number]
+
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /** What goes into the table: the amount already in cents. */
@@ -25,6 +28,7 @@ export interface DeadlineInput {
   client_id: string | null
   supplier_id: string | null
   notes: string | null
+  recurrence: Recurrence | null
 }
 
 export const DEADLINE_COLUMNS = [
@@ -35,6 +39,7 @@ export const DEADLINE_COLUMNS = [
   'client_id',
   'supplier_id',
   'notes',
+  'recurrence',
 ] as const satisfies readonly (keyof DeadlineInput)[]
 
 export function parseDeadlineInput(
@@ -98,6 +103,12 @@ export function parseDeadlineInput(
   const notes = text('notes')
   if (notes !== null && notes.length > 2000) add('notes', 'Al massimo 2000 caratteri.')
 
+  const recurrenceValue = text('recurrence')
+  const recurrence = RECURRENCES.find((r) => r === recurrenceValue) ?? null
+  if (recurrenceValue !== null && !recurrence) add('recurrence', 'Ricorrenza non valida.')
+
   if (Object.keys(errors).length > 0 || !kind || !title || !due_on) return { errors }
-  return { input: { title, due_on, kind, amount_cents, client_id, supplier_id, notes } }
+  return {
+    input: { title, due_on, kind, amount_cents, client_id, supplier_id, notes, recurrence },
+  }
 }

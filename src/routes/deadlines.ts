@@ -27,6 +27,7 @@ interface DeadlineRow extends Omit<DeadlineInput, 'amount_cents'> {
   id: string
   amount_cents: string | null
   status: 'open' | 'done'
+  next_deadline_id: string | null
   done_at: Date | null
   client_name: string | null
   supplier_name: string | null
@@ -39,7 +40,7 @@ type Params = { company: string; deadline?: string }
 
 // Dates leave the database as text, never as a JavaScript Date shifted by the time zone.
 const SELECT = `select d.id, d.title, d.due_on::text as due_on, d.kind, d.amount_cents::text as amount_cents,
-    d.client_id, d.supplier_id, d.notes, d.status, d.done_at, d.version, d.created_at, d.updated_at,
+    d.client_id, d.supplier_id, d.notes, d.recurrence, d.next_deadline_id, d.status, d.done_at, d.version, d.created_at, d.updated_at,
     c.name as client_name, s.name as supplier_name
   from public.deadlines d
   left join public.clients c on c.id = d.client_id
@@ -59,6 +60,8 @@ function toContract(row: DeadlineRow) {
     client: row.client_id ? { id: row.client_id, name: row.client_name ?? '' } : null,
     supplier: row.supplier_id ? { id: row.supplier_id, name: row.supplier_name ?? '' } : null,
     notes: row.notes,
+    recurrence: row.recurrence,
+    next_deadline_id: row.next_deadline_id,
     status: row.status,
     done_at: row.done_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),
@@ -80,6 +83,36 @@ function expectedVersion(header: string | string[] | undefined): number {
 async function readOne(client: PoolClient, id: string): Promise<DeadlineRow | undefined> {
   const { rows } = await client.query<DeadlineRow>(`${SELECT} where d.id = $1`, [id])
   return rows[0]
+}
+
+const STEP = { monthly: '1 month', quarterly: '3 months', yearly: '1 year' } as const
+
+/**
+ * A completed recurring deadline gets its next one, once: next_deadline_id remembers it, so
+ * reopening and completing again creates no duplicate. The next one copies everything but
+ * the date, which moves by the recurrence (31 January + 1 month = 28 February).
+ */
+async function createNext(client: PoolClient, id: string): Promise<void> {
+  await client.query(
+    `with source as (
+       select * from public.deadlines
+       where id = $1 and recurrence is not null and next_deadline_id is null
+     ), next as (
+       insert into public.deadlines (company_id, title, due_on, kind, amount_cents, client_id,
+         supplier_id, notes, recurrence)
+       select company_id, title,
+         (due_on + case recurrence
+           when 'monthly' then interval '${STEP.monthly}'
+           when 'quarterly' then interval '${STEP.quarterly}'
+           else interval '${STEP.yearly}' end)::date,
+         kind, amount_cents, client_id, supplier_id, notes, recurrence
+       from source
+       returning id
+     )
+     update public.deadlines set next_deadline_id = (select id from next)
+     where id = $1 and exists (select 1 from next)`,
+    [id],
+  )
 }
 
 /** The composite foreign keys refuse a client or supplier of another company, or a missing one. */
@@ -288,6 +321,7 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
              where id = $1 and version = $2`,
             [id, version],
           )
+          if (rowCount && action === 'complete') await createNext(client, id)
           return rowCount
         })
       })

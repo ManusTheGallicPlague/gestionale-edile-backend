@@ -738,7 +738,10 @@ paths:
     post:
       operationId: completeDeadline
       summary: Scadenza fatta
-      description: 'Permesso: deadlines.update. Imposta status done e done_at; se è già fatta non cambia done_at.'
+      description: |
+        Permesso: deadlines.update. Imposta status done e done_at; se è già fatta non cambia
+        done_at. Se la scadenza è ricorrente crea la successiva (una volta sola, anche dopo una
+        riapertura) e ne restituisce l'id in next_deadline_id.
       security:
         - session: []
           csrf: []
@@ -765,7 +768,9 @@ paths:
     post:
       operationId: reopenDeadline
       summary: Scadenza riaperta
-      description: 'Permesso: deadlines.update. Riporta status a open e done_at a null.'
+      description: |
+        Permesso: deadlines.update. Riporta status a open e done_at a null. L'eventuale
+        scadenza successiva già creata resta.
       security:
         - session: []
           csrf: []
@@ -1312,6 +1317,13 @@ components:
     DeadlineStatus:
       type: string
       enum: [open, done]
+    DeadlineRecurrence:
+      type: string
+      description: |
+        monthly (ogni mese), quarterly (ogni tre mesi), yearly (ogni anno). La data successiva
+        si ottiene aggiungendo l'intervallo; a fine mese si ferma all'ultimo giorno (31/01 →
+        28/02).
+      enum: [monthly, quarterly, yearly]
     SubjectRef:
       type: object
       description: Cliente o fornitore collegato, con il nome per mostrarlo senza altre chiamate.
@@ -1324,7 +1336,7 @@ components:
       description: |
         I campi facoltativi si inviano comunque, con null se vuoti. Al massimo uno tra
         client_id e supplier_id.
-      required: [title, due_on, kind, amount, client_id, supplier_id, notes]
+      required: [title, due_on, kind, amount, client_id, supplier_id, notes, recurrence]
       properties:
         title:
           type: string
@@ -1347,11 +1359,16 @@ components:
         notes:
           type: [string, 'null']
           maxLength: 2000
+        recurrence:
+          oneOf:
+            - $ref: '#/components/schemas/DeadlineRecurrence'
+            - type: 'null'
     Deadline:
       allOf:
         - $ref: '#/components/schemas/DeadlineInput'
         - type: object
-          required: [id, status, done_at, client, supplier, created_at, updated_at]
+          required:
+            [id, status, done_at, next_deadline_id, client, supplier, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             amount:
@@ -1361,6 +1378,11 @@ components:
                   pattern: '^\d+\.\d{2}$'
                 - type: 'null'
             status: { $ref: '#/components/schemas/DeadlineStatus' }
+            next_deadline_id:
+              description: La scadenza creata completando questa, se ricorrente.
+              oneOf:
+                - $ref: '#/components/schemas/Id'
+                - type: 'null'
             done_at:
               type: [string, 'null']
               format: date-time
