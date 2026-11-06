@@ -675,6 +675,53 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
     return sendItem(reply, row, 201)
   })
 
+  // An item copied from a price list item: code, description, unit and price.
+  app.post<{ Params: Params }>(`${base}/items/from-price-list`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('price_lists.view')) throw forbidden()
+      const r = reader(request.body)
+      const chapterId = r.id('chapter_id', 'Capitolo non trovato.')
+      if (chapterId === null && !r.errors.chapter_id) {
+        r.add('chapter_id', 'Il capitolo è obbligatorio.')
+      }
+      const sourceId = r.id('price_list_item_id', 'Voce del prezzario non trovata.')
+      if (sourceId === null && !r.errors.price_list_item_id) {
+        r.add('price_list_item_id', 'Scegli la voce del prezzario.')
+      }
+      r.done()
+      const { rows } = await client
+        .query<{ id: string }>(
+          `insert into public.estimate_items
+             (company_id, estimate_id, chapter_id, code, description, unit, unit_price_cents,
+              position)
+           select app.current_company_id(), $1, $2, p.code, p.description, p.unit,
+             p.unit_price_cents,
+             (select coalesce(max(position) + 1, 0) from public.estimate_items
+              where estimate_id = $1 and chapter_id = $2)
+           from public.price_list_items p where p.id = $3
+           returning id`,
+          [estimateId, chapterId, sourceId],
+        )
+        .catch((error: unknown) => {
+          if (isForeignKeyViolation(error)) {
+            throw new ValidationFailed({ chapter_id: ['Capitolo non trovato.'] })
+          }
+          throw error
+        })
+      if (!rows[0]) {
+        throw new ValidationFailed({ price_list_item_id: ['Voce del prezzario non trovata.'] })
+      }
+      await touch(client, estimateId)
+      return readItem(client, rows[0].id)
+    })
+    if (!row) throw new Error('insert returned no row')
+    return sendItem(reply, row, 201)
+  })
+
   app.put<{ Params: Params }>(`${base}/items/:item`, async (request, reply) => {
     const session = requireSession(request)
     checkCsrf(config, request)

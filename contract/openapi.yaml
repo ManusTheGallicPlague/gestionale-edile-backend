@@ -2856,6 +2856,43 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/estimates/{estimate}/items/from-price-list:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    post:
+      operationId: createEstimateItemFromPriceList
+      summary: Nuova voce presa dal prezzario
+      description: |
+        Permessi: estimates.update e price_lists.view. Copia codice, descrizione, unità e prezzo
+        della voce del prezzario; la voce del computo resta poi indipendente (cambiare il
+        prezzario non la cambia). Va in fondo al suo capitolo.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [chapter_id, price_list_item_id]
+              properties:
+                chapter_id: { $ref: '#/components/schemas/Id' }
+                price_list_item_id: { $ref: '#/components/schemas/Id' }
+      responses:
+        '201':
+          description: Creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateItem' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/estimates/{estimate}/items/{item}:
     parameters:
       - $ref: '#/components/parameters/Company'

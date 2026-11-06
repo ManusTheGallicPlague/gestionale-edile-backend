@@ -54,6 +54,67 @@ const itemBody = (chapter_id: string, overrides: Record<string, unknown> = {}) =
 })
 
 describe('estimate structure', () => {
+  it('copies an item from a price list item of the same company', async () => {
+    const s = await scene([...ALL, 'price_lists.view'])
+    const chapter = await s.chapter('Scavi')
+    const priceItem = async (companyId: string) => {
+      const list = await ctx.owner.query<{ id: string }>(
+        "insert into public.price_lists (company_id, name) values ($1, 'Interni') returning id",
+        [companyId],
+      )
+      const item = await ctx.owner.query<{ id: string }>(
+        `insert into public.price_list_items (company_id, price_list_id, code, description, unit,
+           unit_price_cents) values ($1, $2, 'SC.01', 'Scavo di sbancamento', 'm³', 850)
+         returning id`,
+        [companyId, list.rows[0]?.id],
+      )
+      return item.rows[0]?.id ?? ''
+    }
+    const mine = await priceItem(s.company.id)
+    const url = `${s.base}/items/from-price-list`
+    const created = await s.browser.call('POST', url, {
+      body: { chapter_id: chapter.id, price_list_item_id: mine },
+    })
+    expect(created.statusCode).toBe(201)
+    expect(created.json()).toMatchObject({
+      chapter_id: chapter.id,
+      code: 'SC.01',
+      description: 'Scavo di sbancamento',
+      unit: 'm³',
+      unit_price: '8.50',
+      position: 0,
+    })
+    // The copy does not follow later changes of the price list.
+    await ctx.owner.query(
+      'update public.price_list_items set unit_price_cents = 999 where id = $1',
+      [mine],
+    )
+    const structure = (await s.browser.call('GET', `${s.base}/structure`)).json<Structure>()
+    expect(structure.items.map((i) => i.unit_price)).toEqual(['8.50'])
+
+    const other = await fx.company()
+    const theirs = await priceItem(other.id)
+    const refused = await s.browser.call('POST', url, {
+      body: { chapter_id: chapter.id, price_list_item_id: theirs },
+    })
+    expect(refused.statusCode).toBe(422)
+    expect(refused.json()).toMatchObject({ errors: { price_list_item_id: [expect.any(String)] } })
+    expect(
+      (await s.browser.call('POST', url, { body: { chapter_id: 'x', price_list_item_id: mine } }))
+        .statusCode,
+    ).toBe(422)
+
+    const noLists = await scene()
+    const ch = await noLists.chapter('Scavi')
+    expect(
+      (
+        await noLists.browser.call('POST', `${noLists.base}/items/from-price-list`, {
+          body: { chapter_id: ch.id, price_list_item_id: mine },
+        })
+      ).statusCode,
+    ).toBe(403)
+  })
+
   it('builds a tree of chapters and items, in order', async () => {
     const { browser, base, chapter } = await scene()
     const demolizioni = await chapter('Demolizioni')
