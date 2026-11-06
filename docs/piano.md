@@ -34,7 +34,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Preventivo: cliente, numero progressivo per azienda e anno (`2026/001`, assegnato al primo invio, senza buchi), data, validità, stato (`draft`, `sent`, `accepted`, `rejected`, `expired`), oggetto, note e condizioni
 - [x] Righe: descrizione, unità, quantità, prezzo unitario, sconto percentuale, aliquota IVA; righe di solo testo e sezioni
 - [x] Totali: imponibile, IVA per aliquota, totale, calcolati dal backend in centesimi
-- [ ] Creazione di un preventivo da un computo (le voci diventano righe)
+- [x] Creazione di un preventivo da un computo (le voci diventano righe)
 - [ ] Cambi di stato con le regole (un preventivo inviato non si modifica più, si fa una revisione)
 - [ ] Generazione del PDF del preventivo
 
@@ -86,11 +86,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: un preventivo non in bozza non si modifica né si elimina (409 `quote_not_draft`), così la numerazione resta senza buchi. Permessi nuovi `quotes.view/create/update/delete`; inviare chiede `quotes.update`. Il Capo cantiere non vede i preventivi (prezzi e margini restano all'ufficio). I contatori non si cancellano (manca il privilegio `delete`).
 - 06/11/2026: righe del preventivo in `quote_lines` con `kind` `item`/`text`/`section`; solo le `item` hanno unità, quantità (`numeric(14,3)`, anche negativa), prezzo, sconto (`numeric(5,2)`, stringa da 0 a 100) e aliquota (intero tra 22, 10, 5, 4, 0; nature IVA e reverse charge rimandati). Imponibile di riga = quantità × prezzo × (1 − sconto), arrotondato al centesimo dal database. Righe senza paginazione, in fondo alla creazione; il riordino arriverà con un'operazione in blocco. Si scrivono solo in bozza (409 `quote_not_draft`), con `quotes.update`.
 - 06/11/2026: totali del preventivo nel campo `totals` della testata (anche nell'elenco): imponibile = somma degli imponibili di riga; IVA calcolata per aliquota sull'imponibile di quell'aliquota e arrotondata al centesimo (non riga per riga, come in fattura); totale = imponibile + IVA. Mai salvati, sempre ricalcolati.
+- 06/11/2026: preventivo da computo con `POST …/estimates/{id}/quote` (corpo come un preventivo nuovo più `vat_rate`, una sola aliquota per tutte le righe; permessi `estimates.view` e `quotes.create`): i capitoli diventano sezioni («codice titolo»), le voci righe con prezzo («codice descrizione», quantità dalle misure, sconto 0), in ordine di albero. Il preventivo non resta collegato al computo: cambiare il computo dopo non cambia il preventivo.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 14:47 UTC: preventivo da un computo (contratto `createQuoteFromEstimate`, sezioni e righe in ordine di albero, test). Niente a metà; prossimo: cambi di stato del preventivo (accettato, rifiutato, scaduto, revisione). 258 test.
 - 2026-11-06 14:44 UTC: totali del preventivo (imponibile, IVA per aliquota, totale; contratto `QuoteTotals`, test). Niente a metà; prossimo: preventivo da un computo. 256 test.
 - 2026-11-06 14:43 UTC: righe del preventivo (contratto, migrazione 0014, sezioni, testo e righe con prezzo, sconto e IVA, imponibile di riga, solo in bozza, dati di sviluppo, test e caso avversario). Niente a metà; prossimo: totali del preventivo (imponibile, IVA per aliquota, totale). 255 test.
 - 2026-11-06 14:40 UTC: testata dei preventivi con numerazione al primo invio (contratto, migrazione 0013 con contatore per anno, `send`, permessi `quotes.*`, dati di sviluppo, test anche su invii concorrenti, caso avversario). Niente a metà; prossimo: righe del preventivo. 241 test.

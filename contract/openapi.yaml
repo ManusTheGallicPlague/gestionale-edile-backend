@@ -963,6 +963,38 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/estimates/{estimate}/quote:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    post:
+      operationId: createQuoteFromEstimate
+      summary: Nuovo preventivo in bozza dalle voci di un computo
+      description: |
+        Permessi: estimates.view e quotes.create. I capitoli diventano sezioni e le voci righe
+        con prezzo, nell'ordine dell'albero: descrizione preceduta dal codice, unità, quantità
+        dalle misure, prezzo unitario, sconto 0 e l'aliquota indicata. Il computo non cambia.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuoteFromEstimateInput' }
+      responses:
+        '201':
+          description: Preventivo creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/estimates/{estimate}/structure:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -2632,3 +2664,10 @@ components:
               vat: { $ref: '#/components/schemas/SignedAmount' }
         vat_total: { $ref: '#/components/schemas/SignedAmount' }
         total: { $ref: '#/components/schemas/SignedAmount' }
+    QuoteFromEstimateInput:
+      allOf:
+        - $ref: '#/components/schemas/QuoteInput'
+        - type: object
+          required: [vat_rate]
+          properties:
+            vat_rate: { $ref: '#/components/schemas/VatRate' }

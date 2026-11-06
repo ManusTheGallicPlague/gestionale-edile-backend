@@ -392,4 +392,82 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
     if (!row) throw notFound()
     return send(reply, row)
   })
+
+  app.post<{ Params: Params & { estimate: string } }>(
+    '/api/companies/:company/estimates/:estimate/quote',
+    async (request, reply) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('estimates.view')) throw notFound()
+        if (!permissions.has('quotes.create')) throw forbidden()
+        const estimateId = request.params.estimate
+        if (!UUID.test(estimateId)) throw notFound()
+        const found = await client.query('select 1 from public.estimates where id = $1', [
+          estimateId,
+        ])
+        if (!found.rowCount) throw notFound()
+        const input = parseInput(request.body)
+        const rate = VAT_RATES.find((r) => r === (request.body as Record<string, unknown>).vat_rate)
+        if (rate === undefined) {
+          throw new ValidationFailed({ vat_rate: ['Aliquota IVA non valida: 22, 10, 5, 4 o 0.'] })
+        }
+        const { rows } = await client
+          .query<{ id: string }>(
+            `insert into public.quotes (company_id, ${FIELDS.join(', ')})
+             values (app.current_company_id(), ${FIELDS.map((_, i) => `$${i + 1}`).join(', ')})
+             returning id`,
+            FIELDS.map((f) => input[f]),
+          )
+          .catch(clientNotFound)
+        const quoteId = rows[0]?.id ?? ''
+        await linesFromEstimate(client, estimateId, quoteId, rate)
+        return readOne(client, quoteId)
+      })
+      if (!row) throw new Error('insert returned no row')
+      return send(reply, row, 201)
+    },
+  )
+}
+
+const VAT_RATES = [22, 10, 5, 4, 0] as const
+
+/**
+ * Chapters become sections and items become priced lines, depth first: a chapter, its
+ * items, then its sub-chapters (a path sorts before the paths that extend it).
+ */
+async function linesFromEstimate(
+  client: PoolClient,
+  estimateId: string,
+  quoteId: string,
+  vatRate: number,
+) {
+  await client.query(
+    `with recursive tree as (
+       select id, array[position] as path from public.estimate_chapters
+       where estimate_id = $1 and parent_id is null
+       union all
+       select c.id, t.path || c.position from public.estimate_chapters c
+       join tree t on c.parent_id = t.id
+     ), lines as (
+       select t.path, 0 as kind_order, 0 as pos, c.id, 'section' as kind,
+         concat_ws(' ', c.code, c.title) as description, null::text as unit,
+         null::numeric as quantity, null::bigint as cents
+       from tree t join public.estimate_chapters c on c.id = t.id
+       union all
+       select t.path, 1, i.position, i.id, 'item', concat_ws(' ', i.code, i.description),
+         i.unit, round(tt.quantity, 3), i.unit_price_cents
+       from tree t
+       join public.estimate_items i on i.chapter_id = t.id
+       join public.estimate_item_totals tt on tt.item_id = i.id
+     )
+     insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
+       unit_price_cents, discount_percent, vat_rate, position)
+     select app.current_company_id(), $2, kind, left(description, 5000), unit, quantity, cents,
+       case when kind = 'item' then 0 end, case when kind = 'item' then $3::smallint end,
+       (row_number() over (order by path, kind_order, pos, id) - 1)::int
+     from lines`,
+    [estimateId, quoteId, vatRate],
+  )
 }

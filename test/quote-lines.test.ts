@@ -188,4 +188,127 @@ describe('quote lines', () => {
       },
     })
   })
+
+  describe('from an estimate', () => {
+    async function estimateScene(permissions: Permission[] = [...ALL, 'estimates.view']) {
+      const sc = await scene(permissions)
+      const q = (sql: string, params: unknown[]) =>
+        ctx.owner.query<{ id: string }>(sql, params).then((r) => r.rows[0]?.id ?? '')
+      const estimateId = await q(
+        "insert into public.estimates (company_id, title) values ($1, 'Bagno') returning id",
+        [sc.company.id],
+      )
+      const chapter = (
+        title: string,
+        code: string | null,
+        parent: string | null,
+        position: number,
+      ) =>
+        q(
+          `insert into public.estimate_chapters
+             (company_id, estimate_id, parent_id, code, title, position)
+           values ($1, $2, $3, $4, $5, $6) returning id`,
+          [sc.company.id, estimateId, parent, code, title, position],
+        )
+      const item = (
+        chapterId: string,
+        code: string | null,
+        description: string,
+        cents: number,
+        position: number,
+      ) =>
+        q(
+          `insert into public.estimate_items (company_id, estimate_id, chapter_id, code,
+             description, unit, unit_price_cents, position)
+           values ($1, $2, $3, $4, $5, 'm²', $6, $7) returning id`,
+          [sc.company.id, estimateId, chapterId, code, description, cents, position],
+        )
+      // Inserted out of order on purpose: the quote follows positions, not insertion.
+      const b = await chapter('Impianti', 'B', null, 1)
+      const a = await chapter('Demolizioni', 'A', null, 0)
+      const a1 = await chapter('Pavimenti', null, a, 0)
+      const tiles = await item(a1, 'DEM.01', 'Rimozione piastrelle', 1850, 0)
+      await item(a, null, 'Sgombero', 10000, 0)
+      await item(b, 'IDR.10', 'Punto acqua', 12000, 0)
+      await ctx.owner.query(
+        `insert into public.estimate_measurements
+           (company_id, estimate_id, item_id, length, width, position)
+         values ($1, $2, $3, 3.2, 2.5, 0), ($1, $2, $3, -1, 0.8, 1)`,
+        [sc.company.id, estimateId, tiles],
+      )
+      const clientId = await q('select client_id as id from public.quotes where id = $1', [
+        sc.quoteId,
+      ])
+      const url = `/api/companies/${sc.company.slug}/estimates/${estimateId}/quote`
+      const body = {
+        client_id: clientId,
+        subject: 'Ristrutturazione bagno',
+        validity_days: 30,
+        notes: null,
+        terms: null,
+        vat_rate: 10,
+      }
+      return { ...sc, estimateId, url, body }
+    }
+
+    it('turns chapters into sections and items into lines, in tree order', async () => {
+      const { browser, company, url, body } = await estimateScene()
+      const res = await browser.call('POST', url, { body })
+      expect(res.statusCode).toBe(201)
+      // 3.2 × 2.5 − 0.8 = 7.2 m² × 18.50 = 133.20; 0 × 100 = 0; 0 × 120 = 0
+      expect(res.json()).toMatchObject({
+        status: 'draft',
+        number: null,
+        totals: { taxable: '133.20', vat: [{ rate: 10, vat: '13.32' }], total: '146.52' },
+      })
+      const quoteId = res.json<{ id: string }>().id
+      const lines = (
+        await browser.call('GET', `/api/companies/${company.slug}/quotes/${quoteId}/lines`)
+      ).json<{ data: (Line & Record<string, unknown>)[] }>().data
+      expect(lines.map((l) => [l.kind, l.description, l.position])).toEqual([
+        ['section', 'A Demolizioni', 0],
+        ['item', 'Sgombero', 1],
+        ['section', 'Pavimenti', 2],
+        ['item', 'DEM.01 Rimozione piastrelle', 3],
+        ['section', 'B Impianti', 4],
+        ['item', 'IDR.10 Punto acqua', 5],
+      ])
+      expect(lines[3]).toMatchObject({
+        unit: 'm²',
+        quantity: '7.200',
+        unit_price: '18.50',
+        discount_percent: '0.00',
+        vat_rate: 10,
+        amount: '133.20',
+      })
+    })
+
+    it('refuses a bad VAT rate and another company’s estimate; checks permissions', async () => {
+      const mine = await estimateScene()
+      const bad = await mine.browser.call('POST', mine.url, {
+        body: { ...mine.body, vat_rate: 21 },
+      })
+      expect(bad.statusCode).toBe(422)
+      expect(Object.keys(bad.json<{ errors: object }>().errors)).toEqual(['vat_rate'])
+
+      const theirs = await estimateScene()
+      const url = `/api/companies/${mine.company.slug}/estimates/${theirs.estimateId}/quote`
+      expect((await mine.browser.call('POST', url, { body: mine.body })).statusCode).toBe(404)
+
+      const noQuotes = await estimateScene(['quotes.view', 'estimates.view'])
+      expect(
+        (await noQuotes.browser.call('POST', noQuotes.url, { body: noQuotes.body })).statusCode,
+      ).toBe(403)
+      const noEstimates = await estimateScene(ALL)
+      expect(
+        (await noEstimates.browser.call('POST', noEstimates.url, { body: noEstimates.body }))
+          .statusCode,
+      ).toBe(404)
+      const count = await ctx.owner.query<{ n: number }>(
+        'select count(*)::int as n from public.quotes where company_id = $1',
+        [mine.company.id],
+      )
+      expect(count.rows[0]?.n).toBe(1)
+    })
+  })
 })
