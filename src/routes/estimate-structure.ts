@@ -275,8 +275,193 @@ async function enterEstimate(
 }
 
 /** The estimate's last change, for the "last modified" order of the list. */
+/** Every change in the tree: the estimate's last change and a new tree version. */
 const touch = (client: PoolClient, estimateId: string) =>
-  client.query('update public.estimates set updated_at = now() where id = $1', [estimateId])
+  client.query(
+    `update public.estimates
+     set updated_at = now(), structure_version = structure_version + 1 where id = $1`,
+    [estimateId],
+  )
+
+async function readStructure(client: PoolClient, estimateId: string) {
+  const version = await client.query<{ structure_version: number }>(
+    'select structure_version from public.estimates where id = $1',
+    [estimateId],
+  )
+  const chapters = await client.query<Omit<ChapterRow, 'amount_cents'>>(
+    `select ${CHAPTER_COLUMNS} from public.estimate_chapters
+     where estimate_id = $1 order by parent_id nulls first, position, id`,
+    [estimateId],
+  )
+  const items = await client.query<ItemRow>(
+    `${ITEM_SELECT} where i.estimate_id = $1 order by i.chapter_id, i.position, i.id`,
+    [estimateId],
+  )
+  const measurements = await client.query<MeasurementRow>(
+    `${MEASUREMENT_SELECT} where estimate_id = $1 order by item_id, position, id`,
+    [estimateId],
+  )
+  const amounts = chapterAmounts(chapters.rows, items.rows)
+  const total = items.rows.reduce((sum, i) => sum + BigInt(i.amount_cents), 0n)
+  return {
+    version: version.rows[0]?.structure_version ?? 1,
+    body: {
+      total: centsToAmount(total.toString()),
+      chapters: chapters.rows.map((c) =>
+        chapterToContract({ ...c, amount_cents: (amounts.get(c.id) ?? 0n).toString() }),
+      ),
+      items: items.rows.map(itemToContract),
+      measurements: measurements.rows.map(measurementToContract),
+    },
+  }
+}
+
+interface Arrangement {
+  chapters: { id: string; parent_id: string | null }[]
+  items: { id: string; chapter_id: string }[]
+}
+
+function parseArrangement(body: unknown): Arrangement {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new ValidationFailed({ _: ['Il corpo della richiesta deve essere un oggetto JSON.'] })
+  }
+  const raw = body as Record<string, unknown>
+  const errors: FieldErrors = {}
+  const list = <T>(
+    field: 'chapters' | 'items',
+    max: number,
+    parentField: string,
+    nullable: boolean,
+  ): T[] => {
+    const value = raw[field]
+    if (!Array.isArray(value)) {
+      errors[field] = ['Deve essere un elenco.']
+      return []
+    }
+    if (value.length > max) {
+      errors[field] = [`Al massimo ${max} elementi.`]
+      return []
+    }
+    const ok = value.every((entry: unknown) => {
+      if (typeof entry !== 'object' || entry === null) return false
+      const e = entry as Record<string, unknown>
+      const parent = e[parentField]
+      return (
+        typeof e.id === 'string' &&
+        UUID.test(e.id) &&
+        ((nullable && parent === null) || (typeof parent === 'string' && UUID.test(parent)))
+      )
+    })
+    if (!ok) errors[field] = [`Ogni elemento vuole id e ${parentField} validi.`]
+    return value as T[]
+  }
+  const chapters = list<Arrangement['chapters'][number]>('chapters', 2000, 'parent_id', true)
+  const items = list<Arrangement['items'][number]>('items', 10000, 'chapter_id', false)
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return {
+    chapters: chapters.map((c) => ({ id: c.id, parent_id: c.parent_id })),
+    items: items.map((i) => ({ id: i.id, chapter_id: i.chapter_id })),
+  }
+}
+
+const sameSet = (given: string[], existing: string[]) => {
+  const set = new Set(given)
+  return (
+    set.size === given.length &&
+    given.length === existing.length &&
+    existing.every((id) => set.has(id))
+  )
+}
+
+/** Checks the new layout against the estimate's tree and writes parents and positions. */
+async function arrange(client: PoolClient, estimateId: string, layout: Arrangement) {
+  const chapters = await client.query<{ id: string }>(
+    'select id from public.estimate_chapters where estimate_id = $1',
+    [estimateId],
+  )
+  const items = await client.query<{ id: string }>(
+    'select id from public.estimate_items where estimate_id = $1',
+    [estimateId],
+  )
+  const errors: FieldErrors = {}
+  const chapterIds = layout.chapters.map((c) => c.id)
+  if (
+    !sameSet(
+      chapterIds,
+      chapters.rows.map((r) => r.id),
+    )
+  ) {
+    errors.chapters = [
+      'Servono tutti i capitoli del computo, ognuno una volta sola: ricarica la pagina.',
+    ]
+  }
+  if (
+    !sameSet(
+      layout.items.map((i) => i.id),
+      items.rows.map((r) => r.id),
+    )
+  ) {
+    errors.items = ['Servono tutte le voci del computo, ognuna una volta sola: ricarica la pagina.']
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+
+  const parent = new Map(layout.chapters.map((c) => [c.id, c.parent_id]))
+  for (const chapter of layout.chapters) {
+    if (chapter.parent_id !== null && !parent.has(chapter.parent_id)) {
+      throw new ValidationFailed({ chapters: ['Un capitolo ha un genitore che non esiste.'] })
+    }
+    // Walk up: a cycle or a fifth level shows up within MAX_CHAPTER_DEPTH steps.
+    let depth = 1
+    for (let p = chapter.parent_id; p !== null; p = parent.get(p) ?? null) {
+      depth += 1
+      if (p === chapter.id || depth > MAX_CHAPTER_DEPTH) {
+        throw new ValidationFailed({
+          chapters: [
+            p === chapter.id
+              ? 'Un capitolo non può stare dentro sé stesso.'
+              : `I capitoli si annidano al massimo su ${MAX_CHAPTER_DEPTH} livelli.`,
+          ],
+        })
+      }
+    }
+  }
+  if (layout.items.some((i) => !parent.has(i.chapter_id))) {
+    throw new ValidationFailed({ items: ['Una voce ha un capitolo che non esiste.'] })
+  }
+
+  const positions = <T>(rows: T[], group: (row: T) => string | null) => {
+    const next = new Map<string | null, number>()
+    return rows.map((row) => {
+      const position = next.get(group(row)) ?? 0
+      next.set(group(row), position + 1)
+      return position
+    })
+  }
+  await client.query(
+    `update public.estimate_chapters c set parent_id = v.parent_id, position = v.position
+     from unnest($2::uuid[], $3::uuid[], $4::int[]) as v (id, parent_id, position)
+     where c.id = v.id and c.estimate_id = $1
+       and (c.parent_id is distinct from v.parent_id or c.position <> v.position)`,
+    [
+      estimateId,
+      layout.chapters.map((c) => c.id),
+      layout.chapters.map((c) => c.parent_id),
+      positions(layout.chapters, (c) => c.parent_id),
+    ],
+  )
+  await client.query(
+    `update public.estimate_items i set chapter_id = v.chapter_id, position = v.position
+     from unnest($2::uuid[], $3::uuid[], $4::int[]) as v (id, chapter_id, position)
+     where i.id = v.id and i.estimate_id = $1
+       and (i.chapter_id <> v.chapter_id or i.position <> v.position)`,
+    [
+      estimateId,
+      layout.items.map((i) => i.id),
+      layout.items.map((i) => i.chapter_id),
+      positions(layout.items, (i) => i.chapter_id),
+    ],
+  )
+}
 
 async function chapterDepth(client: PoolClient, estimateId: string, chapterId: string) {
   const { rows } = await client.query<{ depth: number }>(
@@ -335,34 +520,42 @@ function chapterAmounts(
 export function estimateStructureRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/estimates/:estimate'
 
-  app.get<{ Params: Params }>(`${base}/structure`, async (request) => {
+  app.get<{ Params: Params }>(`${base}/structure`, async (request, reply) => {
     const session = requireSession(request)
-    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
-      const estimateId = await enterEstimate(client, request, 'estimates.view')
-      const chapters = await client.query<Omit<ChapterRow, 'amount_cents'>>(
-        `select ${CHAPTER_COLUMNS} from public.estimate_chapters
-         where estimate_id = $1 order by parent_id nulls first, position, id`,
-        [estimateId],
-      )
-      const items = await client.query<ItemRow>(
-        `${ITEM_SELECT} where i.estimate_id = $1 order by i.chapter_id, i.position, i.id`,
-        [estimateId],
-      )
-      const measurements = await client.query<MeasurementRow>(
-        `${MEASUREMENT_SELECT} where estimate_id = $1 order by item_id, position, id`,
-        [estimateId],
-      )
-      const amounts = chapterAmounts(chapters.rows, items.rows)
-      const total = items.rows.reduce((sum, i) => sum + BigInt(i.amount_cents), 0n)
-      return {
-        total: centsToAmount(total.toString()),
-        chapters: chapters.rows.map((c) =>
-          chapterToContract({ ...c, amount_cents: (amounts.get(c.id) ?? 0n).toString() }),
-        ),
-        items: items.rows.map(itemToContract),
-        measurements: measurements.rows.map(measurementToContract),
-      }
-    })
+    const { version, body } = await withIdentity(
+      db.app,
+      { userId: session.user.id },
+      async (client) => {
+        const estimateId = await enterEstimate(client, request, 'estimates.view')
+        return readStructure(client, estimateId)
+      },
+    )
+    return reply.header('ETag', etag(version)).send(body)
+  })
+
+  app.put<{ Params: Params }>(`${base}/structure`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const { version, body } = await withIdentity(
+      db.app,
+      { userId: session.user.id },
+      async (client) => {
+        const estimateId = await enterEstimate(client, request, 'estimates.update')
+        const expected = expectedVersion(request.headers['if-match'])
+        const arrangement = parseArrangement(request.body)
+        const { rows } = await client.query<{ structure_version: number }>(
+          'select structure_version from public.estimates where id = $1 for update',
+          [estimateId],
+        )
+        if (rows[0]?.structure_version !== expected) {
+          throw new ApiError(412, messages.structureStale, 'stale_record')
+        }
+        await arrange(client, estimateId, arrangement)
+        await touch(client, estimateId)
+        return readStructure(client, estimateId)
+      },
+    )
+    return reply.header('ETag', etag(version)).send(body)
   })
 
   app.post<{ Params: Params }>(`${base}/chapters`, async (request, reply) => {

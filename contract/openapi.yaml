@@ -950,14 +950,49 @@ paths:
         parent_id (capitoli), chapter_id (voci) e item_id (righe di misura).
         I totali di voci, capitoli e computo li calcola il backend: ogni importo di voce è
         arrotondato al centesimo, capitoli e computo sommano gli importi arrotondati.
+        L'ETag è la versione dell'albero: cambia a ogni modifica di capitoli, voci o misure.
       responses:
         '200':
           description: La struttura del computo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
           content:
             application/json:
               schema: { $ref: '#/components/schemas/EstimateStructure' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: arrangeEstimateStructure
+      summary: Riordino e spostamento di capitoli e voci, in blocco
+      description: |
+        Permesso: estimates.update. Si inviano tutti i capitoli e tutte le voci del computo,
+        ognuno una volta sola, con il nuovo genitore; l'ordine dell'elenco dà la posizione
+        dentro ciascun genitore. Titoli, prezzi e misure non cambiano. If-Match vuole l'ETag
+        della struttura. Al massimo 4 livelli di capitoli, senza cicli.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateArrangement' }
+      responses:
+        '200':
+          description: La struttura dopo lo spostamento
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateStructure' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
 
   /api/companies/{company}/estimates/{estimate}/chapters:
     parameters:
@@ -2095,3 +2130,28 @@ components:
             version:
               type: string
               description: Lo stesso valore dell'ETag, da rimandare in If-Match.
+    EstimateArrangement:
+      type: object
+      required: [chapters, items]
+      properties:
+        chapters:
+          type: array
+          maxItems: 2000
+          items:
+            type: object
+            required: [id, parent_id]
+            properties:
+              id: { $ref: '#/components/schemas/Id' }
+              parent_id:
+                oneOf:
+                  - $ref: '#/components/schemas/Id'
+                  - type: 'null'
+        items:
+          type: array
+          maxItems: 10000
+          items:
+            type: object
+            required: [id, chapter_id]
+            properties:
+              id: { $ref: '#/components/schemas/Id' }
+              chapter_id: { $ref: '#/components/schemas/Id' }

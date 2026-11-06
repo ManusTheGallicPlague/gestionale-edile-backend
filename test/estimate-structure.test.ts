@@ -420,4 +420,175 @@ describe('estimate structure', () => {
       ])
     })
   })
+
+  describe('bulk arrangement', () => {
+    async function tree() {
+      const sc = await scene()
+      const a = await sc.chapter('A')
+      const b = await sc.chapter('B')
+      const a1 = await sc.chapter('A1', a.id)
+      const item = async (chapterId: string, description: string) =>
+        (
+          await sc.browser.call('POST', `${sc.base}/items`, {
+            body: itemBody(chapterId, { description }),
+          })
+        ).json<Item>().id
+      const x = await item(a1.id, 'x')
+      const y = await item(a1.id, 'y')
+      const z = await item(b.id, 'z')
+      // 3 × 12.50 € = 37.50 €, to follow z's amount when it moves.
+      await sc.browser.call('POST', `${sc.base}/measurements`, {
+        body: {
+          item_id: z,
+          description: null,
+          equal_parts: null,
+          length: '3',
+          width: null,
+          height: null,
+        },
+      })
+      const etag = (await sc.browser.call('GET', `${sc.base}/structure`)).headers.etag as string
+      return { ...sc, a, b, a1, x, y, z, etag }
+    }
+
+    it('moves and reorders chapters and items, with the tree version', async () => {
+      const { browser, base, a, b, a1, x, y, z, etag } = await tree()
+      // B first, A1 moves under B, y before x, z moves into A1.
+      const body = {
+        chapters: [
+          { id: b.id, parent_id: null },
+          { id: a.id, parent_id: null },
+          { id: a1.id, parent_id: b.id },
+        ],
+        items: [
+          { id: y, chapter_id: a1.id },
+          { id: z, chapter_id: a1.id },
+          { id: x, chapter_id: a1.id },
+        ],
+      }
+      const res = await browser.call('PUT', `${base}/structure`, {
+        body,
+        headers: { 'if-match': etag },
+      })
+      expect(res.statusCode).toBe(200)
+      expect(res.headers.etag).not.toBe(etag)
+      const s = res.json<Structure>()
+      const chapter = new Map(s.chapters.map((c) => [c.id, c]))
+      expect(chapter.get(b.id)).toMatchObject({ parent_id: null, position: 0 })
+      expect(chapter.get(a.id)).toMatchObject({ parent_id: null, position: 1 })
+      expect(chapter.get(a1.id)).toMatchObject({ parent_id: b.id, position: 0, amount: '37.50' })
+      expect(chapter.get(b.id)?.amount).toBe('37.50')
+      expect(chapter.get(a.id)?.amount).toBe('0.00')
+      expect(s.items.map((i) => [i.id, i.chapter_id, i.position])).toEqual([
+        [y, a1.id, 0],
+        [z, a1.id, 1],
+        [x, a1.id, 2],
+      ])
+      // The old version is stale now.
+      const again = await browser.call('PUT', `${base}/structure`, {
+        body,
+        headers: { 'if-match': etag },
+      })
+      expect(again.statusCode).toBe(412)
+      expect((await browser.call('PUT', `${base}/structure`, { body })).statusCode).toBe(428)
+    })
+
+    it('any change in the tree changes its version', async () => {
+      const { browser, base, a, etag } = await tree()
+      await browser.call('PUT', `${base}/chapters/${a.id}`, {
+        body: { code: null, title: 'A rinominato' },
+        headers: { 'if-match': '"1"' },
+      })
+      const after = (await browser.call('GET', `${base}/structure`)).headers.etag
+      expect(after).not.toBe(etag)
+    })
+
+    it.each([
+      [
+        'a missing chapter',
+        (t: Awaited<ReturnType<typeof tree>>) => ({ drop: t.a1.id }),
+        'chapters',
+      ],
+      [
+        'a cycle',
+        (t: Awaited<ReturnType<typeof tree>>) => ({ cycle: [t.a.id, t.a1.id] }),
+        'chapters',
+      ],
+      ['an item twice', (t: Awaited<ReturnType<typeof tree>>) => ({ twice: t.x }), 'items'],
+      ['a foreign item', () => ({ foreign: true }), 'items'],
+      ['too deep', () => ({ deep: true }), 'chapters'],
+    ])('refuses %s', async (_label, how, field) => {
+      const t = await tree()
+      const change = how(t) as {
+        drop?: string
+        cycle?: string[]
+        twice?: string
+        foreign?: boolean
+        deep?: boolean
+      }
+      let chapters = [
+        { id: t.a.id, parent_id: null as string | null },
+        { id: t.b.id, parent_id: null as string | null },
+        { id: t.a1.id, parent_id: t.a.id as string | null },
+      ]
+      let items = [
+        { id: t.x, chapter_id: t.a1.id },
+        { id: t.y, chapter_id: t.a1.id },
+        { id: t.z, chapter_id: t.b.id },
+      ]
+      if (change.drop) chapters = chapters.filter((c) => c.id !== change.drop)
+      if (change.cycle) chapters[0] = { id: t.a.id, parent_id: t.a1.id }
+      if (change.twice) items = [...items, { id: change.twice, chapter_id: t.b.id }]
+      if (change.foreign) {
+        const other = await tree()
+        items = [...items.slice(0, 2), { id: other.z, chapter_id: t.b.id }]
+      }
+      if (change.deep) {
+        // A → A1 → B → (new C, D) makes five levels.
+        const c = await t.chapter('C')
+        const d = await t.chapter('D')
+        const etag = (await t.browser.call('GET', `${t.base}/structure`)).headers.etag as string
+        t.etag = etag
+        chapters = [
+          { id: t.a.id, parent_id: null },
+          { id: t.a1.id, parent_id: t.a.id },
+          { id: t.b.id, parent_id: t.a1.id },
+          { id: c.id, parent_id: t.b.id },
+          { id: d.id, parent_id: c.id },
+        ]
+      }
+      const res = await t.browser.call('PUT', `${t.base}/structure`, {
+        body: { chapters, items },
+        headers: { 'if-match': t.etag },
+      })
+      expect(res.statusCode).toBe(422)
+      expect(Object.keys(res.json<{ errors: object }>().errors)).toContain(field)
+      // Nothing changed.
+      const s = (await t.browser.call('GET', `${t.base}/structure`)).json<Structure>()
+      expect(s.items.find((i) => i.id === t.z)?.chapter_id).toBe(t.b.id)
+    })
+
+    it('permissions and isolation', async () => {
+      const theirs = await tree()
+      const mine = await scene()
+      const body = { chapters: [], items: [] }
+      // Another company's estimate through my company: 404, theirs untouched.
+      const url = `/api/companies/${mine.company.slug}/estimates/${theirs.estimateId}/structure`
+      expect(
+        (await mine.browser.call('PUT', url, { body, headers: { 'if-match': theirs.etag } }))
+          .statusCode,
+      ).toBe(404)
+      const reader = await scene(['estimates.view'])
+      expect(
+        (
+          await reader.browser.call('PUT', `${reader.base}/structure`, {
+            body,
+            headers: { 'if-match': '"1"' },
+          })
+        ).statusCode,
+      ).toBe(403)
+      const s = (await theirs.browser.call('GET', `${theirs.base}/structure`)).json<Structure>()
+      expect(s.chapters).toHaveLength(3)
+    })
+  })
 })
