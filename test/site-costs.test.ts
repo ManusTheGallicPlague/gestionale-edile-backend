@@ -1,0 +1,173 @@
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import type { Permission } from '../src/permissions.js'
+import { Browser, Fixtures, startApp, type TestContext } from './helpers.js'
+
+let ctx: TestContext
+let fx: Fixtures
+
+beforeAll(async () => {
+  ctx = await startApp()
+  fx = new Fixtures(ctx.owner)
+})
+afterAll(() => ctx.close())
+
+const ALL: Permission[] = [
+  'costs.view',
+  'costs.create',
+  'costs.update',
+  'costs.delete',
+  'sites.delete',
+  'suppliers.delete',
+]
+
+async function scene(permissions: Permission[] = ALL) {
+  const { company } = await fx.companyWithUser(permissions)
+  const user = await fx.user()
+  const role = await fx.role(company.id, 'Costi', permissions)
+  await fx.member(user.id, company.id, role)
+  const browser = new Browser(ctx.app)
+  await browser.signIn(user.email)
+  const sites = await ctx.owner.query<{ id: string }>(
+    `insert into public.sites (company_id, name, code) values ($1, 'Villetta', 'C-1'),
+       ($1, 'Condominio', null) returning id`,
+    [company.id],
+  )
+  const supplier = await ctx.owner.query<{ id: string }>(
+    "insert into public.suppliers (company_id, name) values ($1, 'Calcestruzzi Srl') returning id",
+    [company.id],
+  )
+  return {
+    browser,
+    company,
+    site: sites.rows[0]?.id ?? '',
+    other: sites.rows[1]?.id ?? '',
+    supplier: supplier.rows[0]?.id ?? '',
+    base: `/api/companies/${company.slug}/costs`,
+  }
+}
+
+type Scene = Awaited<ReturnType<typeof scene>>
+
+const input = (s: Scene, overrides: Record<string, unknown> = {}) => ({
+  site_id: s.site,
+  date: '2026-11-04',
+  category: 'materials',
+  description: 'Calcestruzzo',
+  supplier_id: s.supplier,
+  amount: '1560.5',
+  notes: null,
+  ...overrides,
+})
+
+describe('site costs', () => {
+  it('creates, reads, updates and deletes a cost with If-Match', async () => {
+    const s = await scene()
+    const created = await s.browser.call('POST', s.base, { body: input(s) })
+    expect(created.statusCode).toBe(201)
+    expect(created.headers.etag).toBe('"1"')
+    const cost = created.json<{ id: string }>()
+    expect(cost).toMatchObject({
+      amount: '1560.50',
+      site: { id: s.site, name: 'Villetta', code: 'C-1' },
+      supplier: { id: s.supplier, name: 'Calcestruzzi Srl' },
+      category: 'materials',
+      date: '2026-11-04',
+    })
+    const url = `${s.base}/${cost.id}`
+    expect((await s.browser.call('GET', url)).json()).toEqual(cost)
+    expect((await s.browser.call('PUT', url, { body: input(s) })).statusCode).toBe(428)
+    const updated = await s.browser.call('PUT', url, {
+      body: input(s, { supplier_id: null, category: 'other', amount: '10' }),
+      headers: { 'If-Match': '"1"' },
+    })
+    expect(updated.statusCode).toBe(200)
+    expect(updated.json()).toMatchObject({ supplier: null, amount: '10.00', category: 'other' })
+    const stale = await s.browser.call('PUT', url, {
+      body: input(s),
+      headers: { 'If-Match': '"1"' },
+    })
+    expect(stale.statusCode).toBe(412)
+    expect(
+      (await s.browser.call('DELETE', url, { headers: { 'If-Match': '"2"' } })).statusCode,
+    ).toBe(204)
+    expect((await s.browser.call('GET', url)).statusCode).toBe(404)
+  })
+
+  it('validates the fields and the references', async () => {
+    const s = await scene()
+    const bad = await s.browser.call('POST', s.base, {
+      body: input(s, { amount: '-5', category: 'cibo', description: ' ', date: '04/11/2026' }),
+    })
+    expect(bad.statusCode).toBe(422)
+    expect(Object.keys(bad.json<{ errors: object }>().errors).sort()).toEqual([
+      'amount',
+      'category',
+      'date',
+      'description',
+    ])
+    const foreign = await scene()
+    const unknown = await s.browser.call('POST', s.base, {
+      body: input(s, { site_id: foreign.site, supplier_id: foreign.supplier }),
+    })
+    expect(unknown.statusCode).toBe(422)
+    expect(Object.keys(unknown.json<{ errors: object }>().errors).sort()).toEqual([
+      'site_id',
+      'supplier_id',
+    ])
+  })
+
+  it('lists with filters and the total of all matching costs', async () => {
+    const s = await scene()
+    for (const body of [
+      input(s),
+      input(s, { date: '2026-11-01', amount: '100', supplier_id: null, category: 'rentals' }),
+      input(s, { site_id: s.other, date: '2026-11-02', amount: '0.25' }),
+    ]) {
+      expect((await s.browser.call('POST', s.base, { body })).statusCode).toBe(201)
+    }
+    type List = { data: { date: string }[]; meta: { total: number }; total_amount: string }
+    const all = (await s.browser.call('GET', `${s.base}?per_page=1`)).json<List>()
+    expect(all.data.map((c) => c.date)).toEqual(['2026-11-04'])
+    expect(all.meta.total).toBe(3)
+    expect(all.total_amount).toBe('1660.75')
+    const site = (await s.browser.call('GET', `${s.base}?filter[site]=${s.site}`)).json<List>()
+    expect(site.total_amount).toBe('1660.50')
+    const filtered = await s.browser.call(
+      'GET',
+      `${s.base}?filter[category]=materials&filter[supplier]=${s.supplier}&filter[from]=2026-11-03&sort=amount`,
+    )
+    expect(filtered.json<List>().meta.total).toBe(1)
+    expect((await s.browser.call('GET', `${s.base}?filter[category]=x`)).statusCode).toBe(422)
+
+    // A site or supplier with costs cannot be deleted.
+    for (const path of [`sites/${s.site}`, `suppliers/${s.supplier}`]) {
+      const res = await s.browser.call('DELETE', `/api/companies/${s.company.slug}/${path}`, {
+        headers: { 'If-Match': '"1"' },
+      })
+      expect(res.statusCode).toBe(409)
+      expect(res.json()).toMatchObject({ code: 'has_documents' })
+    }
+  })
+
+  it('needs the costs permissions', async () => {
+    const owner = await scene()
+    const created = await owner.browser.call('POST', owner.base, { body: input(owner) })
+    const url = `${owner.base}/${created.json<{ id: string }>().id}`
+    const reader = await fx.user()
+    const role = await fx.role(owner.company.id, 'Lettura', ['costs.view'])
+    await fx.member(reader.id, owner.company.id, role)
+    const browser = new Browser(ctx.app)
+    await browser.signIn(reader.email)
+    expect((await browser.call('GET', url)).statusCode).toBe(200)
+    expect((await browser.call('POST', owner.base, { body: input(owner) })).statusCode).toBe(403)
+    const headers = { 'If-Match': '"1"' }
+    expect((await browser.call('PUT', url, { body: input(owner), headers })).statusCode).toBe(403)
+    expect((await browser.call('DELETE', url, { headers })).statusCode).toBe(403)
+    const none = await scene(['clients.view'])
+    expect((await none.browser.call('GET', none.base)).statusCode).toBe(403)
+    expect(
+      (await none.browser.call('GET', `${none.base}/${created.json<{ id: string }>().id}`))
+        .statusCode,
+    ).toBe(404)
+  })
+})

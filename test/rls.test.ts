@@ -552,6 +552,51 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('site costs: cannot read, write or attach across companies', async () => {
+    const siteOf = async (companyId: string) =>
+      (
+        await owner.query<{ id: string }>(
+          "insert into public.sites (company_id, name) values ($1, 'Costi') returning id",
+          [companyId],
+        )
+      ).rows[0]?.id
+    const supplierB = await owner.query<{ id: string }>(
+      "insert into public.suppliers (company_id, name) values ($1, 'Fornitore B') returning id",
+      [companyB.id],
+    )
+    const siteA = await siteOf(companyA.id)
+    const siteB = await siteOf(companyB.id)
+    const costB = await owner.query<{ id: string }>(
+      `insert into public.site_costs (company_id, site_id, cost_date, category, description,
+         amount_cents) values ($1, $2, '2026-11-02', 'other', 'B', 100) returning id`,
+      [companyB.id, siteB],
+    )
+    const insert = (companyId: string, siteId: unknown, supplierId: unknown = null) =>
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.site_costs (company_id, site_id, cost_date, category, description,
+             supplier_id, amount_cents) values ($1, $2, '2026-11-02', 'other', 'A', $3, 100)`,
+          [companyId, siteId, supplierId],
+        ),
+      )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.site_costs where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(insert(companyB.id, siteB)).rejects.toThrow(/row-level security/)
+    await expect(insert(companyA.id, siteB)).rejects.toThrow(/foreign key/)
+    await expect(insert(companyA.id, siteA, supplierB.rows[0]?.id)).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query('update public.site_costs set amount_cents = 0 where id = $1', [
+        costB.rows[0]?.id,
+      ])
+      const d = await c.query('delete from public.site_costs where id = $1', [costB.rows[0]?.id])
+      return u.rowCount! + d.rowCount!
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.site_costs')).rejects.toThrow(/permission denied/)
+  })
+
   it('estimate chapters and items: cannot read, write or attach across companies', async () => {
     const estimateB = await owner.query<{ id: string }>(
       "insert into public.estimates (company_id, title) values ($1, 'B') returning id",

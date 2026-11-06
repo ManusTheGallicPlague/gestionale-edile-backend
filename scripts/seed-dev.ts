@@ -46,6 +46,10 @@ const ALL = [
   'reports.update',
   'reports.delete',
   'reports.approve',
+  'costs.view',
+  'costs.create',
+  'costs.update',
+  'costs.delete',
   'quotes.view',
   'quotes.create',
   'quotes.update',
@@ -254,6 +258,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       await client.query('delete from public.quotes where company_id = $1', [companyId])
       // Daily reports point to sites, employees and vehicles: they go first.
       await client.query('delete from public.daily_reports where company_id = $1', [companyId])
+      await client.query('delete from public.site_costs where company_id = $1', [companyId])
       await client.query('delete from public.sites where company_id = $1', [companyId])
       await client.query('delete from public.estimates where company_id = $1', [companyId])
       await client.query('delete from public.clients where company_id = $1', [companyId])
@@ -524,6 +529,20 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          from public.daily_reports r
          join public.vehicles v on v.company_id = r.company_id and v.kind = 'machine'
          where r.company_id = $1 and r.status <> 'draft'`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.site_costs (company_id, site_id, cost_date, category, description,
+           supplier_id, amount_cents)
+         select $1, s.id, k.day::date, k.category, k.description,
+           (select p.id from public.suppliers p where p.company_id = $1 order by p.name limit 1),
+           k.cents
+         from public.sites s, (values
+           ('2026-11-03', 'materials', 'Calcestruzzo C25/30, 12 m³', 156000),
+           ('2026-11-04', 'rentals', 'Nolo autopompa per il getto', 48000),
+           ('2026-11-05', 'other', 'Smaltimento terre di scavo', 32050)
+         ) as k (day, category, description, cents)
+         where s.company_id = $1 and s.code = '2026-01'`,
         [companyId],
       )
       await client.query('delete from public.estimates where company_id = $1', [companyId])

@@ -1519,6 +1519,140 @@ paths:
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/costs:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listSiteCosts
+      summary: Elenco dei costi inseriti a mano
+      description: |
+        Permesso: costs.view. Materiali, noli, subappalti e altri costi dei cantieri, dal più
+        recente. total_amount è la somma di tutti i costi che rispettano i filtri, non solo
+        della pagina. Manodopera e mezzi dei rapportini non sono qui.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [date, -date, amount, -amount]
+            default: -date
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[site]=<id>, filter[category]=materials,
+            filter[supplier]=<id>, filter[from]=2026-11-01 e filter[to]=2026-11-30.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              supplier: { $ref: '#/components/schemas/Id' }
+              category: { $ref: '#/components/schemas/CostCategory' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Una pagina di costi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteCostList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createSiteCost
+      summary: Nuovo costo di un cantiere
+      description: 'Permesso: costs.create.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteCostInput' }
+      responses:
+        '201':
+          description: Costo registrato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteCost' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/costs/{cost}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteCostId'
+    get:
+      operationId: getSiteCost
+      summary: Un costo
+      description: 'Permesso: costs.view. Senza permesso risponde 404, non 403.'
+      responses:
+        '200':
+          description: Il costo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteCost' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: updateSiteCost
+      summary: Modifica di un costo
+      description: 'Permesso: costs.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SiteCostInput' }
+      responses:
+        '200':
+          description: Costo aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteCost' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteSiteCost
+      summary: Eliminazione di un costo
+      description: 'Permesso: costs.delete.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Costo eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/employees:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -3442,6 +3576,11 @@ components:
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
+    SiteCostId:
+      name: cost
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
     DailyReportId:
       name: report
       in: path
@@ -3883,6 +4022,10 @@ components:
         - reports.update
         - reports.delete
         - reports.approve
+        - costs.view
+        - costs.create
+        - costs.update
+        - costs.delete
         - quotes.view
         - quotes.create
         - quotes.update
@@ -3997,7 +4140,8 @@ components:
       description: |
         client: cliente. supplier: fornitore. deadline: scadenza. estimate: computo metrico.
         quote: preventivo. site: cantiere. employee: dipendente. vehicle: mezzo.
-      enum: [client, supplier, deadline, estimate, quote, site, employee, vehicle, daily_report]
+      enum:
+        [client, supplier, deadline, estimate, quote, site, employee, vehicle, daily_report, site_cost]
     AuditEntry:
       type: object
       required: [id, entity, entity_id, action, fields, user, created_at]
@@ -4657,6 +4801,67 @@ components:
           type: array
           items: { $ref: '#/components/schemas/DailyReportSummary' }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    CostCategory:
+      type: string
+      description: |
+        materials: materiali. rentals: noli. subcontract: subappalti. other: altro.
+      enum: [materials, rentals, subcontract, other]
+    SiteCostInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [site_id, date, category, description, supplier_id, amount, notes]
+      properties:
+        site_id: { $ref: '#/components/schemas/Id' }
+        date: { $ref: '#/components/schemas/Date' }
+        category: { $ref: '#/components/schemas/CostCategory' }
+        description:
+          type: string
+          minLength: 1
+          maxLength: 300
+        supplier_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        amount:
+          description: Importo del costo, senza IVA, non negativo.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    SiteCost:
+      allOf:
+        - $ref: '#/components/schemas/SiteCostInput'
+        - type: object
+          required: [id, site, supplier, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            site:
+              type: object
+              required: [id, name, code]
+              properties:
+                id: { $ref: '#/components/schemas/Id' }
+                name: { type: string }
+                code: { type: [string, 'null'] }
+            supplier:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    SiteCostList:
+      type: object
+      required: [data, meta, total_amount]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/SiteCost' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+        total_amount: { $ref: '#/components/schemas/Amount' }
     EmployeeInput:
       type: object
       description: I campi facoltativi si inviano comunque, con null se vuoti.

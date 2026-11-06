@@ -57,6 +57,9 @@ export const messages = {
     'Il cantiere ha rapportini o altri documenti collegati e non si può eliminare: puoi chiuderlo.',
   vehicleHasDocuments:
     'Il mezzo compare in un rapportino e non si può eliminare: puoi segnarlo come non in uso.',
+  costStale:
+    'Il costo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  costMissingIfMatch: 'Manca la versione del costo: ricarica la pagina e riprova.',
   reportStale:
     'Il rapportino è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   reportMissingIfMatch: 'Manca la versione del rapportino: ricarica la pagina e riprova.',
