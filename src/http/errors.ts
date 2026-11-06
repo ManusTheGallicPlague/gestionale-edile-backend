@@ -54,6 +54,8 @@ export const messages = {
     'Il capitolo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   itemStale:
     'La voce è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  measurementStale:
+    'La riga di misura è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   structureMissingIfMatch: 'Manca la versione: ricarica la pagina e riprova.',
   internal: 'Errore interno. Riprova tra poco.',
   badRequest: 'Richiesta non valida.',

@@ -366,6 +366,22 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          ) as v (chapter, code, description, unit, cents, position) on v.chapter = ch.code`,
         [companyId],
       )
+      await client.query(
+        `insert into public.estimate_measurements
+           (company_id, estimate_id, item_id, description, equal_parts, length, width, position)
+         select i.company_id, i.estimate_id, i.id, v.description, v.parts, v.length, v.width,
+           v.position
+         from public.estimate_items i
+         join (values
+           ('DEM.001', 'Bagno', null, 3.2, 2.5, 0),
+           ('DEM.001', 'Antibagno', null, 1.5, 1.2, 1),
+           ('DEM.001', 'Piatto doccia (da detrarre)', -1, 0.8, 0.8, 2),
+           ('DEM.002', 'Sanitari', 4, null, null, 0),
+           ('IDR.010', 'Lavabo, bidet, doccia', 3, null, null, 0)
+         ) as v (code, description, parts, length, width, position) on v.code = i.code
+         where i.company_id = $1`,
+        [companyId],
+      )
     }
 
     const passwordHash = await hashPassword(DEV_PASSWORD)

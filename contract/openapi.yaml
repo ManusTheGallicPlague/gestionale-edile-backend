@@ -946,8 +946,8 @@ paths:
       summary: Capitoli e voci di un computo
       description: |
         Permesso: estimates.view. Senza permesso risponde 404, non 403.
-        Due elenchi piatti, già ordinati per posizione: l'albero si ricostruisce con
-        parent_id (capitoli) e chapter_id (voci).
+        Tre elenchi piatti, già ordinati per posizione: l'albero si ricostruisce con
+        parent_id (capitoli), chapter_id (voci) e item_id (righe di misura).
       responses:
         '200':
           description: La struttura del computo
@@ -1117,6 +1117,86 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/estimates/{estimate}/measurements:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    post:
+      operationId: createEstimateMeasurement
+      summary: Nuova riga di misura
+      description: 'Permesso: estimates.update. La riga va in fondo alla sua voce.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateMeasurementCreate' }
+      responses:
+        '201':
+          description: Creata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateMeasurement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/estimates/{estimate}/measurements/{measurement}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+      - $ref: '#/components/parameters/MeasurementId'
+    put:
+      operationId: updateEstimateMeasurement
+      summary: Modifica di una riga di misura
+      description: 'Permesso: estimates.update. Si inviano tutti i campi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EstimateMeasurementInput' }
+      responses:
+        '200':
+          description: Aggiornata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EstimateMeasurement' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteEstimateMeasurement
+      summary: Eliminazione di una riga di misura
+      description: 'Permesso: estimates.update.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Eliminata
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
 components:
   securitySchemes:
     session:
@@ -1187,6 +1267,11 @@ components:
       schema: { $ref: '#/components/schemas/Id' }
     ItemId:
       name: item
+      in: path
+      required: true
+      schema: { $ref: '#/components/schemas/Id' }
+    MeasurementId:
+      name: measurement
       in: path
       required: true
       schema: { $ref: '#/components/schemas/Id' }
@@ -1918,11 +2003,71 @@ components:
               description: Lo stesso valore dell'ETag, da rimandare in If-Match.
     EstimateStructure:
       type: object
-      required: [chapters, items]
+      required: [chapters, items, measurements]
       properties:
+        measurements:
+          type: array
+          items: { $ref: '#/components/schemas/EstimateMeasurement' }
         chapters:
           type: array
           items: { $ref: '#/components/schemas/EstimateChapter' }
         items:
           type: array
           items: { $ref: '#/components/schemas/EstimateItem' }
+    Quantity:
+      type: string
+      description: |
+        Quantità come stringa con il punto e fino a tre decimali, mai numero JSON; può essere
+        negativa (detrazioni). In uscita ha sempre tre decimali.
+      pattern: '^-?\d{1,11}(\.\d{1,3})?$'
+      examples: ['12.500', '-2.000']
+    MeasurementFactor:
+      description: Un fattore della riga di misura, al massimo 9 cifre intere; null se assente.
+      oneOf:
+        - type: string
+          pattern: '^-?\d{1,9}(\.\d{1,3})?$'
+        - type: 'null'
+    EstimateMeasurementInput:
+      type: object
+      description: |
+        I campi facoltativi si inviano comunque, con null se vuoti. Serve almeno un fattore.
+        La quantità è il prodotto dei fattori presenti, arrotondato a tre decimali.
+      required: [description, equal_parts, length, width, height]
+      properties:
+        description:
+          type: [string, 'null']
+          maxLength: 500
+        equal_parts:
+          description: Parti uguali.
+          allOf: [{ $ref: '#/components/schemas/MeasurementFactor' }]
+        length:
+          description: Lunghezza.
+          allOf: [{ $ref: '#/components/schemas/MeasurementFactor' }]
+        width:
+          description: Larghezza.
+          allOf: [{ $ref: '#/components/schemas/MeasurementFactor' }]
+        height:
+          description: Altezza o peso.
+          allOf: [{ $ref: '#/components/schemas/MeasurementFactor' }]
+    EstimateMeasurementCreate:
+      allOf:
+        - $ref: '#/components/schemas/EstimateMeasurementInput'
+        - type: object
+          required: [item_id]
+          properties:
+            item_id: { $ref: '#/components/schemas/Id' }
+    EstimateMeasurement:
+      allOf:
+        - $ref: '#/components/schemas/EstimateMeasurementCreate'
+        - type: object
+          required: [id, quantity, position, version]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            quantity: { $ref: '#/components/schemas/Quantity' }
+            position:
+              type: integer
+              minimum: 0
+              description: Ordine tra le righe della stessa voce.
+            version:
+              type: string
+              description: Lo stesso valore dell'ETag, da rimandare in If-Match.

@@ -20,7 +20,8 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Documenti dei fornitori nello scadenziario | Fatto |
 | Computo metrico: testata (titolo, cliente, indirizzo, stato) | Fatto |
 | Computo metrico: capitoli annidati e voci (codice, descrizione, unità, prezzo) | Fatto |
-| Computo metrico: misure, totali, modifica in blocco; preventivi | Da fare, dopo il contratto |
+| Computo metrico: righe di misura con quantità calcolata (anche detrazioni) | Fatto |
+| Computo metrico: totali, modifica in blocco, duplicazione; preventivi | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 
 ## Stack

@@ -369,6 +369,60 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('estimate measurements: cannot read, write or attach across companies', async () => {
+    const estimateB = await owner.query<{ id: string }>(
+      "insert into public.estimates (company_id, title) values ($1, 'B misure') returning id",
+      [companyB.id],
+    )
+    const chapterB = await owner.query<{ id: string }>(
+      `insert into public.estimate_chapters (company_id, estimate_id, title, position)
+       values ($1, $2, 'Capitolo B', 0) returning id`,
+      [companyB.id, estimateB.rows[0]?.id],
+    )
+    const itemB = await owner.query<{ id: string }>(
+      `insert into public.estimate_items
+         (company_id, estimate_id, chapter_id, description, unit, unit_price_cents, position)
+       values ($1, $2, $3, 'Voce B', 'm²', 1000, 0) returning id`,
+      [companyB.id, estimateB.rows[0]?.id, chapterB.rows[0]?.id],
+    )
+    await owner.query(
+      `insert into public.estimate_measurements (company_id, estimate_id, item_id, length, position)
+       values ($1, $2, $3, 5, 0)`,
+      [companyB.id, estimateB.rows[0]?.id, itemB.rows[0]?.id],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.estimate_measurements where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.estimate_measurements
+             (company_id, estimate_id, item_id, length, position) values ($1, $2, $3, 1, 0)`,
+          [companyB.id, estimateB.rows[0]?.id, itemB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.estimate_measurements
+             (company_id, estimate_id, item_id, length, position) values ($1, $2, $3, 1, 0)`,
+          [companyA.id, estimateB.rows[0]?.id, itemB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query('update public.estimate_measurements set length = 99')
+      const d = await c.query('delete from public.estimate_measurements')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.estimate_measurements')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('cannot see memberships of other users', async () => {
     const other = await fx.user()
     const roleId = await fx.role(companyA.id, `Altro ${other.id.slice(0, 6)}`, [])

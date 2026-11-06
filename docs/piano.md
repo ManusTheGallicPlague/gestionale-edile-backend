@@ -25,7 +25,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 ### 3. Computo metrico estimativo
 - [x] Computo: titolo, cliente facoltativo, indirizzo del lavoro, stato, note
 - [x] Struttura ad albero: capitoli (anche annidati) → voci. Voce: codice (es. del prezzario regionale), descrizione, unità di misura, prezzo unitario, ordine
-- [ ] Righe di misura per ogni voce: descrizione, parti uguali, lunghezza, larghezza, altezza/peso; quantità = prodotto dei valori presenti; quantità negative ammesse (detrazioni)
+- [x] Righe di misura per ogni voce: descrizione, parti uguali, lunghezza, larghezza, altezza/peso; quantità = prodotto dei valori presenti; quantità negative ammesse (detrazioni)
 - [ ] Totali calcolati dal backend per voce, capitolo e computo. Importi in centesimi interi, quantità in `numeric` con 3 decimali: mai `float`
 - [ ] Modifica dell'albero in blocco (riordino, spostamento) con controllo di versione (`If-Match`)
 - [ ] Duplicazione di un computo
@@ -78,11 +78,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: albero del computo in due tabelle, `estimate_chapters` (con `parent_id`, al massimo 4 livelli) ed `estimate_items`; una voce sta sempre in un capitolo. `GET …/estimates/{id}/structure` restituisce due elenchi piatti ordinati per posizione, l'albero lo ricostruisce il frontend.
 - 06/11/2026: capitoli e voci si creano in fondo al loro livello e hanno ognuno la sua versione (`ETag` e campo `version`, per l'`If-Match` dalle righe della tabella). Con `PUT` non si spostano: spostamento e riordino arrivano con la modifica in blocco. Eliminare un capitolo elimina sottocapitoli e voci.
 - 06/11/2026: prezzo unitario come gli altri importi (stringa, centesimi, non negativo); le detrazioni passano dalle quantità negative delle misure. Scrivere nell'albero chiede `estimates.update` e aggiorna `updated_at` del computo; anche un computo `final` resta modificabile, per ora.
+- 06/11/2026: righe di misura in `estimate_measurements`: fattori `equal_parts`, `length`, `width`, `height` (altezza o peso) `numeric(12,3)`, stringhe nel contratto; serve almeno un fattore; quantità `numeric(14,3)` calcolata dal database come colonna generata (prodotto dei fattori presenti, arrotondato a 3 decimali). Una quantità che non ci sta risponde 422 sul campo `quantity`. Le righe si creano con `item_id` nel corpo e non cambiano voce con `PUT`; arrivano anche in `…/structure`.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 14:29 UTC: righe di misura delle voci (contratto, migrazione 0010 con quantità calcolata dal database, CRUD con `If-Match`, misure in `…/structure`, dati di sviluppo, test e caso avversario). Niente a metà; prossimo: totali per voce, capitolo e computo. 215 test.
 - 2026-11-06 14:22 UTC: struttura ad albero del computo (contratto, migrazione 0009 con capitoli annidati e voci, `…/structure`, CRUD di capitoli e voci con `If-Match`, dati di sviluppo, test e caso avversario). Niente a metà; prossimo: righe di misura. 202 test.
 - 2026-11-06 13:46 UTC: testata del computo metrico (migrazione 0008, CRUD, permessi `estimates.*`, test e caso avversario). Niente a metà; prossimo: struttura ad albero (capitoli e voci). 188 test.
 - 2026-11-06 13:43 UTC: documenti dei fornitori nello scadenziario (migrazione 0007). Lo scadenziario (sezione 2) è completo. Niente a metà; prossimo: computo metrico. 179 test.

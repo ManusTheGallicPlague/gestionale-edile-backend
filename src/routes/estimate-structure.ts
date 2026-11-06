@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify'
 import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
 import type { Db } from '../db.js'
+import pg from 'pg'
 import { isForeignKeyViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { UUID } from '../deadlines/input.js'
@@ -19,7 +20,13 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 /** Chapters can be nested up to this many levels (the first level is 1). */
 export const MAX_CHAPTER_DEPTH = 4
 
-type Params = { company: string; estimate: string; chapter?: string; item?: string }
+type Params = {
+  company: string
+  estimate: string
+  chapter?: string
+  item?: string
+  measurement?: string
+}
 
 interface ChapterRow {
   id: string
@@ -47,6 +54,27 @@ const ITEM_SELECT = `select id, chapter_id, code, description, unit,
     unit_price_cents::text as unit_price_cents, position, version
   from public.estimate_items`
 
+interface MeasurementRow {
+  id: string
+  item_id: string
+  description: string | null
+  equal_parts: string | null
+  length: string | null
+  width: string | null
+  height: string | null
+  quantity: string
+  position: number
+  version: number
+}
+
+const FACTORS = ['equal_parts', 'length', 'width', 'height'] as const
+const FACTOR = /^-?\d{1,9}(?:\.\d{1,3})?$/
+
+const MEASUREMENT_COLUMNS = `id, item_id, description, equal_parts::text as equal_parts,
+    length::text as length, width::text as width, height::text as height,
+    quantity::text as quantity, position, version`
+const MEASUREMENT_SELECT = `select ${MEASUREMENT_COLUMNS} from public.estimate_measurements`
+
 const etag = (version: number) => `"${version}"`
 
 const chapterToContract = (row: ChapterRow) => ({
@@ -65,6 +93,19 @@ const itemToContract = (row: ItemRow) => ({
   description: row.description,
   unit: row.unit,
   unit_price: centsToAmount(row.unit_price_cents),
+  position: row.position,
+  version: etag(row.version),
+})
+
+const measurementToContract = (row: MeasurementRow) => ({
+  id: row.id,
+  item_id: row.item_id,
+  description: row.description,
+  equal_parts: row.equal_parts,
+  length: row.length,
+  width: row.width,
+  height: row.height,
+  quantity: row.quantity,
   position: row.position,
   version: etag(row.version),
 })
@@ -154,6 +195,38 @@ function parseItem(body: unknown, withChapter: boolean) {
   }
 }
 
+function parseMeasurement(body: unknown, withItem: boolean) {
+  const r = reader(body)
+  const item_id = withItem ? r.id('item_id', 'Voce non trovata.') : null
+  if (withItem && item_id === null && !r.errors.item_id) r.add('item_id', 'La voce è obbligatoria.')
+  const description = r.text('description', 500)
+  const factors: (string | null)[] = FACTORS.map((field) => {
+    if (!(field in r.raw)) {
+      r.add(field, 'Campo mancante.')
+      return null
+    }
+    const value = r.raw[field]
+    if (value === null || (typeof value === 'string' && value.trim() === '')) return null
+    if (typeof value !== 'string' || !FACTOR.test(value.trim())) {
+      r.add(field, 'Un numero come 12.5 o -3, con il punto e al massimo tre decimali.')
+      return null
+    }
+    return value.trim()
+  })
+  if (Object.keys(r.errors).length === 0 && factors.every((f) => f === null)) {
+    r.add('quantity', 'Indica almeno un valore tra parti uguali, lunghezza, larghezza e altezza.')
+  }
+  r.done()
+  return { item_id, description, factors }
+}
+
+function quantityTooLarge(error: unknown): never {
+  if (error instanceof pg.DatabaseError && error.code === '22003') {
+    throw new ValidationFailed({ quantity: ['La quantità è troppo grande.'] })
+  }
+  throw error
+}
+
 /** Opens the company, checks the permission and that the estimate exists (else 404). */
 async function enterEstimate(
   client: PoolClient,
@@ -192,7 +265,7 @@ async function chapterDepth(client: PoolClient, estimateId: string, chapterId: s
 
 async function missingOrStale(
   client: PoolClient,
-  table: 'estimate_chapters' | 'estimate_items',
+  table: 'estimate_chapters' | 'estimate_items' | 'estimate_measurements',
   estimateId: string,
   id: string,
 ): Promise<never> {
@@ -201,7 +274,11 @@ async function missingOrStale(
     [id, estimateId],
   )
   if (!rowCount) throw notFound()
-  const message = table === 'estimate_chapters' ? messages.chapterStale : messages.itemStale
+  const message = {
+    estimate_chapters: messages.chapterStale,
+    estimate_items: messages.itemStale,
+    estimate_measurements: messages.measurementStale,
+  }[table]
   throw new ApiError(412, message, 'stale_record')
 }
 
@@ -225,9 +302,14 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
         `${ITEM_SELECT} where estimate_id = $1 order by chapter_id, position, id`,
         [estimateId],
       )
+      const measurements = await client.query<MeasurementRow>(
+        `${MEASUREMENT_SELECT} where estimate_id = $1 order by item_id, position, id`,
+        [estimateId],
+      )
       return {
         chapters: chapters.rows.map(chapterToContract),
         items: items.rows.map(itemToContract),
+        measurements: measurements.rows.map(measurementToContract),
       }
     })
   })
@@ -387,6 +469,80 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
         [id, estimateId, version],
       )
       if (!rowCount) await missingOrStale(client, 'estimate_items', estimateId, id)
+      await touch(client, estimateId)
+    })
+    return reply.code(204).send()
+  })
+
+  app.post<{ Params: Params }>(`${base}/measurements`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const input = parseMeasurement(request.body, true)
+      const { rows } = await client
+        .query<MeasurementRow>(
+          `insert into public.estimate_measurements
+             (company_id, estimate_id, item_id, description, ${FACTORS.join(', ')}, position)
+           values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7,
+             (select coalesce(max(position) + 1, 0) from public.estimate_measurements
+              where estimate_id = $1 and item_id = $2))
+           returning ${MEASUREMENT_COLUMNS}`,
+          [estimateId, input.item_id, input.description, ...input.factors],
+        )
+        .catch((error: unknown) => {
+          if (isForeignKeyViolation(error)) {
+            throw new ValidationFailed({ item_id: ['Voce non trovata.'] })
+          }
+          return quantityTooLarge(error)
+        })
+      await touch(client, estimateId)
+      return rows[0]
+    })
+    if (!row) throw new Error('insert returned no row')
+    return reply.code(201).header('ETag', etag(row.version)).send(measurementToContract(row))
+  })
+
+  app.put<{ Params: Params }>(`${base}/measurements/:measurement`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const id = request.params.measurement ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const input = parseMeasurement(request.body, false)
+      const { rows } = await client
+        .query<MeasurementRow>(
+          `update public.estimate_measurements
+           set description = $1, equal_parts = $2, length = $3, width = $4, height = $5,
+               version = version + 1, updated_at = now()
+           where id = $6 and estimate_id = $7 and version = $8
+           returning ${MEASUREMENT_COLUMNS}`,
+          [input.description, ...input.factors, id, estimateId, version],
+        )
+        .catch(quantityTooLarge)
+      if (!rows[0]) return missingOrStale(client, 'estimate_measurements', estimateId, id)
+      await touch(client, estimateId)
+      return rows[0]
+    })
+    return reply.header('ETag', etag(row.version)).send(measurementToContract(row))
+  })
+
+  app.delete<{ Params: Params }>(`${base}/measurements/:measurement`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.update')
+      const id = request.params.measurement ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const { rowCount } = await client.query(
+        `delete from public.estimate_measurements
+         where id = $1 and estimate_id = $2 and version = $3`,
+        [id, estimateId, version],
+      )
+      if (!rowCount) await missingOrStale(client, 'estimate_measurements', estimateId, id)
       await touch(client, estimateId)
     })
     return reply.code(204).send()

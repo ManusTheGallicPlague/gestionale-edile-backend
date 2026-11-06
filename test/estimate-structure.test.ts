@@ -15,7 +15,8 @@ const ALL: Permission[] = ['estimates.view', 'estimates.create', 'estimates.upda
 
 type Chapter = { id: string; parent_id: string | null; position: number; version: string }
 type Item = { id: string; chapter_id: string; position: number; unit_price: string }
-type Structure = { chapters: Chapter[]; items: Item[] }
+type Measurement = { id: string; item_id: string; quantity: string; position: number }
+type Structure = { chapters: Chapter[]; items: Item[]; measurements: Measurement[] }
 
 async function scene(permissions: Permission[] = ALL) {
   const { company, user } = await fx.companyWithUser(permissions)
@@ -98,7 +99,7 @@ describe('estimate structure', () => {
     const del = await browser.call('DELETE', chapterUrl, { headers: { 'if-match': '"2"' } })
     expect(del.statusCode).toBe(204)
     const s = (await browser.call('GET', `${base}/structure`)).json<Structure>()
-    expect(s).toEqual({ chapters: [], items: [] })
+    expect(s).toEqual({ chapters: [], items: [], measurements: [] })
     expect(
       (await browser.call('DELETE', itemUrl, { headers: { 'if-match': '"2"' } })).statusCode,
     ).toBe(404)
@@ -220,5 +221,134 @@ describe('estimate structure', () => {
     ).toBe(404)
     const still = (await theirs.browser.call('GET', `${theirs.base}/structure`)).json<Structure>()
     expect(still.items).toHaveLength(1)
+  })
+
+  describe('measurements', () => {
+    async function withItem(permissions: Permission[] = ALL) {
+      const sc = await scene(permissions)
+      const c = await sc.chapter('Pavimenti')
+      const item = await sc.browser.call('POST', `${sc.base}/items`, { body: itemBody(c.id) })
+      return { ...sc, chapterId: c.id, itemId: item.json<Item>().id }
+    }
+    const row = (item_id: string, overrides: Record<string, unknown> = {}) => ({
+      item_id,
+      description: 'Bagno',
+      equal_parts: null,
+      length: '3.20',
+      width: '2.5',
+      height: null,
+      ...overrides,
+    })
+
+    it('computes the quantity as the product of the factors present', async () => {
+      const { browser, base, itemId } = await withItem()
+      const add = async (overrides: Record<string, unknown>) => {
+        const res = await browser.call('POST', `${base}/measurements`, {
+          body: row(itemId, overrides),
+        })
+        expect(res.statusCode).toBe(201)
+        return res.json<Measurement & Record<string, unknown>>()
+      }
+      const first = await add({})
+      expect(first).toMatchObject({ quantity: '8.000', length: '3.200', width: '2.500' })
+      expect(first.position).toBe(0)
+      // A deduction: the door, negative.
+      const door = await add({
+        description: 'Porta',
+        equal_parts: '-1',
+        length: '0.8',
+        width: '2.1',
+      })
+      expect(door).toMatchObject({ quantity: '-1.680', position: 1 })
+      // Rounded to 3 decimals by the database, never through floats.
+      const tiny = await add({ length: '0.333', width: '0.333' })
+      expect(tiny.quantity).toBe('0.111')
+      const weight = await add({ equal_parts: '12', length: null, width: null, height: '7.85' })
+      expect(weight.quantity).toBe('94.200')
+
+      const tree = (await browser.call('GET', `${base}/structure`)).json<Structure>()
+      expect(tree.measurements.map((m) => m.quantity)).toEqual([
+        '8.000',
+        '-1.680',
+        '0.111',
+        '94.200',
+      ])
+    })
+
+    it('updates with If-Match, deletes, and goes away with its item', async () => {
+      const { browser, base, itemId } = await withItem()
+      const created = await browser.call('POST', `${base}/measurements`, { body: row(itemId) })
+      const url = `${base}/measurements/${created.json<Measurement>().id}`
+      const body = row(itemId, { length: '4' })
+      const updated = await browser.call('PUT', url, { body, headers: { 'if-match': '"1"' } })
+      expect(updated.statusCode).toBe(200)
+      expect(updated.headers.etag).toBe('"2"')
+      expect(updated.json()).toMatchObject({ quantity: '10.000', version: '"2"' })
+      expect(
+        (await browser.call('PUT', url, { body, headers: { 'if-match': '"1"' } })).statusCode,
+      ).toBe(412)
+      expect((await browser.call('DELETE', url)).statusCode).toBe(428)
+      expect(
+        (await browser.call('DELETE', url, { headers: { 'if-match': '"2"' } })).statusCode,
+      ).toBe(204)
+
+      await browser.call('POST', `${base}/measurements`, { body: row(itemId) })
+      const del = await browser.call('DELETE', `${base}/items/${itemId}`, {
+        headers: { 'if-match': '"1"' },
+      })
+      expect(del.statusCode).toBe(204)
+      expect(
+        (await browser.call('GET', `${base}/structure`)).json<Structure>().measurements,
+      ).toEqual([])
+    })
+
+    it.each([
+      ['no factor at all', { length: null, width: null }, 'quantity'],
+      ['a factor as a JSON number', { length: 3.2 }, 'length'],
+      ['a comma as separator', { width: '2,5' }, 'width'],
+      ['four decimals', { length: '1.0001' }, 'length'],
+      ['ten integer digits', { length: '1234567890' }, 'length'],
+      ['a missing factor', { height: undefined }, 'height'],
+      ['a description too long', { description: 'x'.repeat(501) }, 'description'],
+      ['an item id that is not an id', { item_id: 'abc' }, 'item_id'],
+      [
+        'a quantity that does not fit',
+        { equal_parts: '999999999', length: '999999999', width: '999', height: null },
+        'quantity',
+      ],
+    ])('refuses %s', async (_label, overrides, field) => {
+      const { browser, base, itemId } = await withItem()
+      const body: Record<string, unknown> = row(itemId, overrides)
+      if ('height' in overrides && overrides.height === undefined) delete body.height
+      const res = await browser.call('POST', `${base}/measurements`, { body })
+      expect(res.statusCode).toBe(422)
+      expect(Object.keys(res.json<{ errors: object }>().errors)).toContain(field)
+    })
+
+    it('permissions and isolation', async () => {
+      const theirs = await withItem()
+      const created = await theirs.browser.call('POST', `${theirs.base}/measurements`, {
+        body: row(theirs.itemId),
+      })
+      const measurementId = created.json<Measurement>().id
+      const mine = await withItem()
+      const res = await mine.browser.call('POST', `${mine.base}/measurements`, {
+        body: row(theirs.itemId),
+      })
+      expect(res.statusCode).toBe(422)
+      expect(res.json()).toMatchObject({ errors: { item_id: ['Voce non trovata.'] } })
+      const headers = { 'if-match': '"1"' }
+      const url = `${mine.base}/measurements/${measurementId}`
+      expect(
+        (await mine.browser.call('PUT', url, { body: row(mine.itemId), headers })).statusCode,
+      ).toBe(404)
+      expect((await mine.browser.call('DELETE', url, { headers })).statusCode).toBe(404)
+
+      const reader = await scene(['estimates.view'])
+      const denied = await reader.browser.call('POST', `${reader.base}/measurements`, {
+        body: row(theirs.itemId),
+      })
+      expect(denied.statusCode).toBe(403)
+    })
   })
 })
