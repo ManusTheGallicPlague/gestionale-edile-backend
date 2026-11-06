@@ -23,7 +23,8 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Computo metrico: righe di misura con quantità calcolata (anche detrazioni) | Fatto |
 | Computo metrico: totali per voce, capitolo e computo, calcolati dal backend | Fatto |
 | Computo metrico: riordino e spostamento in blocco con versione dell'albero | Fatto |
-| Computo metrico: duplicazione; preventivi | Da fare, dopo il contratto |
+| Computo metrico: duplicazione | Fatto |
+| Preventivi | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 
 ## Stack

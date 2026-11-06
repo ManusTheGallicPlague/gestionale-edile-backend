@@ -591,4 +591,80 @@ describe('estimate structure', () => {
       expect(s.chapters).toHaveLength(3)
     })
   })
+
+  describe('duplication', () => {
+    it('copies header and tree with new ids, as a draft', async () => {
+      const { browser, base, company, estimateId, chapter } = await scene([
+        ...ALL,
+        'estimates.delete',
+      ])
+      await ctx.owner.query(
+        "update public.estimates set status = 'final', title = $2 where id = $1",
+        [estimateId, 'T'.repeat(200)],
+      )
+      const a = await chapter('A')
+      const a1 = await chapter('A1', a.id)
+      const item = await browser.call('POST', `${base}/items`, { body: itemBody(a1.id) })
+      const itemId = item.json<Item>().id
+      await browser.call('POST', `${base}/measurements`, {
+        body: {
+          item_id: itemId,
+          description: 'Bagno',
+          equal_parts: '2',
+          length: '3',
+          width: null,
+          height: null,
+        },
+      })
+      const original = (await browser.call('GET', `${base}/structure`)).json<Structure>()
+
+      const res = await browser.call('POST', `${base}/duplicate`)
+      expect(res.statusCode).toBe(201)
+      expect(res.headers.etag).toBe('"1"')
+      const copy = res.json<{ id: string; title: string; status: string; total: string }>()
+      expect(copy.id).not.toBe(estimateId)
+      expect(copy).toMatchObject({ status: 'draft', total: '75.00' })
+      expect(copy.title).toHaveLength(200)
+      expect(copy.title.endsWith(' (copia)')).toBe(true)
+
+      const copyBase = `/api/companies/${company.slug}/estimates/${copy.id}`
+      const s = (await browser.call('GET', `${copyBase}/structure`)).json<Structure>()
+      expect(s.total).toBe(original.total)
+      const strip = (x: Structure) => ({
+        chapters: x.chapters.map((c) => ({ ...c, id: '', parent_id: c.parent_id ? 'p' : null })),
+        items: x.items.map((i) => ({ ...i, id: '', chapter_id: '' })),
+        measurements: x.measurements.map((m) => ({ ...m, id: '', item_id: '' })),
+      })
+      expect(strip(s)).toEqual(strip(original))
+      const newIds = [...s.chapters, ...s.items, ...s.measurements].map((x) => x.id)
+      const oldIds = [...original.chapters, ...original.items, ...original.measurements].map(
+        (x) => x.id,
+      )
+      expect(newIds.some((id) => oldIds.includes(id))).toBe(false)
+      const sub = s.chapters.find((c) => c.parent_id !== null)
+      expect(s.chapters.map((c) => c.id)).toContain(sub?.parent_id)
+
+      // The copy is independent: deleting the original leaves it whole.
+      const del = await browser.call('DELETE', base, { headers: { 'if-match': '"1"' } })
+      expect(del.statusCode).toBe(204)
+      const after = (await browser.call('GET', `${copyBase}/structure`)).json<Structure>()
+      expect(after.measurements).toHaveLength(1)
+    })
+
+    it('permissions and isolation', async () => {
+      const theirs = await scene()
+      const mine = await scene()
+      const url = `/api/companies/${mine.company.slug}/estimates/${theirs.estimateId}/duplicate`
+      expect((await mine.browser.call('POST', url)).statusCode).toBe(404)
+      const reader = await scene(['estimates.view'])
+      expect((await reader.browser.call('POST', `${reader.base}/duplicate`)).statusCode).toBe(403)
+      const blind = await scene(['estimates.create'])
+      expect((await blind.browser.call('POST', `${blind.base}/duplicate`)).statusCode).toBe(404)
+      const count = await ctx.owner.query<{ n: number }>(
+        'select count(*)::int as n from public.estimates where company_id = $1',
+        [mine.company.id],
+      )
+      expect(count.rows[0]?.n).toBe(1)
+    })
+  })
 })

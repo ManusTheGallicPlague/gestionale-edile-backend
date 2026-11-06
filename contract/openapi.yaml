@@ -937,6 +937,32 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/estimates/{estimate}/duplicate:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    post:
+      operationId: duplicateEstimate
+      summary: Duplicazione di un computo metrico
+      description: |
+        Permessi: estimates.view ed estimates.create. Crea un computo nuovo in bozza con la
+        stessa testata (titolo con «(copia)» in fondo), gli stessi capitoli, voci e righe di
+        misura. Senza permesso di vedere il computo risponde 404.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '201':
+          description: La copia
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Estimate' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/estimates/{estimate}/structure:
     parameters:
       - $ref: '#/components/parameters/Company'

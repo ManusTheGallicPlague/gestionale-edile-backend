@@ -301,4 +301,69 @@ export function estimateRoutes(app: FastifyInstance, config: Config, db: Db): vo
     })
     return reply.code(204).send()
   })
+
+  app.post<{ Params: Params }>(`${base}/:estimate/duplicate`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('estimates.view')) throw notFound()
+      if (!permissions.has('estimates.create')) throw forbidden()
+      const id = request.params.estimate ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const { rows } = await client.query<{ id: string }>(
+        `insert into public.estimates (company_id, title, client_id, site_address, status, notes)
+         select company_id, left(title, 192) || ' (copia)', client_id, site_address, 'draft', notes
+         from public.estimates where id = $1
+         returning id`,
+        [id],
+      )
+      const copy = rows[0]?.id
+      if (!copy) throw notFound()
+      await copyTree(client, id, copy)
+      return readOne(client, copy)
+    })
+    if (!row) throw notFound()
+    return send(reply, row, 201)
+  })
+}
+
+/**
+ * Copies chapters, items and measurement rows of one estimate into another, with new ids.
+ * One statement: the foreign keys are checked at its end, when every row is there.
+ */
+async function copyTree(client: PoolClient, from: string, to: string) {
+  await client.query(
+    `with chapter_ids as materialized (
+       select id as old_id, gen_random_uuid() as new_id
+       from public.estimate_chapters where estimate_id = $1
+     ), item_ids as materialized (
+       select id as old_id, gen_random_uuid() as new_id
+       from public.estimate_items where estimate_id = $1
+     ), chapters as (
+       insert into public.estimate_chapters
+         (id, company_id, estimate_id, parent_id, code, title, position)
+       select m.new_id, c.company_id, $2, p.new_id, c.code, c.title, c.position
+       from public.estimate_chapters c
+       join chapter_ids m on m.old_id = c.id
+       left join chapter_ids p on p.old_id = c.parent_id
+     ), items as (
+       insert into public.estimate_items
+         (id, company_id, estimate_id, chapter_id, code, description, unit, unit_price_cents,
+          position)
+       select m.new_id, i.company_id, $2, c.new_id, i.code, i.description, i.unit,
+         i.unit_price_cents, i.position
+       from public.estimate_items i
+       join item_ids m on m.old_id = i.id
+       join chapter_ids c on c.old_id = i.chapter_id
+     )
+     insert into public.estimate_measurements
+       (company_id, estimate_id, item_id, description, equal_parts, length, width, height,
+        position)
+     select x.company_id, $2, m.new_id, x.description, x.equal_parts, x.length, x.width,
+       x.height, x.position
+     from public.estimate_measurements x
+     join item_ids m on m.old_id = x.item_id`,
+    [from, to],
+  )
 }

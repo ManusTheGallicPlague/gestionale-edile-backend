@@ -28,7 +28,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Righe di misura per ogni voce: descrizione, parti uguali, lunghezza, larghezza, altezza/peso; quantità = prodotto dei valori presenti; quantità negative ammesse (detrazioni)
 - [x] Totali calcolati dal backend per voce, capitolo e computo. Importi in centesimi interi, quantità in `numeric` con 3 decimali: mai `float`
 - [x] Modifica dell'albero in blocco (riordino, spostamento) con controllo di versione (`If-Match`)
-- [ ] Duplicazione di un computo
+- [x] Duplicazione di un computo
 
 ### 4. Preventivi
 - [ ] Preventivo: cliente, numero progressivo per azienda e anno (`2026/001`, assegnato al primo invio, senza buchi), data, validità, stato (`draft`, `sent`, `accepted`, `rejected`, `expired`), oggetto, note e condizioni
@@ -81,11 +81,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: righe di misura in `estimate_measurements`: fattori `equal_parts`, `length`, `width`, `height` (altezza o peso) `numeric(12,3)`, stringhe nel contratto; serve almeno un fattore; quantità `numeric(14,3)` calcolata dal database come colonna generata (prodotto dei fattori presenti, arrotondato a 3 decimali). Una quantità che non ci sta risponde 422 sul campo `quantity`. Le righe si creano con `item_id` nel corpo e non cambiano voce con `PUT`; arrivano anche in `…/structure`.
 - 06/11/2026: totali del computo mai salvati: li calcola la vista `estimate_item_totals` (`security_invoker`, quindi sotto RLS). Quantità della voce = somma delle righe di misura; importo della voce = quantità × prezzo, arrotondato al centesimo (metà lontano da zero) voce per voce; capitoli (sottocapitoli compresi) e computo sommano gli importi arrotondati, in centesimi interi. Gli importi calcolati possono essere negativi (`SignedAmount`). Il totale compare in `…/structure`, in capitoli e voci, nella testata e nell'elenco dei computi.
 - 06/11/2026: modifica in blocco con `PUT …/estimates/{id}/structure`: si mandano tutti i capitoli e tutte le voci con il nuovo genitore, l'ordine dell'elenco dà la posizione. Versione dell'albero separata da quella della testata (`structure_version`, ETag di `…/structure`), aumentata da ogni scrittura su capitoli, voci e misure. Spostare non cambia la versione del singolo capitolo o della voce. Il riordino delle righe di misura resta fuori, per ora.
+- 06/11/2026: duplicazione con `POST …/estimates/{id}/duplicate` (permessi `estimates.view` ed `estimates.create`, nessuno nuovo): copia testata, capitoli, voci e misure con id nuovi in un solo statement; la copia nasce in bozza con «(copia)» in fondo al titolo (accorciato se serve a stare in 200 caratteri) e lo stesso cliente.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 14:37 UTC: duplicazione di un computo (contratto `duplicateEstimate`, copia dell'albero, test). Il computo metrico (sezione 3) è completo. Niente a metà; prossimo: preventivi (testata e numerazione). 228 test.
 - 2026-11-06 14:35 UTC: modifica dell'albero in blocco (contratto `arrangeEstimateStructure`, migrazione 0012 con `structure_version`, controlli su insiemi, cicli e profondità, test). Niente a metà; prossimo: duplicazione di un computo. 226 test.
 - 2026-11-06 14:33 UTC: totali del computo per voce, capitolo e computo (contratto con `SignedAmount`, migrazione 0011 con vista sotto RLS, totale anche in testata ed elenco, test e caso avversario). Niente a metà; prossimo: modifica dell'albero in blocco. 218 test.
 - 2026-11-06 14:29 UTC: righe di misura delle voci (contratto, migrazione 0010 con quantità calcolata dal database, CRUD con `If-Match`, misure in `…/structure`, dati di sviluppo, test e caso avversario). Niente a metà; prossimo: totali per voce, capitolo e computo. 215 test.
