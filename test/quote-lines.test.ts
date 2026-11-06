@@ -160,4 +160,32 @@ describe('quote lines', () => {
     const still = (await theirs.browser.call('GET', theirs.base)).json<{ data: Line[] }>()
     expect(still.data).toHaveLength(1)
   })
+
+  it('computes taxable, VAT per rate and total on the quote', async () => {
+    const { browser, base, quoteUrl } = await scene()
+    const empty = await browser.call('GET', quoteUrl)
+    expect(empty.json()).toMatchObject({
+      totals: { taxable: '0.00', vat: [], vat_total: '0.00', total: '0.00' },
+    })
+    // 10%: 120.5 × 18.40 = 2217.20 and 2 × 0.05 = 0.10 → 2217.30, VAT 221.73
+    await browser.call('POST', base, { body: item() })
+    await browser.call('POST', base, { body: item({ quantity: '2', unit_price: '0.05' }) })
+    // 22%: 1 × 0.07 = 0.07, VAT 0.0154 → 0.02 on the rate total, not line by line
+    await browser.call('POST', base, {
+      body: item({ quantity: '1', unit_price: '0.07', vat_rate: 22 }),
+    })
+    await browser.call('POST', base, { body: text('text', 'Nota') })
+    const res = await browser.call('GET', quoteUrl)
+    expect(res.json()).toMatchObject({
+      totals: {
+        taxable: '2217.37',
+        vat: [
+          { rate: 22, taxable: '0.07', vat: '0.02' },
+          { rate: 10, taxable: '2217.30', vat: '221.73' },
+        ],
+        vat_total: '221.75',
+        total: '2439.12',
+      },
+    })
+  })
 })

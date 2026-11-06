@@ -2504,9 +2504,11 @@ components:
       allOf:
         - $ref: '#/components/schemas/QuoteInput'
         - type: object
-          required: [id, client, status, number, issue_date, valid_until, sent_at, created_at, updated_at]
+          required:
+            [id, client, status, number, issue_date, valid_until, sent_at, totals, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            totals: { $ref: '#/components/schemas/QuoteTotals' }
             client: { $ref: '#/components/schemas/SubjectRef' }
             status: { $ref: '#/components/schemas/QuoteStatus' }
             number:
@@ -2609,3 +2611,24 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/QuoteLine' }
+    QuoteTotals:
+      type: object
+      description: |
+        Calcolati dal backend in centesimi. L'imponibile è la somma degli imponibili di riga;
+        l'IVA si calcola per aliquota sull'imponibile di quell'aliquota, arrotondata al
+        centesimo; il totale è imponibile più IVA.
+      required: [taxable, vat, vat_total, total]
+      properties:
+        taxable: { $ref: '#/components/schemas/SignedAmount' }
+        vat:
+          type: array
+          description: Una voce per aliquota presente nelle righe, dalla più alta.
+          items:
+            type: object
+            required: [rate, taxable, vat]
+            properties:
+              rate: { $ref: '#/components/schemas/VatRate' }
+              taxable: { $ref: '#/components/schemas/SignedAmount' }
+              vat: { $ref: '#/components/schemas/SignedAmount' }
+        vat_total: { $ref: '#/components/schemas/SignedAmount' }
+        total: { $ref: '#/components/schemas/SignedAmount' }

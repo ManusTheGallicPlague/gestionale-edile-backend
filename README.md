@@ -26,7 +26,8 @@ Fatto il primo pezzo del contratto: accesso, `/api/me` e clienti.
 | Computo metrico: duplicazione | Fatto |
 | Preventivi: testata, invio con numero progressivo per anno senza buchi | Fatto |
 | Preventivi: righe (sezioni, testo, prezzo con sconto e IVA) | Fatto |
-| Preventivi: totali, stati, da computo, PDF | Da fare, dopo il contratto |
+| Preventivi: totali con IVA per aliquota | Fatto |
+| Preventivi: da computo, stati, PDF | Da fare, dopo il contratto |
 | Pubblicazione | Da decidere |
 
 ## Stack

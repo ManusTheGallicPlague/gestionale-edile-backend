@@ -4,6 +4,7 @@ import type { Config } from '../config.js'
 import type { Db } from '../db.js'
 import { isForeignKeyViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
+import { centsToAmount } from '../money.js'
 import { UUID } from '../deadlines/input.js'
 import {
   ApiError,
@@ -36,6 +37,7 @@ interface QuoteRow extends QuoteInput {
   issue_date: string | null
   valid_until: string | null
   sent_at: Date | null
+  vat_breakdown: { rate: number; taxable: string; vat: string }[]
   version: number
   created_at: Date
   updated_at: Date
@@ -46,7 +48,18 @@ type Params = { company: string; quote?: string }
 const SELECT = `select q.id, q.client_id, q.subject, q.validity_days, q.notes, q.terms, q.status,
     q.number_year, q.number_seq, q.issue_date::text as issue_date,
     (q.issue_date + q.validity_days)::text as valid_until, q.sent_at, q.version,
-    q.created_at, q.updated_at, c.name as client_name
+    q.created_at, q.updated_at, c.name as client_name,
+    (select coalesce(jsonb_agg(jsonb_build_object(
+        'rate', r.vat_rate, 'taxable', r.taxable::text, 'vat', r.vat::text)
+        order by r.vat_rate desc), '[]'::jsonb)
+     from (
+       select vat_rate, sum(amount) as taxable, round(sum(amount) * vat_rate / 100) as vat
+       from (
+         select l.vat_rate,
+           round(l.quantity * l.unit_price_cents * (100 - l.discount_percent) / 100) as amount
+         from public.quote_lines l where l.quote_id = q.id and l.kind = 'item'
+       ) lines group by vat_rate
+     ) r) as vat_breakdown
   from public.quotes q
   join public.clients c on c.id = q.client_id`
 
@@ -60,6 +73,22 @@ const SORTS = {
 } as const
 
 const formatNumber = (year: number, seq: number) => `${year}/${String(seq).padStart(3, '0')}`
+
+/** Totals in integer cents (BigInt), from the per-rate sums computed by the database. */
+function totals(breakdown: QuoteRow['vat_breakdown']) {
+  const taxable = breakdown.reduce((sum, r) => sum + BigInt(r.taxable), 0n)
+  const vat = breakdown.reduce((sum, r) => sum + BigInt(r.vat), 0n)
+  return {
+    taxable: centsToAmount(taxable.toString()),
+    vat: breakdown.map((r) => ({
+      rate: r.rate,
+      taxable: centsToAmount(r.taxable),
+      vat: centsToAmount(r.vat),
+    })),
+    vat_total: centsToAmount(vat.toString()),
+    total: centsToAmount((taxable + vat).toString()),
+  }
+}
 
 function toContract(row: QuoteRow) {
   return {
@@ -78,6 +107,7 @@ function toContract(row: QuoteRow) {
     issue_date: row.issue_date,
     valid_until: row.valid_until,
     sent_at: row.sent_at ? row.sent_at.toISOString() : null,
+    totals: totals(row.vat_breakdown),
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
