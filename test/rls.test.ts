@@ -546,6 +546,35 @@ describe('the API role cannot cross companies', () => {
     expect(still.rows[0]?.legal_name).toBe('B S.r.l.')
   })
 
+  it('company logos: cannot read, replace or delete another company’s', async () => {
+    await owner.query(
+      "insert into public.company_logos (company_id, content_type, data) values ($1, 'image/png', '\\x01') on conflict do nothing",
+      [companyB.id],
+    )
+    const touched = await as(alice.id, companyA.id, async (c) => {
+      const r = await c.query('select * from public.company_logos where company_id = $1', [
+        companyB.id,
+      ])
+      const u = await c.query("update public.company_logos set data = '\\x02'")
+      const d = await c.query('delete from public.company_logos')
+      return (r.rowCount ?? 0) + (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(touched).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          "insert into public.company_logos (company_id, content_type, data) values ($1, 'image/png', '\\x03')",
+          [companyB.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    const still = await owner.query<{ data: Buffer }>(
+      'select data from public.company_logos where company_id = $1',
+      [companyB.id],
+    )
+    expect([...(still.rows[0]?.data ?? [])]).toEqual([1])
+  })
+
   it('quote lines: cannot read, write or attach across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',

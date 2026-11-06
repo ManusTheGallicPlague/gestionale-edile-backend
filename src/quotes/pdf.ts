@@ -1,6 +1,8 @@
+import type { PdfImage } from '../pdf/image.js'
 import { A4, PdfDocument, textWidth, wrap, type TextStyle } from '../pdf/pdf.js'
 
 export interface QuotePdfData {
+  logo?: PdfImage | undefined
   company: {
     legal_name: string
     vat_number: string | null
@@ -122,6 +124,13 @@ export function quotePdf(data: QuotePdfData): Buffer {
   newPage()
   // Header: who sends, the quote, who receives.
   const co = data.company
+  if (data.logo) {
+    // At most 150 × 50 points, keeping the proportions.
+    const scale = Math.min(150 / data.logo.width, 50 / data.logo.height)
+    const height = data.logo.height * scale
+    pdf.image(data.logo, MARGIN, y - height, data.logo.width * scale, height)
+    y -= height + 8
+  }
   pdf.text(MARGIN, y - 14, co.legal_name, { size: 14, bold: true })
   const small: TextStyle = { size: 8 }
   const companyLines = [

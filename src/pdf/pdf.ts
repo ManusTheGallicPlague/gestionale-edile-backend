@@ -5,6 +5,8 @@
  * dependency.
  */
 
+import type { PdfImage } from './image.js'
+
 export const A4 = { width: 595.28, height: 841.89 } as const
 
 // Advance widths of Helvetica, in thousandths of the font size, for ASCII 32–126.
@@ -106,6 +108,7 @@ const n = (value: number) => Number(value.toFixed(2)).toString()
 
 export class PdfDocument {
   private readonly pages: string[][] = []
+  private readonly images: PdfImage[] = []
 
   get pageCount(): number {
     return this.pages.length
@@ -134,6 +137,13 @@ export class PdfDocument {
     this.text(right - textWidth(text, style), y, text, style)
   }
 
+  /** Draws an image in the box with its bottom left corner at (x, y). */
+  image(image: PdfImage, x: number, y: number, width: number, height: number): void {
+    let index = this.images.indexOf(image)
+    if (index < 0) index = this.images.push(image) - 1
+    this.ops.push(`q ${n(width)} 0 0 ${n(height)} ${n(x)} ${n(y)} cm /Im${index} Do Q`)
+  }
+
   line(x1: number, y1: number, x2: number, y2: number, width = 0.5): void {
     this.ops.push(`${n(width)} w ${n(x1)} ${n(y1)} m ${n(x2)} ${n(y2)} l S`)
   }
@@ -141,22 +151,46 @@ export class PdfDocument {
   toBuffer(): Buffer {
     const objects: string[] = []
     const add = (body: string) => objects.push(body)
-    const pageIds = this.pages.map((_, i) => 5 + i * 2)
     add('<< /Type /Catalog /Pages 2 0 R >>')
-    add(
-      `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`,
-    )
+    add('') // the page tree, once the page ids are known
     add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>')
     add('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>')
+    const binary = (data: Buffer) => data.toString('latin1')
+    const imageIds = this.images.map((image) => {
+      let smask = ''
+      if (image.alpha) {
+        add(
+          `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} ` +
+            `/ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode ` +
+            `/Length ${image.alpha.length} >>\nstream\n${binary(image.alpha)}\nendstream`,
+        )
+        smask = ` /SMask ${objects.length} 0 R`
+      }
+      const parms = image.decodeParms ? ` /DecodeParms ${image.decodeParms}` : ''
+      add(
+        `<< /Type /XObject /Subtype /Image /Width ${image.width} /Height ${image.height} ` +
+          `/ColorSpace /${image.colorSpace} /BitsPerComponent 8 /Filter /${image.filter}` +
+          `${parms}${smask} /Length ${image.data.length} >>\nstream\n${binary(image.data)}\nendstream`,
+      )
+      return objects.length
+    })
+    const xobjects = imageIds.length
+      ? ` /XObject << ${imageIds.map((id, i) => `/Im${i} ${id} 0 R`).join(' ')} >>`
+      : ''
+    const pageIds: number[] = []
     for (const ops of this.pages) {
       const id = objects.length + 1
+      pageIds.push(id)
       add(
         `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${A4.width} ${A4.height}] ` +
-          `/Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${id + 1} 0 R >>`,
+          `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xobjects} >> /Contents ${id + 1} 0 R >>`,
       )
       const stream = ops.join('\n')
       add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`)
     }
+    objects[1] =
+      `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] ` +
+      `/Count ${pageIds.length} >>`
     // Every character is one byte (Latin-1), so string lengths are byte offsets.
     let out = '%PDF-1.4\n%\xe2\xe3\xcf\xd3\n'
     const offsets: number[] = []

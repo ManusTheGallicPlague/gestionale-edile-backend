@@ -16,6 +16,7 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { quotePdf } from '../quotes/pdf.js'
+import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
 import { LINE_COLUMNS, lineToContract, type LineRow } from './quote-lines.js'
 
@@ -334,9 +335,11 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
       const party = parties[0]
       if (!party) throw notFound()
       const profile = await readProfile(client)
+      const logo = await readLogoForPdf(client)
       return {
         number: quote.number,
         buffer: quotePdf({
+          logo,
           company: {
             ...profile,
             share_capital:

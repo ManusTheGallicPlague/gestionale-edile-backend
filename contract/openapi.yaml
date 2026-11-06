@@ -1405,6 +1405,78 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/settings/logo:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: getCompanyLogo
+      summary: Logo dell'azienda
+      description: |
+        Qualsiasi membro dell'azienda lo vede, senza permessi: l'interfaccia lo mostra a tutti.
+        Senza logo risponde 404.
+      responses:
+        '200':
+          description: Il logo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: setCompanyLogo
+      summary: Caricamento del logo
+      description: |
+        Permesso: settings.update. Il corpo è il file, con Content-Type image/png o image/jpeg:
+        al massimo 512 KB e 2000×2000 pixel; PNG a 8 bit non interlacciato (anche con
+        trasparenza), JPEG a colori o in grigio. Sostituisce il logo precedente. Il logo
+        compare nei PDF.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          image/png:
+            schema: { type: string, format: binary }
+          image/jpeg:
+            schema: { type: string, format: binary }
+      responses:
+        '204':
+          description: Logo salvato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: File più grande di 512 KB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Content-Type diverso da image/png e image/jpeg.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      operationId: deleteCompanyLogo
+      summary: Eliminazione del logo
+      description: 'Permesso: settings.update. Senza logo risponde comunque 204.'
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Logo eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/quotes:
     parameters:
       - $ref: '#/components/parameters/Company'

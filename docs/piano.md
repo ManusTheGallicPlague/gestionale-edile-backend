@@ -39,7 +39,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 - [x] Generazione del PDF del preventivo
 
 ### 5. Per usarlo davvero
-- [ ] Impostazioni azienda: ragione sociale, partita IVA, indirizzo, logo, numerazioni
+- [x] Impostazioni azienda: ragione sociale, partita IVA, indirizzo, logo, numerazioni
 - [ ] Utenti e ruoli: inviti con link a scadenza (`/invito/:token`), assegnazione del ruolo, ruoli e permessi modificabili dal titolare, disattivazione
 - [ ] Profilo: cambio nome e password (con verifica della password attuale; chiude le altre sessioni)
 - [ ] Password dimenticata: token a scadenza breve; l'invio dell'email passa da un'interfaccia sostituibile (in sviluppo scrive nel log)
@@ -92,11 +92,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: PDF del preventivo con `GET …/quotes/{id}/pdf` (permesso `quotes.view`, 404 senza), generato da un piccolo scrittore PDF in `src/pdf/pdf.ts` senza dipendenze nuove: A4, font standard Helvetica (testo in WinAnsi, i caratteri che non ci stanno diventano «?»), importi all'italiana (`1.234,50`). Intestazione con il solo nome dell'azienda finché non ci sono le impostazioni azienda (sezione 5), niente logo per ora. Una bozza si stampa con la dicitura «bozza». File in `attachment` con nome `preventivo-2026-001.pdf`.
 - 06/11/2026: dati dell'azienda in `company_profiles` (una riga per azienda, creata al primo salvataggio) con `GET`/`PUT …/settings/company`: ragione sociale, partita IVA, codice fiscale, REA, capitale sociale (importo in centesimi), indirizzo, telefono, email, PEC, IBAN (controllo ISO 13616). Finché non si salvano, la ragione sociale è il nome dell'azienda e l'ETag è `"0"`; il primo salvataggio usa `If-Match: "0"` e uno secondo con `"0"` risponde 412. Permessi nuovi `settings.view` e `settings.update`: il Titolare li ha entrambi, l'Ufficio solo `settings.view`, il Capo cantiere nessuno. Il PDF del preventivo stampa questi dati (anche senza `settings.view`: sono già sui documenti).
 - 06/11/2026: numerazioni con `GET …/settings/numbering` e `PUT …/settings/numbering/quotes` (`year`, `next_number`; permessi `settings.view`/`settings.update`, senza `If-Match` perché il valore è assoluto e il controllo è sul database): per chi arriva da un altro programma a metà anno. Il numero si può anche abbassare, mai fino a uno già usato in quell'anno (409 `number_in_use`); anno in corso, precedente o successivo. Il formato resta `AAAA/NNN`, niente prefissi personalizzati per ora.
+- 06/11/2026: logo con `PUT …/settings/logo` (il corpo è il file, `image/png` o `image/jpeg`, al massimo 512 KB e 2000×2000 pixel; permesso `settings.update`), `GET` per qualsiasi membro dell'azienda senza permessi (l'interfaccia lo mostra a tutti), `DELETE`. Salvato nel database (`bytea` in `company_logos`), non su disco: un solo file piccolo per azienda, e così vale la RLS. PNG a 8 bit non interlacciati (grigio o colori, anche con trasparenza) e JPEG RGB o grigi; PNG a palette, 16 bit e JPEG CMYK rifiutati con un messaggio che dice come salvarlo. Nel PDF il logo sta in alto a sinistra, al massimo 150×50 punti. Niente logo nei dati di sviluppo.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-06 15:42 UTC: logo dell'azienda (contratto `getCompanyLogo`/`setCompanyLogo`/`deleteCompanyLogo`, migrazione 0017, lettura di PNG e JPEG per il PDF con trasparenza, test e caso avversario). Il compito «Impostazioni azienda» è finito. Niente a metà; prossimo: utenti e ruoli (inviti). 296 test.
 - 2026-11-06 15:37 UTC: numerazione dei preventivi nelle impostazioni (contratto `getNumbering`/`setQuoteNumbering`, test). A METÀ: «Impostazioni azienda» non è spuntato, manca il logo (caricamento, limiti di formato e dimensione, stampa nel PDF). 283 test.
 - 2026-11-06 15:35 UTC: dati fiscali dell'azienda (contratto `getCompanyProfile`/`updateCompanyProfile`, migrazione 0016, permessi `settings.*`, dati nel PDF del preventivo, dati di sviluppo, test e caso avversario). A METÀ: il compito «Impostazioni azienda» non è spuntato, mancano logo e numerazioni. 281 test.
 - 2026-11-06 15:30 UTC: PDF del preventivo (contratto `getQuotePdf`, scrittore PDF senza dipendenze, più pagine con numerazione, test sulla struttura del file e sui testi). I preventivi (sezione 4) sono completi. Niente a metà; prossimo: impostazioni azienda (poi il PDF userà ragione sociale, partita IVA, indirizzo e logo). 266 test.
