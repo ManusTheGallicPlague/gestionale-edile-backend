@@ -1495,6 +1495,86 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createRole
+      summary: Nuovo ruolo
+      description: |
+        Permesso: roles.manage. Il nome è unico nell'azienda (422 sul campo name). I permessi
+        doppi si tolgono.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleInput' }
+      responses:
+        '201':
+          description: Ruolo creato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/roles/{role}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - name: role
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    put:
+      operationId: updateRole
+      summary: Modifica di nome e permessi di un ruolo
+      description: |
+        Permesso: roles.manage. Si inviano nome e tutti i permessi: sostituiscono quelli di
+        prima e valgono subito per chi ha il ruolo. Senza If-Match (valori assoluti, li cambia
+        solo il titolare). Se nessun utente attivo avrebbe più users.manage la risposta è 409
+        con code last_manager e non cambia niente.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RoleInput' }
+      responses:
+        '200':
+          description: Ruolo aggiornato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Role' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/LastManager' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      operationId: deleteRole
+      summary: Eliminazione di un ruolo
+      description: |
+        Permesso: roles.manage. Solo se nessun utente lo usa, nemmeno disattivato (409 con code
+        role_in_use: prima si cambia ruolo a quegli utenti). Gli inviti in attesa con quel
+        ruolo vengono annullati.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Ruolo eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il ruolo è assegnato ad almeno un utente (code role_in_use).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/companies/{company}/users:
     parameters:
@@ -2263,8 +2343,9 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     LastManager:
       description: |
-        Cambio rifiutato: lascerebbe l'azienda senza utenti attivi con users.manage
-        (code last_manager), oppure è la disattivazione di sé stessi (code self_deactivation).
+        Cambio rifiutato: lascerebbe l'azienda senza utenti attivi con users.manage o con
+        roles.manage, se prima qualcuno li aveva (code last_manager), oppure è la
+        disattivazione di sé stessi (code self_deactivation).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -2391,6 +2472,18 @@ components:
           examples: [Ufficio]
         permissions:
           type: array
+          items: { $ref: '#/components/schemas/Permission' }
+    RoleInput:
+      type: object
+      required: [name, permissions]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        permissions:
+          type: array
+          maxItems: 200
           items: { $ref: '#/components/schemas/Permission' }
     RoleList:
       type: object
@@ -2533,6 +2626,7 @@ components:
         - settings.update
         - users.view
         - users.manage
+        - roles.manage
 
     ClientKind:
       type: string

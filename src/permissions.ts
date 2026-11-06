@@ -27,6 +27,7 @@ export const PERMISSIONS = [
   'settings.update',
   'users.view',
   'users.manage',
+  'roles.manage',
 ] as const
 
 export type Permission = (typeof PERMISSIONS)[number]

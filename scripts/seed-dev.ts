@@ -37,12 +37,17 @@ const ALL = [
   'settings.update',
   'users.view',
   'users.manage',
+  'roles.manage',
 ]
 const ROLES: Record<string, string[]> = {
   Titolare: ALL,
   // The office sees the company data but only the owner changes it, or sees users and roles.
   Ufficio: ALL.filter(
-    (p) => !p.endsWith('.delete') && p !== 'settings.update' && !p.startsWith('users.'),
+    (p) =>
+      !p.endsWith('.delete') &&
+      p !== 'settings.update' &&
+      !p.startsWith('users.') &&
+      !p.startsWith('roles.'),
   ),
   'Capo cantiere': ['clients.view', 'suppliers.view', 'deadlines.view', 'estimates.view'],
   // The site manager does not see quotes: prices and margins stay with the office.

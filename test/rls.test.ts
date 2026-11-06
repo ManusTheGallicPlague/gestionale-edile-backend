@@ -676,6 +676,35 @@ describe('the API role cannot cross companies', () => {
     expect(seen).toEqual([null, 0, 0, 0])
   })
 
+  it('roles: cannot create, rename, delete or grant permissions across companies', async () => {
+    const roleB = await fx.role(companyB.id, `Ruoli B ${Math.random()}`, [])
+    const touched = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.roles set name = 'Preso' where id = $1", [roleB])
+      const d = await c.query('delete from public.roles where id = $1', [roleB])
+      const p = await c.query('delete from public.role_permissions where role_id = $1', [roleB])
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0) + (p.rowCount ?? 0)
+    })
+    expect(touched).toBe(0)
+    for (const sql of [
+      ["insert into public.roles (company_id, name) values ($1, 'Intruso')", [companyB.id]],
+      ["insert into public.role_permissions values ($1, 'users.manage')", [roleB]],
+    ] as const) {
+      await expect(as(alice.id, companyA.id, (c) => c.query(sql[0], [...sql[1]]))).rejects.toThrow(
+        /row-level security/,
+      )
+    }
+    // Moving a role to another company is not possible either.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query('update public.roles set company_id = $1', [companyB.id]),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    const still = await owner.query('select 1 from public.role_permissions where role_id = $1', [
+      roleB,
+    ])
+    expect(still.rowCount).toBe(0)
+  })
+
   it('quote lines: cannot read, write or attach across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',
