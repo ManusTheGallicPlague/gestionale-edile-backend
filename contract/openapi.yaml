@@ -3795,7 +3795,10 @@ paths:
         Permesso: estimates.update. Si inviano tutti i capitoli e tutte le voci del computo,
         ognuno una volta sola, con il nuovo genitore; l'ordine dell'elenco dà la posizione
         dentro ciascun genitore. Titoli, prezzi e misure non cambiano. If-Match vuole l'ETag
-        della struttura. Al massimo 4 livelli di capitoli, senza cicli.
+        della struttura. Al massimo 4 livelli di capitoli, senza cicli. Con measurements, che
+        è facoltativo, si riordinano anche le righe di misura (tutte, ognuna una volta sola,
+        con la voce a cui appartengono: possono anche passare a un'altra voce); senza,
+        restano dove sono.
       security:
         - session: []
           csrf: []
@@ -8443,6 +8446,15 @@ components:
             properties:
               id: { $ref: '#/components/schemas/Id' }
               chapter_id: { $ref: '#/components/schemas/Id' }
+        measurements:
+          type: array
+          maxItems: 50000
+          items:
+            type: object
+            required: [id, item_id]
+            properties:
+              id: { $ref: '#/components/schemas/Id' }
+              item_id: { $ref: '#/components/schemas/Id' }
     CompanyProfileInput:
       type: object
       description: |

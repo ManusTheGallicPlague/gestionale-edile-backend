@@ -554,6 +554,110 @@ describe('estimate structure', () => {
       expect((await browser.call('PUT', `${base}/structure`, { body })).statusCode).toBe(428)
     })
 
+    it('reorders measurement rows and moves them to another item, only when sent', async () => {
+      const { browser, base, a, b, a1, x, y, z, etag } = await tree()
+      const add = async (item_id: string, length: string) =>
+        (
+          await browser.call('POST', `${base}/measurements`, {
+            body: {
+              item_id,
+              description: null,
+              equal_parts: null,
+              length,
+              width: null,
+              height: null,
+            },
+          })
+        ).json<{ id: string }>().id
+      const zRows = (await browser.call('GET', `${base}/structure`))
+        .json<{
+          measurements: { id: string; item_id: string }[]
+        }>()
+        .measurements.map((m) => m.id)
+      const m2 = await add(z, '2')
+      const m1 = await add(x, '1')
+      const current = (await browser.call('GET', `${base}/structure`)).headers.etag as string
+      expect(current).not.toBe(etag)
+      const chapters = [
+        { id: a.id, parent_id: null },
+        { id: b.id, parent_id: null },
+        { id: a1.id, parent_id: a.id },
+      ]
+      const items = [
+        { id: x, chapter_id: a1.id },
+        { id: y, chapter_id: a1.id },
+        { id: z, chapter_id: b.id },
+      ]
+      const put = (body: object, tag: string) =>
+        browser.call('PUT', `${base}/structure`, { body, headers: { 'if-match': tag } })
+      // Not all the rows, a row twice, an item that is not in the estimate: 422, nothing moves.
+      for (const measurements of [
+        [{ id: m1, item_id: x }],
+        [
+          { id: m1, item_id: x },
+          { id: m1, item_id: x },
+          { id: m2, item_id: z },
+          ...zRows.map((id) => ({ id, item_id: z })),
+        ],
+        [
+          { id: m1, item_id: x },
+          { id: m2, item_id: a.id },
+          ...zRows.map((id) => ({ id, item_id: z })),
+        ],
+      ]) {
+        const bad = await put({ chapters, items, measurements }, current)
+        expect(bad.statusCode).toBe(422)
+        expect(Object.keys(bad.json<{ errors: object }>().errors)).toEqual(['measurements'])
+      }
+      // m2 moves from z to y and goes first; m1 stays on x; z keeps its first row.
+      const res = await put(
+        {
+          chapters,
+          items,
+          measurements: [
+            { id: m2, item_id: y },
+            { id: m1, item_id: x },
+            ...zRows.map((id) => ({ id, item_id: z })),
+          ],
+        },
+        current,
+      )
+      expect(res.statusCode).toBe(200)
+      type S = {
+        items: { id: string; amount: string }[]
+        measurements: { id: string; item_id: string; position: number }[]
+      }
+      const s = res.json<S>()
+      const m = new Map(s.measurements.map((r) => [r.id, r]))
+      expect(m.get(m2)).toMatchObject({ item_id: y, position: 0 })
+      expect(m.get(m1)).toMatchObject({ item_id: x, position: 0 })
+      const amount = new Map(s.items.map((i) => [i.id, i.amount]))
+      // 2 × 12.50 = 25.00 now on y; z keeps 3 × 12.50.
+      expect(amount.get(y)).toBe('25.00')
+      expect(amount.get(z)).toBe('37.50')
+      // Without measurements the rows stay where they are.
+      const tag = res.headers.etag as string
+      const again = await put({ chapters, items }, tag)
+      expect(again.statusCode).toBe(200)
+      expect(new Map(again.json<S>().measurements.map((r) => [r.id, r.item_id])).get(m2)).toBe(y)
+      // Back on z, before the row z already had: the list order is the position.
+      const back = await put(
+        {
+          chapters,
+          items,
+          measurements: [
+            { id: m2, item_id: z },
+            ...zRows.map((id) => ({ id, item_id: z })),
+            { id: m1, item_id: x },
+          ],
+        },
+        again.headers.etag as string,
+      )
+      const rows = new Map(back.json<S>().measurements.map((r) => [r.id, r]))
+      expect(rows.get(m2)).toMatchObject({ item_id: z, position: 0 })
+      expect(rows.get(zRows[0] ?? '')).toMatchObject({ item_id: z, position: 1 })
+    })
+
     it('any change in the tree changes its version', async () => {
       const { browser, base, a, etag } = await tree()
       await browser.call('PUT', `${base}/chapters/${a.id}`, {

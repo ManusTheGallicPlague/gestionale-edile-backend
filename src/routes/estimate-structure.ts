@@ -327,6 +327,8 @@ async function readStructure(client: PoolClient, estimateId: string) {
 interface Arrangement {
   chapters: { id: string; parent_id: string | null }[]
   items: { id: string; chapter_id: string }[]
+  /** Absent: the measurement rows stay where they are. */
+  measurements?: { id: string; item_id: string }[]
 }
 
 function parseArrangement(body: unknown): Arrangement {
@@ -336,7 +338,7 @@ function parseArrangement(body: unknown): Arrangement {
   const raw = body as Record<string, unknown>
   const errors: FieldErrors = {}
   const list = <T>(
-    field: 'chapters' | 'items',
+    field: 'chapters' | 'items' | 'measurements',
     max: number,
     parentField: string,
     nullable: boolean,
@@ -365,10 +367,17 @@ function parseArrangement(body: unknown): Arrangement {
   }
   const chapters = list<Arrangement['chapters'][number]>('chapters', 2000, 'parent_id', true)
   const items = list<Arrangement['items'][number]>('items', 10000, 'chapter_id', false)
+  const measurements =
+    raw.measurements === undefined
+      ? undefined
+      : list<{ id: string; item_id: string }>('measurements', 50000, 'item_id', false)
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     chapters: chapters.map((c) => ({ id: c.id, parent_id: c.parent_id })),
     items: items.map((i) => ({ id: i.id, chapter_id: i.chapter_id })),
+    ...(measurements && {
+      measurements: measurements.map((m) => ({ id: m.id, item_id: m.item_id })),
+    }),
   }
 }
 
@@ -410,6 +419,25 @@ async function arrange(client: PoolClient, estimateId: string, layout: Arrangeme
     )
   ) {
     errors.items = ['Servono tutte le voci del computo, ognuna una volta sola: ricarica la pagina.']
+  }
+  if (layout.measurements) {
+    const measurements = await client.query<{ id: string }>(
+      'select id from public.estimate_measurements where estimate_id = $1',
+      [estimateId],
+    )
+    const itemIds = new Set(layout.items.map((i) => i.id))
+    if (
+      !sameSet(
+        layout.measurements.map((m) => m.id),
+        measurements.rows.map((r) => r.id),
+      )
+    ) {
+      errors.measurements = [
+        'Servono tutte le righe di misura del computo, ognuna una volta sola: ricarica la pagina.',
+      ]
+    } else if (layout.measurements.some((m) => !itemIds.has(m.item_id))) {
+      errors.measurements = ['Una riga di misura ha una voce che non esiste.']
+    }
   }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
 
@@ -467,6 +495,19 @@ async function arrange(client: PoolClient, estimateId: string, layout: Arrangeme
       layout.items.map((i) => i.id),
       layout.items.map((i) => i.chapter_id),
       positions(layout.items, (i) => i.chapter_id),
+    ],
+  )
+  if (!layout.measurements) return
+  await client.query(
+    `update public.estimate_measurements m set item_id = v.item_id, position = v.position
+     from unnest($2::uuid[], $3::uuid[], $4::int[]) as v (id, item_id, position)
+     where m.id = v.id and m.estimate_id = $1
+       and (m.item_id <> v.item_id or m.position <> v.position)`,
+    [
+      estimateId,
+      layout.measurements.map((m) => m.id),
+      layout.measurements.map((m) => m.item_id),
+      positions(layout.measurements, (m) => m.item_id),
     ],
   )
 }
