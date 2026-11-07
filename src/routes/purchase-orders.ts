@@ -103,7 +103,21 @@ const SELECT = `select o.id, o.number_year, o.number_seq, o.status, o.supplier_i
   left join public.sites s on s.id = o.site_id
   cross join lateral ${TOTALS} t`
 
+const TODAY = "(now() at time zone 'Europe/Rome')::date"
+
+/**
+ * Orders to follow up, as conditions on an order aliased o; the dashboard counts them.
+ * Awaiting: sent and not yet received. Orders without a delivery date are only awaiting.
+ */
+export const FOLLOW_UPS = {
+  awaiting: "(o.status = 'sent')",
+  late: `(o.status = 'sent' and o.delivery_date < ${TODAY})`,
+  due_soon: `(o.status = 'sent' and o.delivery_date between ${TODAY} and ${TODAY} + 7)`,
+} as const
+
 const SORTS = {
+  delivery_date: 'o.delivery_date asc nulls last, o.number_year asc, o.number_seq asc',
+  '-delivery_date': 'o.delivery_date desc nulls last, o.number_year desc, o.number_seq desc',
   date: 'o.order_date asc, o.number_year asc, o.number_seq asc',
   '-date': 'o.order_date desc, o.number_year desc, o.number_seq desc',
   number: 'o.number_year asc, o.number_seq asc',
@@ -389,12 +403,27 @@ function readList(query: Record<string, unknown>) {
   const statusValue = single('filter[status]')
   const status = ORDER_STATUSES.find((s) => s === statusValue)
   if (statusValue !== undefined && !status) errors['filter[status]'] = ['Stato non valido.']
+  const followUpValue = single('filter[follow_up]')
+  const followUp = followUpValue && followUpValue in FOLLOW_UPS ? followUpValue : undefined
+  if (followUpValue !== undefined && !followUp) {
+    errors['filter[follow_up]'] = ['Valore non valido.']
+  }
   const supplierId = id('filter[supplier]')
   const siteId = id('filter[site]')
   const from = date('filter[from]')
   const to = date('filter[to]')
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? '-date', status, supplierId, siteId, from, to }
+  return {
+    page,
+    perPage,
+    sort: sort ?? '-date',
+    status,
+    followUp: followUp as keyof typeof FOLLOW_UPS | undefined,
+    supplierId,
+    siteId,
+    from,
+    to,
+  }
 }
 
 function listFilter(list: ReturnType<typeof readList>) {
@@ -405,6 +434,7 @@ function listFilter(list: ReturnType<typeof readList>) {
     where.push(sql(`$${values.length}`))
   }
   if (list.status) add((p) => `o.status = ${p}`, list.status)
+  if (list.followUp) where.push(FOLLOW_UPS[list.followUp])
   if (list.supplierId) add((p) => `o.supplier_id = ${p}`, list.supplierId)
   if (list.siteId) add((p) => `o.site_id = ${p}`, list.siteId)
   if (list.from) add((p) => `o.order_date >= ${p}`, list.from)

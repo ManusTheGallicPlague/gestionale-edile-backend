@@ -214,6 +214,12 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: il titolare vuole vedere in
 - [x] Preventivi nella dashboard (`quotes` in `getDashboard`, con `quotes.view`): bozze, in attesa con il loro imponibile, in scadenza entro 7 giorni, con la validità già finita e accettati senza cantiere
 - [x] Gli stessi preventivi nell'elenco e nel CSV (`filter[follow_up]` in `listQuotes` ed `exportQuotes`: `awaiting`, `expiring`, `past_validity`, `accepted_without_site`), con l'ordinamento per validità (`sort=valid_until`, bozze in fondo)
 
+### 25. Ordini da seguire
+Aggiunta il 07/11/2026, con il piano tutto spuntato: in cantiere il materiale che non arriva ferma i lavori; l'ufficio vuole vedere in dashboard gli ordini inviati e non ancora ricevuti, e quali sono in ritardo sulla consegna, per sollecitare il fornitore.
+
+- [x] Ordini nella dashboard (`purchase_orders` in `getDashboard`, con `purchases.view`): bozze, in attesa con il loro totale, in ritardo sulla consegna prevista e in consegna entro 7 giorni
+- [x] Gli stessi ordini nell'elenco e nel CSV (`filter[follow_up]` in `listPurchaseOrders` ed `exportPurchaseOrders`: `awaiting`, `late`, `due_soon`), con l'ordinamento per consegna prevista (`sort=delivery_date`, senza data in fondo)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -368,6 +374,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 07/11/2026: nelle ore di un cantiere i costi ci sono solo con `costs.view` (le ore bastano con `reports.view`); nei totali le ore senza costo orario valgono zero, come nel riepilogo dei costi, nelle righe il costo è null.
 - 07/11/2026: le ore per cantiere di dipendenti e mezzi usano il costo orario attuale, come il riepilogo dei costi del cantiere (non c'è uno storico dei costi orari); costo null se il costo orario manca. Servono il permesso della scheda (senza, 404) e `reports.view` (senza, 403); senza filtri si contano tutti i rapportini, anche in bozza.
 - 07/11/2026: nella dashboard un preventivo inviato non è più «in attesa» quando una sua revisione è stata inviata; con la revisione ancora in bozza resta in attesa, perché il cliente ha in mano quello. L'imponibile arrotonda riga per riga, come i totali del preventivo.
+- 07/11/2026: gli ordini ai fornitori senza data di consegna prevista contano solo come «in attesa», mai «in ritardo»: senza una data concordata non c'è un ritardo da sollecitare.
 
 ## Registro dei giri
 
