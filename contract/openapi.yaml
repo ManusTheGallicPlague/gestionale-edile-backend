@@ -1603,6 +1603,12 @@ paths:
             properties:
               status: { $ref: '#/components/schemas/SiteStatus' }
               client: { $ref: '#/components/schemas/Id' }
+              report_missing:
+                type: boolean
+                description: |
+                  true: cantieri attivi senza un rapportino (in qualunque stato) con la data di
+                  oggi, gli stessi contati in reports.missing_today di getDashboard. false:
+                  cantieri attivi che il rapportino di oggi ce l'hanno.
       responses:
         '200':
           description: Una pagina di cantieri
@@ -1665,6 +1671,12 @@ paths:
             properties:
               status: { $ref: '#/components/schemas/SiteStatus' }
               client: { $ref: '#/components/schemas/Id' }
+              report_missing:
+                type: boolean
+                description: |
+                  true: cantieri attivi senza un rapportino (in qualunque stato) con la data di
+                  oggi, gli stessi contati in reports.missing_today di getDashboard. false:
+                  cantieri attivi che il rapportino di oggi ce l'hanno.
       responses:
         '200':
           description: Il file CSV
@@ -9370,7 +9382,7 @@ components:
         reports:
           oneOf:
             - type: object
-              required: [to_approve, drafts]
+              required: [to_approve, drafts, missing_today]
               properties:
                 to_approve:
                   type: integer
@@ -9380,6 +9392,15 @@ components:
                   type: integer
                   minimum: 0
                   description: Rapportini in bozza di giorni passati, ancora da inviare.
+                missing_today:
+                  description: |
+                    Cantieri attivi senza un rapportino (in qualunque stato) con la data di oggi,
+                    da sollecitare al capo cantiere. Si conta ogni giorno, sabato e domenica
+                    compresi: è il frontend a decidere se mostrarlo. null senza sites.view.
+                  oneOf:
+                    - type: integer
+                      minimum: 0
+                    - type: 'null'
             - type: 'null'
         deadlines:
           oneOf:

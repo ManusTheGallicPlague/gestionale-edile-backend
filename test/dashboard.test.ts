@@ -29,7 +29,7 @@ interface Dashboard {
     { month: string; labor: string; vehicles: string; other: string; total: string }[] | null
   site_progress:
     { site: { name: string }; activities: number; progress: number; planned: number }[] | null
-  reports: { to_approve: number; drafts: number } | null
+  reports: { to_approve: number; drafts: number; missing_today: number | null } | null
   deadlines: { title: string; due_on: string; overdue: boolean; amount: string | null }[] | null
   invoices: Record<string, string> | null
 }
@@ -119,7 +119,8 @@ describe('dashboard', () => {
     ])
     // This month: 50 + 9.99 + 50 + 70 by hand, 60 of labour; not the 2020 cost.
     expect(d.costs_this_month).toEqual({ month: today.slice(0, 7), total: '239.99' })
-    expect(d.reports).toEqual({ to_approve: 1, drafts: 1 })
+    // Active: «Sforato poco» (no report) and «Nel budget» (a draft today): one is missing.
+    expect(d.reports).toEqual({ to_approve: 1, drafts: 1, missing_today: 1 })
     expect(d.deadlines?.map((x) => [x.title, x.overdue, x.amount])).toEqual([
       ['Scaduta', true, '123.45'],
       ['Oggi', false, null],
@@ -270,6 +271,44 @@ describe('dashboard', () => {
     })
   })
 
+  it('counts active sites without a report today, whatever its status', async () => {
+    const s = await scene(['sites.view', 'reports.view'])
+    const id = s.company.id
+    const sites = await ctx.owner.query<{ id: string; name: string }>(
+      `insert into public.sites (company_id, name, status) values
+         ($1, 'Senza', 'active'), ($1, 'Ieri', 'active'), ($1, 'Inviato', 'active'),
+         ($1, 'Approvato', 'active'), ($1, 'Domani', 'active'), ($1, 'Sospeso', 'suspended'),
+         ($1, 'Previsto', 'planned'), ($1, 'Chiuso', 'completed')
+       returning id, name`,
+      [id],
+    )
+    const site = (name: string) => sites.rows.find((r) => r.name === name)?.id
+    await ctx.owner.query(
+      `insert into public.daily_reports (company_id, site_id, report_date, status) values
+         ($1, $2, $3, 'draft'), ($1, $4, $5, 'submitted'), ($1, $6, $5, 'approved'),
+         ($1, $7, $8, 'draft')`,
+      [
+        id,
+        site('Ieri'),
+        await day(-1),
+        site('Inviato'),
+        await day(0),
+        site('Approvato'),
+        site('Domani'),
+        await day(1),
+      ],
+    )
+    const res = await s.browser.call('GET', s.url)
+    expect(res.statusCode).toBe(200)
+    // Senza, Ieri and Domani: suspended, planned and completed sites do not count.
+    expect(res.json<Dashboard>().reports).toEqual({ to_approve: 1, drafts: 1, missing_today: 3 })
+
+    // Without sites.view the count of sites stays hidden; the reports do not.
+    const reportsOnly = await scene(['reports.view'])
+    const r = (await reportsOnly.browser.call('GET', reportsOnly.url)).json<Dashboard>()
+    expect(r.reports).toEqual({ to_approve: 0, drafts: 0, missing_today: null })
+  })
+
   it('leaves out the sections the user may not see, and other companies', async () => {
     const s = await scene(['deadlines.view'])
     const d = (await s.browser.call('GET', s.url)).json<Dashboard>()
@@ -309,6 +348,7 @@ describe('dashboard', () => {
     })
     const mineNow = (await mine.browser.call('GET', mine.url)).json<Dashboard>()
     expect(mineNow.site_progress).toEqual([])
+    expect(mineNow.reports?.missing_today).toBe(0)
     expect(mineNow.costs_by_month?.every((x) => x.total === '0.00')).toBe(true)
     expect((await new Browser(ctx.app).call('GET', mine.url)).statusCode).toBe(401)
   })

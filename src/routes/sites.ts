@@ -287,8 +287,17 @@ function readList(query: Record<string, unknown>) {
   if (clientId !== undefined && !UUID.test(clientId)) {
     errors['filter[client]'] = ['Identificativo non valido.']
   }
+  const reportMissingValue = single('filter[report_missing]')
+  if (
+    reportMissingValue !== undefined &&
+    reportMissingValue !== 'true' &&
+    reportMissingValue !== 'false'
+  ) {
+    errors['filter[report_missing]'] = ['Indica true o false.']
+  }
+  const reportMissing = reportMissingValue === undefined ? undefined : reportMissingValue === 'true'
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? '-updated_at', search, status, clientId }
+  return { page, perPage, sort: sort ?? '-updated_at', search, status, clientId, reportMissing }
 }
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -302,6 +311,15 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.status) add((p) => `s.status = ${p}`, list.status)
   if (list.clientId) add((p) => `s.client_id = ${p}`, list.clientId)
+  if (list.reportMissing !== undefined) {
+    // Active sites without (true) or with (false) a daily report dated today in Italy, in
+    // any status: the same sites counted in reports.missing_today of the dashboard.
+    where.push(
+      `s.status = 'active' and ${list.reportMissing ? 'not ' : ''}exists (
+         select 1 from public.daily_reports r
+         where r.site_id = s.id and r.report_date = (now() at time zone 'Europe/Rome')::date)`,
+    )
+  }
   if (list.search) {
     add(
       (p) =>

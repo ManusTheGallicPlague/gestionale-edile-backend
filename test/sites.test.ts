@@ -221,6 +221,50 @@ describe('sites', () => {
     expect((await browser.call('GET', `${base}?filter[status]=chiuso`)).statusCode).toBe(422)
   })
 
+  it('filters the active sites without a daily report today, in the list and the export', async () => {
+    const { browser, base, company } = await scene()
+    const { rows } = await ctx.owner.query<{ id: string; name: string }>(
+      `insert into public.sites (company_id, name, status) values
+         ($1, 'Senza', 'active'), ($1, 'Ieri', 'active'), ($1, 'Con bozza', 'active'),
+         ($1, 'Sospeso', 'suspended')
+       returning id, name`,
+      [company.id],
+    )
+    const site = (name: string) => rows.find((r) => r.name === name)?.id
+    const today = "(now() at time zone 'Europe/Rome')::date"
+    await ctx.owner.query(
+      `insert into public.daily_reports (company_id, site_id, report_date, status) values
+         ($1, $2, ${today} - 1, 'approved'), ($1, $3, ${today}, 'draft')`,
+      [company.id, site('Ieri'), site('Con bozza')],
+    )
+    // Another company's active site without a report stays out.
+    const other = await scene()
+    await ctx.owner.query(
+      "insert into public.sites (company_id, name, status) values ($1, 'Altrui', 'active')",
+      [other.company.id],
+    )
+    const names = async (query: string) =>
+      (await browser.call('GET', `${base}${query}`)).json<Listed>().data.map((e) => e.name)
+    expect(await names('?sort=name&filter[report_missing]=true')).toEqual(['Ieri', 'Senza'])
+    expect(await names('?filter[report_missing]=false')).toEqual(['Con bozza'])
+    expect(await names('?filter[report_missing]=true&search=senza')).toEqual(['Senza'])
+    const csv = await browser.call('GET', `${base}/export?sort=name&filter[report_missing]=true`)
+    expect(csv.statusCode).toBe(200)
+    expect(
+      csv.body
+        .trim()
+        .split('\r\n')
+        .slice(1)
+        .map((l) => l.split(';')[1]),
+    ).toEqual(['Ieri', 'Senza'])
+    const bad = await browser.call('GET', `${base}?filter[report_missing]=si`)
+    expect(bad.statusCode).toBe(422)
+    expect(bad.json()).toMatchObject({ errors: { 'filter[report_missing]': [expect.any(String)] } })
+    expect((await browser.call('GET', `${base}/export?filter[report_missing]=1`)).statusCode).toBe(
+      422,
+    )
+  })
+
   it('a client of another company cannot be linked; a linked client cannot be deleted', async () => {
     const mine = await scene()
     const theirs = await scene()

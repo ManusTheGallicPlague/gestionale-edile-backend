@@ -152,14 +152,32 @@ async function siteProgress(client: PoolClient, today: string) {
   }))
 }
 
-async function reportCounts(client: PoolClient, today: string) {
+async function reportCounts(client: PoolClient, today: string, withSites: boolean) {
   const { rows } = await client.query<{ to_approve: number; drafts: number }>(
     `select count(*) filter (where status = 'submitted')::int as to_approve,
        count(*) filter (where status = 'draft' and report_date < $1::date)::int as drafts
      from public.daily_reports`,
     [today],
   )
-  return { to_approve: rows[0]?.to_approve ?? 0, drafts: rows[0]?.drafts ?? 0 }
+  return {
+    to_approve: rows[0]?.to_approve ?? 0,
+    drafts: rows[0]?.drafts ?? 0,
+    missing_today: withSites ? await sitesWithoutReport(client, today) : null,
+  }
+}
+
+/** Active sites with no daily report (in any status) dated today. */
+async function sitesWithoutReport(client: PoolClient, today: string) {
+  const { rows } = await client.query<{ n: number }>(
+    `select count(*)::int as n
+     from public.sites s
+     where s.status = 'active'
+       and not exists (
+         select 1 from public.daily_reports r where r.site_id = s.id and r.report_date = $1::date
+       )`,
+    [today],
+  )
+  return rows[0]?.n ?? 0
 }
 
 async function nearDeadlines(client: PoolClient, today: string) {
@@ -306,7 +324,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         costs_this_month: can('costs.view') ? await costsThisMonth(client, today) : null,
         costs_by_month: can('costs.view') ? await costsByMonth(client, today) : null,
         site_progress: can('sites.view') ? await siteProgress(client, today) : null,
-        reports: can('reports.view') ? await reportCounts(client, today) : null,
+        reports: can('reports.view') ? await reportCounts(client, today, can('sites.view')) : null,
         deadlines: can('deadlines.view') ? await nearDeadlines(client, today) : null,
         invoices: can('invoices.view') ? await invoiceTotals(client, today) : null,
         progress_statements: can('estimates.view') ? await statementTotals(client) : null,
