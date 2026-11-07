@@ -15,6 +15,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { ImportFailed, MAX_IMPORT_BYTES, parsePriceListCsv } from '../price-lists/import.js'
 
 interface ListRow {
   id: string
@@ -400,5 +401,71 @@ export function priceListRoutes(app: FastifyInstance, config: Config, db: Db): v
       if (!rowCount) throw new ApiError(412, messages.priceListStale, 'stale_record')
     })
     return reply.code(204).send()
+  })
+
+  // CSV import: its own scope, so only this route reads text/csv bodies, up to 5 MB.
+  app.register((scope, _options, done) => {
+    scope.addHook('preParsing', (request, _reply, payload, next) => {
+      try {
+        requireSession(request)
+        checkCsrf(config, request)
+      } catch (error) {
+        next(error as Error)
+        return
+      }
+      next(null, payload)
+    })
+    scope.addContentTypeParser(
+      'text/csv',
+      { parseAs: 'buffer', bodyLimit: MAX_IMPORT_BYTES },
+      (_request, body, next) => {
+        next(null, body)
+      },
+    )
+    scope.post<{ Params: Params }>(`${base}/:list/import`, async (request) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      return inCompany(request, session.user.id, 'update', async (client) => {
+        const list = await readList(client, request.params.list)
+        if (!list) throw notFound()
+        const body = request.body
+        if (!Buffer.isBuffer(body)) {
+          throw new ApiError(415, 'Il corpo deve essere un file CSV (text/csv).')
+        }
+        let parsed
+        try {
+          parsed = parsePriceListCsv(body)
+        } catch (error) {
+          if (error instanceof ImportFailed) throw new ValidationFailed(error.errors)
+          throw error
+        }
+        const { rows } = await client.query<{ inserted: boolean }>(
+          `insert into public.price_list_items (company_id, price_list_id, code, description,
+             unit, unit_price_cents)
+           select app.current_company_id(), $1, t.code, t.description, t.unit, t.price
+           from unnest($2::text[], $3::text[], $4::text[], $5::bigint[])
+             as t(code, description, unit, price)
+           on conflict (price_list_id, lower(code)) do update
+             set description = excluded.description, unit = excluded.unit,
+               unit_price_cents = excluded.unit_price_cents,
+               version = price_list_items.version + 1, updated_at = now()
+             where (price_list_items.description, price_list_items.unit,
+                 price_list_items.unit_price_cents)
+               is distinct from (excluded.description, excluded.unit, excluded.unit_price_cents)
+           returning (xmax = 0) as inserted`,
+          [
+            list.id,
+            parsed.map((i) => i.code),
+            parsed.map((i) => i.description),
+            parsed.map((i) => i.unit),
+            parsed.map((i) => i.unit_price_cents),
+          ],
+        )
+        const created = rows.filter((r) => r.inserted).length
+        const updated = rows.length - created
+        return { created, updated, unchanged: parsed.length - rows.length }
+      })
+    })
+    done()
   })
 }

@@ -3153,6 +3153,59 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/price-lists/{list}/import:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PriceListId'
+    post:
+      operationId: importPriceListItems
+      summary: Importazione delle voci da un file CSV
+      description: |
+        Permesso: price_lists.update (senza price_lists.view risponde 404). Il corpo è un
+        file CSV in UTF-8, al massimo 5 MB e 20 000 righe, come lo salva un foglio di
+        calcolo: separatore punto e virgola, virgola o tabulazione (si riconosce dalla
+        prima riga), campi tra virgolette doppie se serve. La prima riga ha i nomi delle
+        colonne, in qualsiasi ordine, senza distinguere maiuscole: codice (code),
+        descrizione (description), unità (unita, um, u.m., unit), prezzo (prezzo unitario,
+        unit_price). Le altre colonne si ignorano, come le righe vuote. Il prezzo si scrive
+        all'italiana (1.234,50) o con il punto (1234.50), al massimo due decimali, mai
+        negativo.
+
+        Le voci con un codice già nel prezzario (senza distinguere maiuscole) si
+        aggiornano, le altre si aggiungono; quelle che il file non nomina restano come
+        sono. Se anche una sola riga è sbagliata non cambia niente: 422 con gli errori
+        sotto `file` (colonne, codifica, file vuoto o troppo lungo) o sotto `row.<n>`, con
+        n il numero della riga nel file (la prima è l'intestazione), al massimo 50.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+            example: "codice;descrizione;unità;prezzo\r\n01.A01.A10;Scavo di sbancamento;m³;8,50\r\n"
+      responses:
+        '200':
+          description: Voci importate
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceListImportResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: File più grande di 5 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Il corpo non è un file CSV (Content-Type text/csv).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/price-lists/{list}/items/{item}:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8195,6 +8248,22 @@ components:
           type: array
           items: { $ref: '#/components/schemas/PriceListItem' }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    PriceListImportResult:
+      type: object
+      required: [created, updated, unchanged]
+      properties:
+        created:
+          type: integer
+          minimum: 0
+          description: Voci aggiunte.
+        updated:
+          type: integer
+          minimum: 0
+          description: Voci già nel prezzario con descrizione, unità o prezzo cambiati.
+        unchanged:
+          type: integer
+          minimum: 0
+          description: Voci già nel prezzario e uguali a quelle del file.
     SiteActivityInput:
       type: object
       description: I campi facoltativi si inviano comunque, con null se vuoti.
