@@ -183,13 +183,33 @@ export function invitationRoutes(
 
   app.get<{ Params: { token: string } }>('/api/invitations/:token', async (request) => {
     const invitation = await findByToken(db, request.params.token)
+    const logo = await db.auth.query<{ has_logo: boolean }>(
+      'select auth.invitation_has_logo($1) as has_logo',
+      [sha256(request.params.token)],
+    )
     return {
       company_name: invitation.company_name,
       email: invitation.email,
       role_name: invitation.role_name,
       expires_at: invitation.expires_at.toISOString(),
       account_exists: invitation.user_id !== null,
+      has_logo: logo.rows[0]?.has_logo ?? false,
     }
+  })
+
+  // The logo of the inviting company, for the page before anyone is signed in.
+  app.get<{ Params: { token: string } }>('/api/invitations/:token/logo', async (request, reply) => {
+    if (!TOKEN.test(request.params.token)) throw new ApiError(404, INVALID_INVITATION)
+    const { rows } = await db.auth.query<{ content_type: string; data: Buffer; version: number }>(
+      'select * from auth.invitation_logo($1)',
+      [sha256(request.params.token)],
+    )
+    const logo = rows[0]
+    if (!logo) throw new ApiError(404, INVALID_INVITATION)
+    return reply
+      .header('Content-Type', logo.content_type)
+      .header('ETag', `"${logo.version}"`)
+      .send(logo.data)
   })
 
   app.post<{ Params: { token: string } }>(

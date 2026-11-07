@@ -4720,6 +4720,28 @@ paths:
               schema: { $ref: '#/components/schemas/InvitationPreview' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/invitations/{token}/logo:
+    parameters:
+      - $ref: '#/components/parameters/InvitationToken'
+    get:
+      operationId: getInvitationLogo
+      summary: Logo dell'azienda che invita, per la pagina /invito/:token
+      description: |
+        Non serve la sessione: basta un invito valido. Risponde 404 se il token è sconosciuto,
+        già usato o scaduto, o se l'azienda non ha un logo (has_logo nell'invito lo dice prima).
+      security: []
+      responses:
+        '200':
+          description: Il logo
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/invitations/{token}/accept:
     parameters:
       - $ref: '#/components/parameters/InvitationToken'
@@ -5680,9 +5702,12 @@ components:
           items: { $ref: '#/components/schemas/Invitation' }
     InvitationPreview:
       type: object
-      required: [company_name, email, role_name, expires_at, account_exists]
+      required: [company_name, email, role_name, expires_at, account_exists, has_logo]
       properties:
         company_name: { type: string }
+        has_logo:
+          type: boolean
+          description: L'azienda ha un logo, che si legge da getInvitationLogo.
         email:
           type: string
           format: email

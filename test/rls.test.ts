@@ -1606,6 +1606,13 @@ describe('the API role cannot cross companies', () => {
         c.query('select * from auth.accept_invitation($1, null, null, null)', [hash]),
       ),
     ).rejects.toThrow(/permission denied/)
+    // Nor the logo ones: through them a token would open the logo of any company.
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query('select * from auth.invitation_logo($1)', [hash])),
+    ).rejects.toThrow(/permission denied/)
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query('select auth.invitation_has_logo($1)', [hash])),
+    ).rejects.toThrow(/permission denied/)
     // Membership of the other company is not revealed.
     const bob = await fx.user()
     await fx.member(bob.id, companyB.id, roleB)
