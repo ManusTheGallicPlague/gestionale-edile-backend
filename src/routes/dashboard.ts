@@ -11,17 +11,18 @@ import { requireSession } from '../http/request-context.js'
  * today's hourly cost (as in the site cost summary), plus the costs entered by hand.
  */
 const COST_LINES = `
-  select r.site_id, r.report_date as day, round(l.hours * coalesce(e.hourly_cost_cents, 0)) as cents
+  select r.site_id, r.report_date as day, round(l.hours * coalesce(e.hourly_cost_cents, 0)) as cents,
+    'labor' as kind
   from public.daily_report_labor l
   join public.daily_reports r on r.id = l.report_id and r.status = 'approved'
   join public.employees e on e.id = l.employee_id
   union all
-  select r.site_id, r.report_date, round(v.hours * coalesce(m.hourly_cost_cents, 0))
+  select r.site_id, r.report_date, round(v.hours * coalesce(m.hourly_cost_cents, 0)), 'vehicles'
   from public.daily_report_vehicles v
   join public.daily_reports r on r.id = v.report_id and r.status = 'approved'
   join public.vehicles m on m.id = v.vehicle_id
   union all
-  select site_id, cost_date, amount_cents from public.site_costs`
+  select site_id, cost_date, amount_cents, 'other' from public.site_costs`
 
 async function siteCounts(client: PoolClient) {
   const { rows } = await client.query<{ status: string; n: number }>(
@@ -71,6 +72,79 @@ async function costsThisMonth(client: PoolClient, today: string) {
     [today],
   )
   return { month: today.slice(0, 7), total: centsToAmount(rows[0]?.total ?? '0') }
+}
+
+/** The last 12 months, this one included, oldest first, months without costs at zero. */
+async function costsByMonth(client: PoolClient, today: string) {
+  const { rows } = await client.query<{
+    month: string
+    labor: string
+    vehicles: string
+    other: string
+    total: string
+  }>(
+    `with months as (
+       select generate_series(date_trunc('month', $1::date) - interval '11 months',
+         date_trunc('month', $1::date), interval '1 month')::date as month
+     )
+     select to_char(m.month, 'YYYY-MM') as month,
+       coalesce(sum(x.cents) filter (where x.kind = 'labor'), 0)::bigint::text as labor,
+       coalesce(sum(x.cents) filter (where x.kind = 'vehicles'), 0)::bigint::text as vehicles,
+       coalesce(sum(x.cents) filter (where x.kind = 'other'), 0)::bigint::text as other,
+       coalesce(sum(x.cents), 0)::bigint::text as total
+     from months m
+     left join (${COST_LINES}) x
+       on x.day >= m.month and x.day < m.month + interval '1 month'
+     group by m.month
+     order by m.month`,
+    [today],
+  )
+  return rows.map((r) => ({
+    month: r.month,
+    labor: centsToAmount(r.labor),
+    vehicles: centsToAmount(r.vehicles),
+    other: centsToAmount(r.other),
+    total: centsToAmount(r.total),
+  }))
+}
+
+/**
+ * Active sites with a schedule: progress of the activities weighted by their length in days,
+ * against the share of those days already gone by today. Most behind first.
+ */
+async function siteProgress(client: PoolClient, today: string) {
+  const { rows } = await client.query<{
+    id: string
+    name: string
+    code: string | null
+    activities: number
+    progress: number
+    planned: number
+  }>(
+    `with a as (
+       select site_id, progress, (end_on - start_on + 1) as days,
+         greatest(0, least(end_on, $1::date) - start_on + 1) as elapsed
+       from public.site_activities
+     ), p as (
+       select site_id, count(*)::int as activities,
+         round(sum(progress * days)::numeric / sum(days))::int as progress,
+         round(100 * sum(elapsed)::numeric / sum(days))::int as planned
+       from a group by site_id
+     )
+     select s.id, s.name, s.code, p.activities, p.progress, p.planned
+     from public.sites s
+     join p on p.site_id = s.id
+     where s.status = 'active'
+     order by p.planned - p.progress desc, s.name, s.id
+     limit 10`,
+    [today],
+  )
+  return rows.map((r) => ({
+    site: { id: r.id, name: r.name, code: r.code },
+    activities: r.activities,
+    progress: r.progress,
+    planned: r.planned,
+  }))
 }
 
 async function reportCounts(client: PoolClient, today: string) {
@@ -124,6 +198,8 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         sites: can('sites.view') ? await siteCounts(client) : null,
         over_budget: can('sites.view') && can('costs.view') ? await overBudget(client) : null,
         costs_this_month: can('costs.view') ? await costsThisMonth(client, today) : null,
+        costs_by_month: can('costs.view') ? await costsByMonth(client, today) : null,
+        site_progress: can('sites.view') ? await siteProgress(client, today) : null,
         reports: can('reports.view') ? await reportCounts(client, today) : null,
         deadlines: can('deadlines.view') ? await nearDeadlines(client, today) : null,
       }

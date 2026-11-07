@@ -19,6 +19,10 @@ interface Dashboard {
   over_budget:
     { site: { id: string; name: string }; budget: string; total: string; overrun: string }[] | null
   costs_this_month: { month: string; total: string } | null
+  costs_by_month:
+    { month: string; labor: string; vehicles: string; other: string; total: string }[] | null
+  site_progress:
+    { site: { name: string }; activities: number; progress: number; planned: number }[] | null
   reports: { to_approve: number; drafts: number } | null
   deadlines: { title: string; due_on: string; overdue: boolean; amount: string | null }[] | null
 }
@@ -116,6 +120,106 @@ describe('dashboard', () => {
     ])
   })
 
+  it('gives the costs of the last 12 months and the progress of active sites', async () => {
+    const s = await scene()
+    const id = s.company.id
+    const today = await day(0)
+    const { rows: m } = await ctx.owner.query<{ month: string; first: string; old: string }>(
+      `select to_char(d, 'YYYY-MM') as month, to_char(d - interval '11 months', 'YYYY-MM-DD') as first,
+         to_char(d - interval '12 months', 'YYYY-MM-DD') as old
+       from date_trunc('month', $1::date) d`,
+      [today],
+    )
+    const months = m[0] ?? { month: '', first: '', old: '' }
+    const sites = await ctx.owner.query<{ id: string; name: string }>(
+      `insert into public.sites (company_id, name, status) values
+         ($1, 'In ritardo', 'active'), ($1, 'In anticipo', 'active'),
+         ($1, 'Sospeso', 'suspended'), ($1, 'Senza attività', 'active')
+       returning id, name`,
+      [id],
+    )
+    const site = (name: string) => sites.rows.find((r) => r.name === name)?.id
+    await ctx.owner.query(
+      `insert into public.site_costs (company_id, site_id, cost_date, category, description,
+         amount_cents) values ($1, $2, $3, 'materials', 'x', 1000), ($1, $2, $4, 'rentals', 'y', 250),
+         ($1, $2, $5, 'materials', 'troppo vecchio', 99999)`,
+      [id, site('In ritardo'), today, months.first, months.old],
+    )
+    const worker = await ctx.owner.query<{ id: string }>(
+      `insert into public.employees (company_id, first_name, last_name, hourly_cost_cents)
+       values ($1, 'Anna', 'Neri', 2500) returning id`,
+      [id],
+    )
+    const vehicle = await ctx.owner.query<{ id: string }>(
+      `insert into public.vehicles (company_id, name, kind, hourly_cost_cents)
+       values ($1, 'Escavatore', 'machine', 4000) returning id`,
+      [id],
+    )
+    const report = await ctx.owner.query<{ id: string }>(
+      `insert into public.daily_reports (company_id, site_id, report_date, status)
+       values ($1, $2, $3, 'approved') returning id`,
+      [id, site('In ritardo'), today],
+    )
+    await ctx.owner.query(
+      `insert into public.daily_report_labor (company_id, report_id, employee_id, hours, position)
+       values ($1, $2, $3, 4, 0)`,
+      [id, report.rows[0]?.id, worker.rows[0]?.id],
+    )
+    await ctx.owner.query(
+      `insert into public.daily_report_vehicles (company_id, report_id, vehicle_id, hours, position)
+       values ($1, $2, $3, 1.5, 0)`,
+      [id, report.rows[0]?.id, vehicle.rows[0]?.id],
+    )
+    // «In ritardo»: a finished 10-day activity at 50% and a future 10-day one: 25% done,
+    // 50% expected. «In anticipo»: one 4-day activity from yesterday at 100%: 50% expected.
+    await ctx.owner.query(
+      `insert into public.site_activities (company_id, site_id, name, start_on, end_on, progress)
+       values ($1, $2, 'Scavi', $4, $5, 50), ($1, $2, 'Getti', $6, $7, 0),
+         ($1, $3, 'Tetto', $8, $9, 100), ($1, $10, 'Ferma', $4, $5, 0)`,
+      [
+        id,
+        site('In ritardo'),
+        site('In anticipo'),
+        await day(-20),
+        await day(-11),
+        await day(5),
+        await day(14),
+        await day(-1),
+        await day(2),
+        site('Sospeso'),
+      ],
+    )
+
+    const d = (await s.browser.call('GET', s.url)).json<Dashboard>()
+    expect(d.costs_by_month).toHaveLength(12)
+    expect(d.costs_by_month?.[0]?.month).toBe(months.first.slice(0, 7))
+    expect(d.costs_by_month?.[11]).toEqual({
+      month: months.month,
+      labor: '100.00',
+      vehicles: '60.00',
+      other: '10.00',
+      total: '170.00',
+    })
+    // The cost of 11 months ago is in; the one of 12 months ago is not.
+    expect(d.costs_by_month?.[0]).toMatchObject({ other: '2.50', total: '2.50' })
+    expect(d.costs_by_month?.slice(1, 11).every((x) => x.total === '0.00')).toBe(true)
+    expect(d.site_progress?.map((x) => [x.site.name, x.activities, x.progress, x.planned])).toEqual(
+      [
+        ['In ritardo', 2, 25, 50],
+        ['In anticipo', 1, 100, 50],
+      ],
+    )
+
+    const noCosts = await scene(['sites.view'])
+    const e = (await noCosts.browser.call('GET', noCosts.url)).json<Dashboard>()
+    expect(e.costs_by_month).toBeNull()
+    expect(e.site_progress).toEqual([])
+    const noSites = await scene(['costs.view'])
+    expect((await noSites.browser.call('GET', noSites.url)).json<Dashboard>().site_progress).toBe(
+      null,
+    )
+  })
+
   it('leaves out the sections the user may not see, and other companies', async () => {
     const s = await scene(['deadlines.view'])
     const d = (await s.browser.call('GET', s.url)).json<Dashboard>()
@@ -130,9 +234,19 @@ describe('dashboard', () => {
     expect(e.over_budget).toBeNull()
 
     const other = await scene()
-    await ctx.owner.query(
-      "insert into public.sites (company_id, name, status) values ($1, 'Altrui', 'active')",
+    const foreign = await ctx.owner.query<{ id: string }>(
+      "insert into public.sites (company_id, name, status) values ($1, 'Altrui', 'active') returning id",
       [other.company.id],
+    )
+    await ctx.owner.query(
+      `insert into public.site_activities (company_id, site_id, name, start_on, end_on)
+       values ($1, $2, 'Altrui', current_date, current_date)`,
+      [other.company.id, foreign.rows[0]?.id],
+    )
+    await ctx.owner.query(
+      `insert into public.site_costs (company_id, site_id, cost_date, category, description,
+         amount_cents) values ($1, $2, current_date, 'materials', 'altrui', 5000)`,
+      [other.company.id, foreign.rows[0]?.id],
     )
     expect((await s.browser.call('GET', other.url)).statusCode).toBe(404)
     const mine = await scene()
@@ -142,6 +256,9 @@ describe('dashboard', () => {
       suspended: 0,
       completed: 0,
     })
+    const mineNow = (await mine.browser.call('GET', mine.url)).json<Dashboard>()
+    expect(mineNow.site_progress).toEqual([])
+    expect(mineNow.costs_by_month?.every((x) => x.total === '0.00')).toBe(true)
     expect((await new Browser(ctx.app).call('GET', mine.url)).statusCode).toBe(401)
   })
 })

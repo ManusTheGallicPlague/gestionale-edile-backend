@@ -2522,6 +2522,10 @@ paths:
         i costi inseriti a mano, come in getSiteCostSummary). costs_this_month somma i costi del
         mese in corso con la stessa regola. deadlines elenca al massimo 10 scadenze aperte,
         scadute o entro 7 giorni, dalla più vecchia; i conteggi sono in getDeadlineSummary.
+        Per i grafici: costs_by_month (costs.view) dà gli ultimi 12 mesi, mese in corso
+        compreso, dal più vecchio, con la stessa regola dei costi divisa tra manodopera, mezzi e
+        costi inseriti a mano; site_progress (sites.view) elenca al massimo 10 cantieri attivi
+        con un cronoprogramma, dal più in ritardo rispetto al previsto.
       responses:
         '200':
           description: Gli indicatori
@@ -7131,7 +7135,8 @@ components:
         meta: { $ref: '#/components/schemas/ListMeta' }
     Dashboard:
       type: object
-      required: [today, sites, over_budget, costs_this_month, reports, deadlines]
+      required:
+        [today, sites, over_budget, costs_this_month, costs_by_month, site_progress, reports, deadlines]
       properties:
         today: { $ref: '#/components/schemas/Date' }
         sites:
@@ -7161,6 +7166,19 @@ components:
                   pattern: '^\d{4}-\d{2}$'
                   description: Il mese in corso, AAAA-MM.
                 total: { $ref: '#/components/schemas/SignedAmount' }
+            - type: 'null'
+        costs_by_month:
+          oneOf:
+            - type: array
+              minItems: 12
+              maxItems: 12
+              items: { $ref: '#/components/schemas/DashboardMonthCosts' }
+            - type: 'null'
+        site_progress:
+          oneOf:
+            - type: array
+              maxItems: 10
+              items: { $ref: '#/components/schemas/DashboardSiteProgress' }
             - type: 'null'
         reports:
           oneOf:
@@ -7199,6 +7217,51 @@ components:
           description: Quanto i costi superano il budget.
           allOf:
             - $ref: '#/components/schemas/SignedAmount'
+    DashboardMonthCosts:
+      type: object
+      required: [month, labor, vehicles, other, total]
+      properties:
+        month:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+          description: AAAA-MM.
+        labor:
+          description: Manodopera dai rapportini approvati.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+        vehicles:
+          description: Mezzi dai rapportini approvati.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+        other:
+          description: Costi inseriti a mano (materiali, noli, subappalti...).
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+        total: { $ref: '#/components/schemas/SignedAmount' }
+    DashboardSiteProgress:
+      type: object
+      required: [site, activities, progress, planned]
+      properties:
+        site:
+          type: object
+          required: [id, name, code]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            name: { type: string }
+            code: { type: [string, 'null'] }
+        activities: { type: integer, minimum: 1 }
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: Avanzamento delle attività, pesato sulla loro durata in giorni.
+        planned:
+          type: integer
+          minimum: 0
+          maximum: 100
+          description: |
+            Avanzamento previsto a oggi: la parte dei giorni delle attività già trascorsa, con la
+            stessa pesatura.
     DashboardDeadline:
       type: object
       required: [id, title, due_on, kind, amount, overdue]

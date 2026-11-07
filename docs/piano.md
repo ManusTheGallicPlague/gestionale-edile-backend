@@ -97,6 +97,7 @@ Aggiunta il 07/11/2026, rileggendo `docs/frontend.md` del frontend dopo la sezio
 - [x] Posizione dei cantieri sulla mappa (stack: react-leaflet + OpenStreetMap): `location` con latitudine e longitudine nel cantiere
 - [x] Foto del rapportino (schermata tipo E: «foto dalla fotocamera»): un documento o una foto del cantiere può essere collegato a un rapportino dello stesso cantiere (`daily_report_id` al caricamento, `filter[daily_report]` nell'elenco)
 - [x] Numerazioni in impostazioni («dati fiscali, logo, numerazioni»): anche gli ordini ai fornitori (`purchase_orders` in `getNumbering`, `setPurchaseOrderNumbering`)
+- [x] Grafici della dashboard (stack: Recharts, «costi, avanzamento dei cantieri»): `costs_by_month` (ultimi 12 mesi, manodopera, mezzi e altri costi) e `site_progress` (avanzamento dei cantieri attivi rispetto al previsto) in `getDashboard`
 
 ## Decisioni prese
 
@@ -199,6 +200,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 07/11/2026: la posizione del cantiere è `location: { latitude, longitude } | null` (stringhe in gradi decimali WGS 84, sei decimali, `numeric` nel database, entrambe o nessuna). Nell'input è facoltativa, a differenza degli altri campi: se manca, alla creazione vale null e alla modifica resta com'è, così i client già scritti non la cancellano. Niente geocodifica dell'indirizzo lato server (servirebbe un servizio esterno): le coordinate le manda il frontend, per esempio dal punto scelto sulla mappa.
 - 07/11/2026: le foto del rapportino sono documenti del cantiere con `daily_report_id`, non una tabella a parte: stesso archivio, stessi permessi `documents.*`, stessi limiti. Il collegamento si sceglie al caricamento e non si cambia dopo; eliminato il rapportino il file resta nel cantiere senza collegamento; un rapportino in bozza spostato in un altro cantiere si porta dietro i suoi file (`on update cascade`). Si possono aggiungere foto anche a un rapportino già inviato o approvato: l'archivio non è il rapportino.
 - 07/11/2026: la numerazione degli ordini ai fornitori ha una soglia per anno (`purchase_order_counters`): il nuovo ordine prende uno in più del massimo tra soglia e numeri usati. Niente numerazione automatica per le fatture emesse: il numero lo scrive l'utente (spesso viene dal programma di fatturazione elettronica).
+- 07/11/2026: avanzamento di un cantiere nella dashboard = media dell'avanzamento delle attività del cronoprogramma pesata sui giorni di durata; il previsto è la parte di quei giorni già trascorsa a oggi. Solo cantieri attivi, al massimo 10, dal più in ritardo.
 
 ## Registro dei giri
 
