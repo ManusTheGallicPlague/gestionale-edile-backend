@@ -189,6 +189,22 @@ describe('progress statements of the whole company', () => {
     expect(page.total_amount).toBe('1450.00')
   })
 
+  it("filters by the estimate's client", async () => {
+    const s = await scene(['estimates.view'])
+    const client = await ctx.owner.query<{ id: string }>(
+      "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Anna Verdi') returning id",
+      [s.company.id],
+    )
+    const id = client.rows[0]?.id ?? ''
+    await ctx.owner.query('update public.estimates set client_id = $1 where id = $2', [id, s.e1.id])
+    const res = await s.browser.call('GET', `${s.url}?filter[client]=${id}`)
+    expect(res.json<List>().data.map((r) => r.id)).toEqual([s.v2, s.v1])
+    expect(res.json<List>().total_amount).toBe('1300.00')
+    const csv = await s.browser.call('GET', `${s.url}/export?filter[client]=${id}`)
+    expect(csv.body.replace('\ufeff', '').trim().split('\r\n')).toHaveLength(3)
+    expect((await s.browser.call('GET', `${s.url}?filter[client]=x`)).statusCode).toBe(422)
+  })
+
   it('rejects wrong filters with 422', async () => {
     const s = await scene(['estimates.view'])
     for (const query of [
