@@ -140,6 +140,114 @@ async function readSummary(
   }
 }
 
+interface ResourceRow {
+  id: string
+  hours: string
+  days: number
+  cents: string | null
+  first_date: string
+  last_date: string
+}
+
+/** Hours of a site per employee and per vehicle, as SiteWorkSummary; null if not found. */
+async function readSiteSummary(
+  client: PoolClient,
+  siteId: string,
+  query: Record<string, unknown>,
+  canSeeReports: boolean,
+  canSeeCosts: boolean,
+) {
+  const site = await client.query('select 1 from public.sites where id = $1', [siteId])
+  if (site.rowCount === 0) return null
+  if (!canSeeReports) throw forbidden()
+  const filters = readFilters(query)
+  const values: unknown[] = [siteId]
+  const where = ['r.site_id = $1']
+  if (filters.from) {
+    values.push(filters.from)
+    where.push(`r.report_date >= $${values.length}::date`)
+  }
+  if (filters.to) {
+    values.push(filters.to)
+    where.push(`r.report_date <= $${values.length}::date`)
+  }
+  if (filters.status) {
+    values.push(filters.status)
+    where.push(`r.status = $${values.length}`)
+  }
+  const cost = (c: string | null) => (!canSeeCosts || c === null ? null : centsToAmount(c))
+  const part = async <T extends ResourceRow>(
+    hours: Source['hours'],
+    column: Source['column'],
+    table: Source['table'],
+    fields: string,
+    order: string,
+  ) => {
+    const { rows } = await client.query<T>(
+      `select x.id, ${fields},
+         sum(h.hours)::numeric(10, 2)::text as hours,
+         count(distinct r.report_date)::int as days,
+         sum(round(h.hours * x.hourly_cost_cents))::bigint::text as cents,
+         min(r.report_date)::text as first_date,
+         max(r.report_date)::text as last_date
+       from public.${hours} h
+       join public.daily_reports r on r.id = h.report_id
+       join public.${table} x on x.id = h.${column}
+       where ${where.join(' and ')}
+       group by x.id
+       order by sum(h.hours) desc, ${order}, x.id`,
+      values,
+    )
+    // Hours have two decimals: sum them as hundredths, like cents.
+    let hundredths = 0n
+    let cents = 0n
+    for (const r of rows) {
+      hundredths += BigInt(r.hours.replace('.', ''))
+      cents += BigInt(r.cents ?? '0')
+    }
+    return { rows, hours: centsToAmount(hundredths.toString()), cost: cost(cents.toString()) }
+  }
+  const labor = await part<ResourceRow & { first_name: string; last_name: string }>(
+    'daily_report_labor',
+    'employee_id',
+    'employees',
+    'x.first_name, x.last_name',
+    'lower(x.last_name), lower(x.first_name)',
+  )
+  const vehicles = await part<ResourceRow & { name: string; plate: string | null }>(
+    'daily_report_vehicles',
+    'vehicle_id',
+    'vehicles',
+    'x.name, x.plate',
+    'lower(x.name)',
+  )
+  const common = (r: ResourceRow) => ({
+    hours: r.hours,
+    days: r.days,
+    cost: cost(r.cents),
+    first_date: r.first_date,
+    last_date: r.last_date,
+  })
+  return {
+    labor: {
+      hours: labor.hours,
+      cost: labor.cost,
+      rows: labor.rows.map((r) => ({
+        employee: { id: r.id, first_name: r.first_name, last_name: r.last_name },
+        ...common(r),
+      })),
+    },
+    vehicles: {
+      hours: vehicles.hours,
+      cost: vehicles.cost,
+      rows: vehicles.rows.map((r) => ({
+        vehicle: { id: r.id, name: r.name, plate: r.plate },
+        ...common(r),
+      })),
+    },
+  }
+}
+
 /** Hours of an employee or a vehicle per site, for their cards. */
 export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
   const routes: { path: string; param: string; permission: Permission; source: Source }[] = [
@@ -179,4 +287,25 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
       },
     )
   }
+
+  app.get<{ Params: { company: string; site: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/sites/:site/work-summary',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const summary = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('sites.view')) throw notFound()
+        if (!UUID.test(request.params.site)) throw notFound()
+        return readSiteSummary(
+          client,
+          request.params.site.toLowerCase(),
+          request.query,
+          permissions.has('reports.view'),
+          permissions.has('costs.view'),
+        )
+      })
+      if (!summary) throw notFound()
+      return reply.send(summary)
+    },
+  )
 }

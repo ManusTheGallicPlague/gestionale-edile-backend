@@ -3061,6 +3061,44 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/sites/{site}/work-summary:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: getSiteWorkSummary
+      summary: Ore di un cantiere per dipendente e per mezzo
+      description: |
+        Permessi: sites.view (senza, 404 come per la scheda) e reports.view (senza, 403). Per
+        la scheda squadra del cantiere: ore dai rapportini, giorni con ore, primo e ultimo
+        giorno per dipendente e per mezzo, da chi ha più ore. I costi, alle ore per il costo
+        orario attuale, ci sono solo con costs.view; senza quel permesso, o senza costo orario,
+        sono null. Senza filtri conta tutti i rapportini del cantiere.
+      parameters:
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[from]=2026-11-01&filter[to]=2026-11-30 (estremi compresi)
+            e filter[status]=approved.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              status: { $ref: '#/components/schemas/DailyReportStatus' }
+      responses:
+        '200':
+          description: Le ore del cantiere
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteWorkSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/sites/{site}/documents:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -9933,6 +9971,65 @@ components:
                   - type: 'null'
               first_date: { $ref: '#/components/schemas/Date' }
               last_date: { $ref: '#/components/schemas/Date' }
+    SiteWorkSummary:
+      type: object
+      required: [labor, vehicles]
+      properties:
+        labor:
+          type: object
+          required: [hours, cost, rows]
+          properties:
+            hours: { $ref: '#/components/schemas/WorkHours' }
+            cost: { $ref: '#/components/schemas/NullableWorkCost' }
+            rows:
+              type: array
+              items:
+                type: object
+                required: [employee, hours, days, cost, first_date, last_date]
+                properties:
+                  employee:
+                    type: object
+                    required: [id, first_name, last_name]
+                    properties:
+                      id: { $ref: '#/components/schemas/Id' }
+                      first_name: { type: string }
+                      last_name: { type: string }
+                  hours: { $ref: '#/components/schemas/WorkHours' }
+                  days: { type: integer }
+                  cost: { $ref: '#/components/schemas/NullableWorkCost' }
+                  first_date: { $ref: '#/components/schemas/Date' }
+                  last_date: { $ref: '#/components/schemas/Date' }
+        vehicles:
+          type: object
+          required: [hours, cost, rows]
+          properties:
+            hours: { $ref: '#/components/schemas/WorkHours' }
+            cost: { $ref: '#/components/schemas/NullableWorkCost' }
+            rows:
+              type: array
+              items:
+                type: object
+                required: [vehicle, hours, days, cost, first_date, last_date]
+                properties:
+                  vehicle:
+                    type: object
+                    required: [id, name, plate]
+                    properties:
+                      id: { $ref: '#/components/schemas/Id' }
+                      name: { type: string }
+                      plate: { type: [string, 'null'] }
+                  hours: { $ref: '#/components/schemas/WorkHours' }
+                  days: { type: integer }
+                  cost: { $ref: '#/components/schemas/NullableWorkCost' }
+                  first_date: { $ref: '#/components/schemas/Date' }
+                  last_date: { $ref: '#/components/schemas/Date' }
+    NullableWorkCost:
+      description: |
+        Ore per costo orario attuale. Null senza costs.view; nei totali le ore senza costo
+        orario valgono zero, nelle righe il costo è null se il costo orario manca.
+      oneOf:
+        - $ref: '#/components/schemas/Amount'
+        - type: 'null'
     VehicleKind:
       type: string
       description: |

@@ -235,3 +235,115 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
     expect((await anonymous.call('GET', employeeUrl(s.slug, s.verdi))).statusCode).toBe(401)
   })
 })
+
+const siteUrl = (slug: string, id: string, query = '') =>
+  `/api/companies/${slug}/sites/${id}/work-summary${query}`
+
+const SITE: Permission[] = ['sites.view', 'reports.view', 'costs.view']
+
+interface SiteSummary {
+  labor: {
+    hours: string
+    cost: string | null
+    rows: { employee: { id: string; first_name: string; last_name: string }; cost: string | null }[]
+  }
+  vehicles: {
+    hours: string
+    cost: string | null
+    rows: { vehicle: { id: string; name: string; plate: string | null }; cost: string | null }[]
+  }
+}
+
+describe('ore di un cantiere per dipendente e per mezzo', () => {
+  it('somma per dipendente e per mezzo, da chi ha più ore, con i costi', async () => {
+    const s = await scene(SITE)
+    await s.report(s.villa, '2026-10-01', 'approved', { verdi: '8', bassi: '4', digger: '3.5' })
+    await s.report(s.villa, '2026-10-02', 'draft', { bassi: '8' })
+    await s.report(s.condo, '2026-10-02', 'approved', { verdi: '8', digger: '8' })
+
+    const res = await s.browser.call('GET', siteUrl(s.slug, s.villa))
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      labor: {
+        hours: '20.00',
+        // Bassi has no hourly cost: zero in the total, null in the row.
+        cost: '228.00',
+        rows: [
+          {
+            employee: { id: s.bassi, first_name: 'Anna', last_name: 'Bassi' },
+            hours: '12.00',
+            days: 2,
+            cost: null,
+            first_date: '2026-10-01',
+            last_date: '2026-10-02',
+          },
+          {
+            employee: { id: s.verdi, first_name: 'Luca', last_name: 'Verdi' },
+            hours: '8.00',
+            days: 1,
+            cost: '228.00',
+            first_date: '2026-10-01',
+            last_date: '2026-10-01',
+          },
+        ],
+      },
+      vehicles: {
+        hours: '3.50',
+        cost: '157.50',
+        rows: [
+          {
+            vehicle: { id: s.digger, name: 'Escavatore', plate: null },
+            hours: '3.50',
+            days: 1,
+            cost: '157.50',
+            first_date: '2026-10-01',
+            last_date: '2026-10-01',
+          },
+        ],
+      },
+    })
+
+    const approved = await s.browser.call(
+      'GET',
+      siteUrl(s.slug, s.villa, '?filter[status]=approved'),
+    )
+    expect(approved.json<SiteSummary>().labor).toMatchObject({ hours: '12.00', cost: '228.00' })
+    const empty = await s.browser.call('GET', siteUrl(s.slug, s.villa, '?filter[from]=2026-10-03'))
+    expect(empty.json()).toEqual({
+      labor: { hours: '0.00', cost: '0.00', rows: [] },
+      vehicles: { hours: '0.00', cost: '0.00', rows: [] },
+    })
+  })
+
+  it('senza costs.view i costi sono null, le ore no', async () => {
+    const s = await scene(['sites.view', 'reports.view'])
+    await s.report(s.villa, '2026-10-01', 'approved', { verdi: '8', digger: '2' })
+    const body = (await s.browser.call('GET', siteUrl(s.slug, s.villa))).json<SiteSummary>()
+    expect(body.labor).toMatchObject({ hours: '8.00', cost: null, rows: [{ cost: null }] })
+    expect(body.vehicles).toMatchObject({ hours: '2.00', cost: null, rows: [{ cost: null }] })
+  })
+
+  it('422, un’altra azienda, 404, 403 e 401', async () => {
+    const s = await scene(SITE)
+    const bad = await s.browser.call('GET', siteUrl(s.slug, s.villa, '?filter[to]=2026-13-01'))
+    expect(bad.statusCode).toBe(422)
+
+    const other = await scene(SITE)
+    await other.report(other.villa, '2026-10-01', 'approved', { verdi: '8' })
+    expect((await s.browser.call('GET', siteUrl(s.slug, other.villa))).statusCode).toBe(404)
+    // The site of the other company through its own slug is not reachable either.
+    expect((await s.browser.call('GET', siteUrl(other.slug, other.villa))).statusCode).toBe(404)
+
+    const noSites = await scene(['reports.view', 'costs.view'])
+    expect(
+      (await noSites.browser.call('GET', siteUrl(noSites.slug, noSites.villa))).statusCode,
+    ).toBe(404)
+    const noReports = await scene(['sites.view', 'costs.view'])
+    expect(
+      (await noReports.browser.call('GET', siteUrl(noReports.slug, noReports.villa))).statusCode,
+    ).toBe(403)
+    expect((await s.browser.call('GET', siteUrl(s.slug, 'x'))).statusCode).toBe(404)
+    const anonymous = new Browser(ctx.app)
+    expect((await anonymous.call('GET', siteUrl(s.slug, s.villa))).statusCode).toBe(401)
+  })
+})
