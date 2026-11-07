@@ -1340,6 +1340,32 @@ describe('the API role cannot cross companies', () => {
     ).rejects.toThrow(/foreign key/)
   })
 
+  it('invoices: cannot bill a progress statement of another company', async () => {
+    const estimateB = await owner.query<{ id: string }>(
+      "insert into public.estimates (company_id, title) values ($1, 'Computo B') returning id",
+      [companyB.id],
+    )
+    const statementB = await owner.query<{ id: string }>(
+      `insert into public.progress_statements (company_id, estimate_id, number, statement_date,
+         status, approved_at) values ($1, $2, 1, '2026-10-31', 'approved', now()) returning id`,
+      [companyB.id, estimateB.rows[0]?.id],
+    )
+    const clientA = await owner.query<{ id: string }>(
+      'select id from public.clients where company_id = $1 limit 1',
+      [companyA.id],
+    )
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+             taxable_cents, vat_cents, progress_statement_id)
+           values ($1, 'issued', 'X-1', '2026-11-02', $2, 100, 0, $3)`,
+          [companyA.id, clientA.rows[0]?.id, statementB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+  })
+
   it('price lists and their items: cannot read, write or attach across companies', async () => {
     const listB = await owner.query<{ id: string }>(
       "insert into public.price_lists (company_id, name) values ($1, 'B') returning id",

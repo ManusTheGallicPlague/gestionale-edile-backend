@@ -7229,6 +7229,15 @@ components:
           oneOf:
             - $ref: '#/components/schemas/VatNature'
             - type: 'null'
+        progress_statement_id:
+          description: |
+            Il SAL approvato che questa fattura emessa addebita (fattura d'acconto sullo stato di
+            avanzamento); una fattura per SAL. Facoltativo: se manca, alla creazione vale null e
+            alla modifica resta com'è. Solo per le emesse; con un cantiere indicato, il SAL deve
+            essere di un computo di quel cantiere.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
         due_date:
           description: Scadenza di pagamento; alimenta lo scadenziario.
           oneOf:
@@ -7257,6 +7266,7 @@ components:
               deadline_id,
               file,
               vat_nature,
+              progress_statement_id,
               created_at,
               updated_at,
             ]
@@ -7857,9 +7867,14 @@ components:
       required:
         [id, estimate_id, number, statement_date, status, notes, amount, previous_amount,
          cumulative_amount, retention_percent, retention_amount, net_amount, approved_at,
-         created_at, updated_at]
+         invoice_id, created_at, updated_at]
       properties:
         id: { $ref: '#/components/schemas/Id' }
+        invoice_id:
+          description: La fattura emessa che addebita questo SAL (progress_statement_id), o null.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
         estimate_id: { $ref: '#/components/schemas/Id' }
         number:
           type: integer

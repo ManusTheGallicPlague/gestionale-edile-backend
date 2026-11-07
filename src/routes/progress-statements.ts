@@ -36,6 +36,7 @@ interface StatementRow {
   notes: string | null
   retention_percent: string
   approved_at: Date | null
+  invoice_id: string | null
   version: number
   created_at: Date
   updated_at: Date
@@ -70,7 +71,9 @@ interface StatementInput {
 /** Line amounts are rounded to the cent one by one; totals add the rounded amounts. */
 const SELECT = `select s.id, s.estimate_id, s.number, s.statement_date::text as statement_date,
     s.status, s.notes, s.retention_percent::text as retention_percent, s.approved_at, s.version,
-    s.created_at, s.updated_at, cur.cents::text as amount_cents,
+    s.created_at, s.updated_at,
+    (select i.id from public.invoices i where i.progress_statement_id = s.id) as invoice_id,
+    cur.cents::text as amount_cents,
     round(cur.cents * s.retention_percent / 100)::text as retention_cents,
     coalesce((select sum(round(l.quantity * l.unit_price_cents))
               from public.progress_statement_lines l
@@ -128,6 +131,7 @@ const summaryToContract = (row: StatementRow) => ({
   retention_amount: centsToAmount(row.retention_cents),
   net_amount: centsToAmount((BigInt(row.amount_cents) - BigInt(row.retention_cents)).toString()),
   approved_at: row.approved_at?.toISOString() ?? null,
+  invoice_id: row.invoice_id,
   created_at: row.created_at.toISOString(),
   updated_at: row.updated_at.toISOString(),
 })

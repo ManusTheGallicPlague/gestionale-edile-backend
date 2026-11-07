@@ -914,6 +914,16 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where t.quantity > 0`,
         [companyId],
       )
+      // The first issued invoice bills the approved SAL n. 1, on the site of its estimate.
+      await client.query(
+        `update public.invoices i set progress_statement_id = ps.id, site_id = e.site_id
+         from public.progress_statements ps
+         join public.estimates e on e.id = ps.estimate_id
+         where i.company_id = $1 and i.direction = 'issued' and i.number like '1/%'
+           and ps.company_id = $1 and ps.status = 'approved'
+           and e.title = 'Ristrutturazione bagno'`,
+        [companyId],
+      )
     }
 
     const passwordHash = await hashPassword(DEV_PASSWORD)

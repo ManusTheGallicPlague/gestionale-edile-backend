@@ -47,6 +47,8 @@ interface InvoiceInput {
   vat_cents: string
   /** undefined when absent: null on creation, unchanged on update (if VAT stays zero). */
   vat_nature: VatNature | null | undefined
+  /** undefined when absent: null on creation, unchanged on update. */
+  progress_statement_id: string | null | undefined
   due_date: string | null
   paid_on: string | null
   notes: string | null
@@ -68,6 +70,7 @@ interface InvoiceRow {
   taxable_cents: string
   vat_cents: string
   vat_nature: VatNature | null
+  progress_statement_id: string | null
   total_cents: string
   due_date: string | null
   paid_on: string | null
@@ -99,7 +102,7 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
     i.client_id, c.name as client_name, i.supplier_id, p.name as supplier_name,
     i.site_id, s.name as site_name, s.code as site_code, i.description,
     i.taxable_cents::text as taxable_cents, i.vat_cents::text as vat_cents,
-    i.vat_nature, (i.taxable_cents + i.vat_cents)::text as total_cents,
+    i.vat_nature, i.progress_statement_id, (i.taxable_cents + i.vat_cents)::text as total_cents,
     i.due_date::text as due_date, i.paid_on::text as paid_on,
     ${PAYMENT_STATUS} as payment_status, d.id as deadline_id,
     (select ${ATTACHMENT_JSON} from public.invoice_files f where f.invoice_id = i.id) as file,
@@ -135,6 +138,7 @@ function toContract(row: InvoiceRow) {
     taxable_amount: centsToAmount(row.taxable_cents),
     vat_amount: centsToAmount(row.vat_cents),
     vat_nature: row.vat_nature,
+    progress_statement_id: row.progress_statement_id,
     total: centsToAmount(row.total_cents),
     due_date: row.due_date,
     paid_on: row.paid_on,
@@ -241,6 +245,13 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
       add('vat_nature', 'La natura IVA si indica solo senza IVA (0.00).')
     } else vat_nature = raw.vat_nature
   }
+  let progress_statement_id: string | null | undefined
+  if ('progress_statement_id' in raw && raw.progress_statement_id !== undefined) {
+    progress_statement_id = id('progress_statement_id', 'SAL non trovato.')
+    if (progress_statement_id !== null && direction === 'received') {
+      add('progress_statement_id', 'Si collega un SAL solo a una fattura emessa.')
+    }
+  }
   const due_date = date('due_date')
   if (
     due_date !== null &&
@@ -274,6 +285,7 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
     taxable_cents,
     vat_cents,
     vat_nature,
+    progress_statement_id,
     due_date,
     paid_on,
     notes,
@@ -291,10 +303,29 @@ async function checkReferences(client: PoolClient, input: InvoiceInput) {
   await check('clients', input.client_id, 'client_id', 'Cliente non trovato.')
   await check('suppliers', input.supplier_id, 'supplier_id', 'Fornitore non trovato.')
   await check('sites', input.site_id, 'site_id', 'Cantiere non trovato.')
+  if (input.progress_statement_id) {
+    const { rows } = await client.query<{ status: string; site_id: string | null }>(
+      `select ps.status, e.site_id from public.progress_statements ps
+       join public.estimates e on e.id = ps.estimate_id where ps.id = $1`,
+      [input.progress_statement_id],
+    )
+    const statement = rows[0]
+    const field = 'progress_statement_id'
+    if (!statement) errors[field] = ['SAL non trovato.']
+    else if (statement.status !== 'approved') errors[field] = ['Si fattura solo un SAL approvato.']
+    else if (input.site_id && statement.site_id !== input.site_id) {
+      errors[field] = ['Il SAL è di un altro cantiere.']
+    }
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
 }
 
 function writeFailed(error: unknown): never {
+  if (isUniqueViolation(error) && error.constraint === 'invoices_progress_statement_idx') {
+    throw new ValidationFailed({
+      progress_statement_id: ['Questo SAL è già stato fatturato.'],
+    })
+  }
   if (isUniqueViolation(error)) {
     throw new ValidationFailed({
       number: ['Questo numero è già stato registrato per lo stesso anno.'],
@@ -562,9 +593,9 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
         .query<{ id: string }>(
           `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
              supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on, notes,
-             vat_nature)
+             vat_nature, progress_statement_id)
            values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             $13)
+             $13, $14)
            returning id`,
           [
             input.direction,
@@ -580,6 +611,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.paid_on,
             input.notes,
             input.vat_nature ?? null,
+            input.progress_statement_id ?? null,
           ],
         )
         .catch(writeFailed)
@@ -601,7 +633,17 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
       const input = parseInvoiceInput(request.body)
-      if (!(await readOne(client, id))) throw notFound()
+      const current = await readOne(client, id)
+      if (!current) throw notFound()
+      // Absent: the link stays, and is checked again against the new direction and site.
+      if (input.progress_statement_id === undefined) {
+        input.progress_statement_id = current.progress_statement_id
+        if (current.progress_statement_id && input.direction === 'received') {
+          throw new ValidationFailed({
+            progress_statement_id: ['Si collega un SAL solo a una fattura emessa.'],
+          })
+        }
+      }
       await checkReferences(client, input)
       const { rowCount } = await client
         .query(
@@ -611,6 +653,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
                due_date = $10, paid_on = $11, notes = $12,
                vat_nature = case when $9::bigint <> 0 then null
                                  when $16::boolean then $15::text else vat_nature end,
+               progress_statement_id = $17,
                version = version + 1, updated_at = now()
            where id = $13 and version = $14`,
           [
@@ -630,6 +673,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             version,
             input.vat_nature ?? null,
             input.vat_nature !== undefined,
+            input.progress_statement_id,
           ],
         )
         .catch(writeFailed)
