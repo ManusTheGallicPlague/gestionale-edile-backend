@@ -602,6 +602,57 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/suppliers/import:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    post:
+      operationId: importSuppliers
+      summary: Importazione di fornitori nuovi da un file CSV
+      description: |
+        Permesso: suppliers.create. Come importClients: stesso formato del file (al massimo
+        5000 fornitori), solo fornitori nuovi, tutti o nessuno, errori sotto `file` o
+        `row.<n>`; il file di exportSuppliers si reimporta così com'è. Colonne per nome:
+        nome (ragione sociale) è obbligatoria; le altre sono partita IVA, codice fiscale,
+        email, PEC, telefono, indirizzo, CAP, città, provincia, paese (vuoto vale IT),
+        categorie (separate da virgole: materiali, noli, subappalto, servizi, altro),
+        subappaltatore (sì o no, vuoto vale no), note. Ogni riga si controlla come
+        createSupplier.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+            example: "nome;partita iva;categorie;subappaltatore\r\nFerro Esempio S.r.l.;01234567897;Materiali, Noli;No\r\n"
+      responses:
+        '200':
+          description: Fornitori importati
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [created]
+                properties:
+                  created:
+                    type: integer
+                    minimum: 1
+                    description: Fornitori aggiunti.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413':
+          description: File più grande di 5 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Il corpo non è un file CSV (Content-Type text/csv).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/suppliers/export:
     parameters:
       - $ref: '#/components/parameters/Company'
