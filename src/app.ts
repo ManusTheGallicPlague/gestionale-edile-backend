@@ -29,6 +29,7 @@ import { logoRoutes } from './routes/logo.js'
 import { siteDocumentRoutes } from './routes/site-documents.js'
 import { dashboardRoutes } from './routes/dashboard.js'
 import { searchRoutes } from './routes/search.js'
+import { accountRoutes } from './routes/accounts.js'
 import { priceListRoutes } from './routes/price-lists.js'
 import { invitationRoutes } from './routes/invitations.js'
 import { roleRoutes } from './routes/roles.js'
@@ -130,6 +131,7 @@ export function buildApp(
   siteDocumentRoutes(app, config, db)
   dashboardRoutes(app, db)
   searchRoutes(app, db)
+  accountRoutes(app, db)
   priceListRoutes(app, config, db)
   siteCostSummaryRoutes(app, db)
   estimateStructureRoutes(app, config, db)

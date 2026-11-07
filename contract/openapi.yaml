@@ -534,6 +534,29 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/clients/{client}/account:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/ClientId'
+    get:
+      operationId: getClientAccount
+      summary: Estratto conto di un cliente
+      description: |
+        Permessi: clients.view e invoices.view. Totali delle fatture emesse al del cliente, anche se
+        archiviato: fatturato, netto a incassare, già incassato, residuo e parte scaduta.
+        Le singole fatture si leggono con listInvoices e filter[client]=<id>. Senza
+        clients.view il cliente è «non trovato» (404), come nella scheda; senza invoices.view la
+        risposta è 403.
+      responses:
+        '200':
+          description: L'estratto conto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubjectAccount' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/suppliers:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -828,6 +851,29 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/suppliers/{supplier}/account:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SupplierId'
+    get:
+      operationId: getSupplierAccount
+      summary: Estratto conto di un fornitore
+      description: |
+        Permessi: suppliers.view e invoices.view. Totali delle fatture ricevute dal del fornitore, anche se
+        archiviato: fatturato, netto a pagare, già pagato, residuo e parte scaduta.
+        Le singole fatture si leggono con listInvoices e filter[supplier]=<id>. Senza
+        suppliers.view il fornitore è «non trovato» (404), come nella scheda; senza invoices.view la
+        risposta è 403.
+      responses:
+        '200':
+          description: L'estratto conto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubjectAccount' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 
   /api/companies/{company}/suppliers/{supplier}/documents:
     parameters:
@@ -8809,6 +8855,43 @@ components:
           oneOf:
             - $ref: '#/components/schemas/DashboardInvoices'
             - type: 'null'
+    SubjectAccount:
+      type: object
+      description: |
+        Estratto conto di un cliente (fatture emesse) o di un fornitore (fatture ricevute).
+        Gli importi seguono quelli della fattura: total è imponibile più IVA; amount_due è il
+        netto a pagare, senza la ritenuta d'acconto e senza l'IVA in scissione dei pagamenti;
+        settled è amount_due meno outstanding. Scaduto: residuo delle fatture non pagate con la
+        scadenza di pagamento passata (giorno italiano).
+      required:
+        [invoice_count, open_invoice_count, total, amount_due, settled, outstanding, overdue]
+      properties:
+        invoice_count:
+          type: integer
+          minimum: 0
+        open_invoice_count:
+          description: Fatture non ancora pagate.
+          type: integer
+          minimum: 0
+        total:
+          description: Imponibile più IVA di tutte le fatture.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        amount_due:
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        settled:
+          description: Già incassato (cliente) o pagato (fornitore).
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        outstanding:
+          description: Ancora da incassare o da pagare.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        overdue:
+          description: Parte di outstanding già scaduta.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
     DashboardInvoices:
       type: object
       description: |
