@@ -201,6 +201,51 @@ describe('the API role cannot cross companies', () => {
     expect(changed).toBe(0)
   })
 
+  it('supplier document files: cannot read, write or hang a file across companies', async () => {
+    const suppliers = await owner.query<{ id: string; company_id: string }>(
+      "insert into public.suppliers (company_id, name) values ($1, 'FA'), ($2, 'FB') returning id, company_id",
+      [companyA.id, companyB.id],
+    )
+    const docs: Record<string, string> = {}
+    for (const row of suppliers.rows) {
+      const d = await owner.query<{ id: string }>(
+        "insert into public.supplier_documents (company_id, supplier_id, kind) values ($1, $2, 'durc') returning id",
+        [row.company_id, row.id],
+      )
+      docs[row.company_id] = d.rows[0]?.id ?? ''
+    }
+    const file = (documentId: string | undefined, companyId: string) =>
+      `insert into public.supplier_document_files
+         (document_id, company_id, file_name, content_type, size_bytes, data)
+       values ('${documentId}', '${companyId}', 'durc.pdf', 'application/pdf', 1, '\\x25')`
+    await owner.query(file(docs[companyB.id], companyB.id))
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.supplier_document_files where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    // A file of company A on a document of company B: the composite foreign key says no.
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query(file(docs[companyB.id], companyA.id))),
+    ).rejects.toThrow(/foreign key|duplicate key/)
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query(file(docs[companyB.id], companyB.id))),
+    ).rejects.toThrow(/row-level security/)
+    const removed = await as(alice.id, companyA.id, (c) =>
+      c.query('delete from public.supplier_document_files where company_id = $1', [companyB.id]),
+    )
+    expect(removed.rowCount).toBe(0)
+    // The bytes are never changed in place, not even in one's own company.
+    await expect(
+      as(alice.id, companyA.id, async (c) => {
+        await c.query(file(docs[companyA.id], companyA.id))
+        return c.query("update public.supplier_document_files set data = '\\x26'")
+      }),
+    ).rejects.toThrow(/permission denied/)
+    await expect(auth.query('select * from public.supplier_document_files')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('deadlines: cannot read, write or link across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',

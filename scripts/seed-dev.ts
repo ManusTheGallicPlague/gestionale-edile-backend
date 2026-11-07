@@ -395,6 +395,15 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
              as d (kind, issued, expires)`,
           [companyId, inserted[0]?.id],
         )
+        // The DURC comes with its (tiny, made-up) PDF.
+        const durcPdf = Buffer.from('%PDF-1.4\n% DURC di prova\n%%EOF\n')
+        await client.query(
+          `insert into public.supplier_document_files
+             (document_id, company_id, file_name, content_type, size_bytes, data)
+           select sd.id, $1, 'durc.pdf', 'application/pdf', $3, $4
+           from public.supplier_documents sd where sd.supplier_id = $2 and sd.kind = 'durc'`,
+          [companyId, inserted[0]?.id, durcPdf.length, durcPdf],
+        )
       }
     }
 
