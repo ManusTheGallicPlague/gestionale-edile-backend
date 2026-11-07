@@ -114,6 +114,11 @@ async function scene(permissions: Permission[] = ALL) {
     `insert into public.warehouse_items (company_id, code, name, unit)
      values ($1, 'ROSSI-T', 'Tavole da ponte', 'pz')`,
   )
+  await q(
+    `insert into public.site_activities (company_id, site_id, name, start_on, end_on)
+     values ($1, $2, 'Intonaci casa Rossi', '2026-11-02', '2026-11-20')`,
+    [site.rows[0]?.id],
+  )
 
   const user = await fx.user()
   await fx.member(user.id, id, await fx.role(id, 'Ricerca', permissions))
@@ -149,10 +154,12 @@ describe('quick search', () => {
       ['price_list_item', 'Intonaco civile', 'ROSSI.01'],
       ['site_document', 'Contratto', 'Villa sul lago'],
       ['warehouse_item', 'Tavole da ponte', 'ROSSI-T'],
+      ['site_activity', 'Intonaci casa Rossi', 'Villa sul lago'],
     ])
     const parent = (type: string) => body.items.find((h) => h.type === type)?.parent_id
     expect(parent('price_list_item')).toBe(s.priceListId)
     expect(parent('site_document')).toBe(s.siteId)
+    expect(parent('site_activity')).toBe(s.siteId)
     expect(parent('client')).toBeNull()
   })
 
@@ -196,7 +203,11 @@ describe('quick search', () => {
     const s = await scene(['sites.view', 'deadlines.view'])
     const res = await s.browser.call('GET', `${s.url}?q=rossi`)
     expect(res.statusCode).toBe(200)
-    expect(res.json<Results>().items.map((h) => h.type)).toEqual(['site', 'deadline'])
+    expect(res.json<Results>().items.map((h) => h.type)).toEqual([
+      'site',
+      'deadline',
+      'site_activity',
+    ])
 
     const none = await scene([])
     const empty = await none.browser.call('GET', `${none.url}?q=rossi`)
@@ -210,10 +221,12 @@ describe('quick search', () => {
     const res = await mine.browser.call('GET', `${mine.url}?q=rossi`)
     const ids = res.json<Results>().items.map((h) => h.id)
     const theirs = await ctx.owner.query<{ id: string }>(
-      'select id from public.clients where company_id = $1',
+      `select id from public.clients where company_id = $1
+       union all select id from public.site_activities where company_id = $1`,
       [other.company.id],
     )
-    expect(ids).toHaveLength(13)
+    expect(theirs.rows).toHaveLength(3) // Two clients and one activity.
+    expect(ids).toHaveLength(14)
     for (const row of theirs.rows) expect(ids).not.toContain(row.id)
 
     const cross = await mine.browser.call('GET', `${other.url}?q=rossi`)
