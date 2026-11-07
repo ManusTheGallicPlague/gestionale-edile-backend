@@ -267,6 +267,32 @@ describe('daily reports', () => {
     )
     expect(range.json<List>().meta.total).toBe(1)
     expect((await s.browser.call('GET', `${s.base}?filter[from]=ieri`)).statusCode).toBe(422)
+    // By employee and by vehicle: only the reports with their hours.
+    const third = await create(s, {
+      site_id: s.other,
+      date: '2026-11-04',
+      labor: [{ employee_id: s.bassi, hours: '4', description: null }],
+      vehicles: [],
+    })
+    const ids = async (query: string) =>
+      (await s.browser.call('GET', `${s.base}?${query}&sort=date`))
+        .json<List>()
+        .data.map((r) => r.id)
+    expect(await ids(`filter[employee]=${s.verdi}`)).toEqual([report.id])
+    expect(await ids(`filter[employee]=${s.bassi}`)).toEqual([third.report.id, report.id])
+    expect(await ids(`filter[vehicle]=${s.digger}`)).toEqual([report.id])
+    expect(await ids(`filter[employee]=${s.bassi}&filter[site]=${s.other}`)).toEqual([
+      third.report.id,
+    ])
+    const exported = await s.browser.call('GET', `${s.base}/export?filter[employee]=${s.bassi}`)
+    expect(exported.body.trim().split('\r\n')).toHaveLength(3)
+    // Another company's employee matches nothing here.
+    const foreign = await scene()
+    expect(await ids(`filter[employee]=${foreign.verdi}`)).toEqual([])
+    for (const bad of ['filter[employee]=luca', 'filter[vehicle]=1']) {
+      const res = await s.browser.call('GET', `${s.base}?${bad}`)
+      expect(res.statusCode).toBe(422)
+    }
 
     const del = (path: string) =>
       s.browser.call('DELETE', `/api/companies/${s.company.slug}/${path}`, {

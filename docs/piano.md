@@ -98,6 +98,7 @@ Aggiunta il 07/11/2026, rileggendo `docs/frontend.md` del frontend dopo la sezio
 - [x] Foto del rapportino (schermata tipo E: «foto dalla fotocamera»): un documento o una foto del cantiere può essere collegato a un rapportino dello stesso cantiere (`daily_report_id` al caricamento, `filter[daily_report]` nell'elenco)
 - [x] Numerazioni in impostazioni («dati fiscali, logo, numerazioni»): anche gli ordini ai fornitori (`purchase_orders` in `getNumbering`, `setPurchaseOrderNumbering`)
 - [x] Grafici della dashboard (stack: Recharts, «costi, avanzamento dei cantieri»): `costs_by_month` (ultimi 12 mesi, manodopera, mezzi e altri costi) e `site_progress` (avanzamento dei cantieri attivi rispetto al previsto) in `getDashboard`
+- [x] Schede di dipendenti e mezzi (tipo B, «dipendente, mezzo»): rapportini con le ore di un dipendente o di un mezzo (`filter[employee]`, `filter[vehicle]` in `listDailyReports` ed `exportDailyReports`)
 
 ## Decisioni prese
 

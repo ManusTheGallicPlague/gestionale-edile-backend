@@ -274,11 +274,18 @@ function readList(query: Record<string, unknown>) {
   if (siteId !== undefined && !UUID.test(siteId)) {
     errors['filter[site]'] = ['Identificativo non valido.']
   }
+  const id = (name: string) => {
+    const value = single(name)
+    if (value !== undefined && !UUID.test(value)) errors[name] = ['Identificativo non valido.']
+    return value
+  }
+  const employeeId = id('filter[employee]')
+  const vehicleId = id('filter[vehicle]')
   const from = date('filter[from]')
   const to = date('filter[to]')
   if (from && to && to < from) errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? '-date', status, siteId, from, to }
+  return { page, perPage, sort: sort ?? '-date', status, siteId, employeeId, vehicleId, from, to }
 }
 
 async function readOne(client: PoolClient, id: string): Promise<FullReport | undefined> {
@@ -367,6 +374,20 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.status) add((p) => `r.status = ${p}`, list.status)
   if (list.siteId) add((p) => `r.site_id = ${p}`, list.siteId)
+  if (list.employeeId) {
+    add(
+      (p) =>
+        `exists (select 1 from public.daily_report_labor l where l.report_id = r.id and l.employee_id = ${p})`,
+      list.employeeId,
+    )
+  }
+  if (list.vehicleId) {
+    add(
+      (p) =>
+        `exists (select 1 from public.daily_report_vehicles v where v.report_id = r.id and v.vehicle_id = ${p})`,
+      list.vehicleId,
+    )
+  }
   if (list.from) add((p) => `r.report_date >= ${p}`, list.from)
   if (list.to) add((p) => `r.report_date <= ${p}`, list.to)
   return { where, values }
