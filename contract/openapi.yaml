@@ -4349,6 +4349,43 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/employees/{employee}/work-summary:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      operationId: getEmployeeWorkSummary
+      summary: Ore del dipendente per cantiere
+      description: |
+        Permessi: employees.view (senza, 404 come per la scheda) e reports.view (senza, 403). Per la
+        scheda del dipendente: ore dai rapportini, giorni con ore e costo per cantiere, dal cantiere con
+        più ore. Il costo usa il costo orario attuale, come il riepilogo dei costi del cantiere;
+        è null se il costo orario manca. Senza filtri conta tutti i rapportini.
+      parameters:
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[from]=2026-11-01&filter[to]=2026-11-30 (estremi compresi)
+            e filter[status]=approved.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              status: { $ref: '#/components/schemas/DailyReportStatus' }
+      responses:
+        '200':
+          description: Le ore per cantiere
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/vehicles:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -4575,6 +4612,43 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/vehicles/{vehicle}/work-summary:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/VehicleId'
+    get:
+      operationId: getVehicleWorkSummary
+      summary: Ore del mezzo per cantiere
+      description: |
+        Permessi: vehicles.view (senza, 404 come per la scheda) e reports.view (senza, 403). Per la
+        scheda del mezzo: ore dai rapportini, giorni con ore e costo per cantiere, dal cantiere con
+        più ore. Il costo usa il costo orario attuale, come il riepilogo dei costi del cantiere;
+        è null se il costo orario manca. Senza filtri conta tutti i rapportini.
+      parameters:
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[from]=2026-11-01&filter[to]=2026-11-30 (estremi compresi)
+            e filter[status]=approved.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              status: { $ref: '#/components/schemas/DailyReportStatus' }
+      responses:
+        '200':
+          description: Le ore per cantiere
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/estimates:
     parameters:
@@ -9820,6 +9894,45 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Employee' }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    WorkHours:
+      type: string
+      description: Somma di ore come stringa con il punto e due decimali.
+      pattern: '^\d+\.\d{2}$'
+      examples: ['164.50']
+    WorkSummary:
+      type: object
+      required: [hours, days, cost, sites]
+      properties:
+        hours: { $ref: '#/components/schemas/WorkHours' }
+        days:
+          type: integer
+          description: Giorni con ore, contando una volta un giorno su più cantieri.
+        cost:
+          description: Ore per costo orario attuale, o null se il costo orario manca.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        sites:
+          type: array
+          items:
+            type: object
+            required: [site, hours, days, cost, first_date, last_date]
+            properties:
+              site:
+                type: object
+                required: [id, name, code]
+                properties:
+                  id: { $ref: '#/components/schemas/Id' }
+                  name: { type: string }
+                  code: { type: [string, 'null'] }
+              hours: { $ref: '#/components/schemas/WorkHours' }
+              days: { type: integer }
+              cost:
+                oneOf:
+                  - $ref: '#/components/schemas/Amount'
+                  - type: 'null'
+              first_date: { $ref: '#/components/schemas/Date' }
+              last_date: { $ref: '#/components/schemas/Date' }
     VehicleKind:
       type: string
       description: |

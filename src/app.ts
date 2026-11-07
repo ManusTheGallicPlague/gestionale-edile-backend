@@ -31,6 +31,7 @@ import { dashboardRoutes } from './routes/dashboard.js'
 import { searchRoutes } from './routes/search.js'
 import { accountRoutes } from './routes/accounts.js'
 import { cashFlowRoutes } from './routes/cash-flow.js'
+import { workSummaryRoutes } from './routes/work-summary.js'
 import { priceListRoutes } from './routes/price-lists.js'
 import { invitationRoutes } from './routes/invitations.js'
 import { roleRoutes } from './routes/roles.js'
@@ -134,6 +135,7 @@ export function buildApp(
   searchRoutes(app, db)
   accountRoutes(app, db)
   cashFlowRoutes(app, db)
+  workSummaryRoutes(app, db)
   priceListRoutes(app, config, db)
   siteCostSummaryRoutes(app, db)
   estimateStructureRoutes(app, config, db)

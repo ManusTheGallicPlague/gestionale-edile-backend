@@ -201,6 +201,11 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: il titolare vuole sapere se
 - [x] Previsione di cassa (`getCashFlowForecast` su `…/cash-flow?months=`): da incassare e da pagare per mese di scadenza dal mese in corso, con scaduto, oltre l'orizzonte, senza scadenza, totali e saldo progressivo
 - [x] Previsione di cassa in CSV (`exportCashFlowForecast`, file `previsione-cassa.csv`), con gli stessi periodi e i negativi come numeri
 
+### 23. Ore di dipendenti e mezzi
+Aggiunta il 07/11/2026, con il piano tutto spuntato: nella scheda di un dipendente o di un mezzo (tipo B) il titolare vuole vedere su quali cantieri ha lavorato, quante ore e quanto è costato, senza sommare i rapportini uno per uno.
+
+- [x] Ore per cantiere di un dipendente e di un mezzo (`getEmployeeWorkSummary`, `getVehicleWorkSummary` su `…/work-summary`): ore, giorni con ore, costo, primo e ultimo giorno per cantiere, dal cantiere con più ore, filtri per periodo e stato
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -351,6 +356,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 07/11/2026: niente operazione apposta per fatturare un SAL: `createInvoice` con `progress_statement_id` lo fa già, e l'aliquota IVA (10% o 22%, o inversione contabile nel subappalto) la deve scegliere l'ufficio; il frontend precompila la fattura dal SAL con `net_amount`.
 
 - 07/11/2026: la previsione di cassa conta solo le fatture aperte (residuo come nella dashboard: senza ritenuta, senza IVA in scissione, meno gli acconti), non preventivi, ordini o SAL non fatturati, che non hanno una scadenza di pagamento certa; chiede solo `invoices.view` (403 senza); orizzonte da 1 a 24 mesi, 6 se non indicato; una fattura che scade oggi è del mese in corso, non scaduta; il saldo progressivo parte dallo scaduto e non da un saldo di banca, che il gestionale non conosce.
+- 07/11/2026: le ore per cantiere di dipendenti e mezzi usano il costo orario attuale, come il riepilogo dei costi del cantiere (non c'è uno storico dei costi orari); costo null se il costo orario manca. Servono il permesso della scheda (senza, 404) e `reports.view` (senza, 403); senza filtri si contano tutti i rapportini, anche in bozza.
 
 ## Registro dei giri
 
