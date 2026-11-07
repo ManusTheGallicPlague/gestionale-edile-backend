@@ -2417,7 +2417,8 @@ paths:
         fatturato del cantiere (imponibile delle fatture emesse collegate) e il margine
         rispetto ai costi; senza quel permesso revenue è null. Con anche estimates.view, in
         revenue ci sono i SAL approvati dei computi del cantiere (certified) e quelli ancora
-        senza fattura (certified_uninvoiced).
+        senza fattura (certified_uninvoiced), con la ritenuta di garanzia trattenuta
+        (retention_held).
       responses:
         '200':
           description: Il riepilogo
@@ -7524,7 +7525,7 @@ components:
             - type: 'null'
     SiteRevenue:
       type: object
-      required: [invoiced, margin, certified, certified_uninvoiced]
+      required: [invoiced, margin, certified, certified_uninvoiced, retention_held]
       properties:
         invoiced:
           description: Imponibile delle fatture emesse collegate al cantiere, pagate o no.
@@ -7545,6 +7546,13 @@ components:
           description: |
             La parte di certified dei SAL approvati senza fattura collegata: maturato da
             fatturare. Null senza estimates.view.
+          oneOf:
+            - $ref: '#/components/schemas/SignedAmount'
+            - type: 'null'
+        retention_held:
+          description: |
+            Ritenuta di garanzia dei SAL approvati (retention_amount), da svincolare a fine
+            lavori. Null senza estimates.view.
           oneOf:
             - $ref: '#/components/schemas/SignedAmount'
             - type: 'null'

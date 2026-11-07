@@ -283,7 +283,13 @@ describe('site costs', () => {
     const empty = await s.browser.call('GET', summary)
     expect(empty.json()).toMatchObject({
       total: '0.00',
-      revenue: { invoiced: '0.00', margin: '0.00', certified: null, certified_uninvoiced: null },
+      revenue: {
+        invoiced: '0.00',
+        margin: '0.00',
+        certified: null,
+        certified_uninvoiced: null,
+        retention_held: null,
+      },
     })
     const client = await ctx.owner.query<{ id: string }>(
       "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Rossi') returning id",
@@ -326,7 +332,13 @@ describe('site costs', () => {
     )
     // Approved statements of this site's estimate: 100 (invoiced) and 30.25 (not yet);
     // a draft and the statements of another site's estimate do not count.
-    const statement = async (site: string, status: string, number: number, qty: string) => {
+    const statement = async (
+      site: string,
+      status: string,
+      number: number,
+      qty: string,
+      retention = '0',
+    ) => {
       const estimate = await q(
         "insert into public.estimates (company_id, title, site_id) values ($1, 'C', $2) returning id",
         [s.company.id, site],
@@ -344,10 +356,11 @@ describe('site costs', () => {
       )
       const id = await q(
         `insert into public.progress_statements
-           (company_id, estimate_id, number, statement_date, status, approved_at)
-         values ($1, $2, $3, '2026-11-30', $4, case when $4 = 'approved' then now() end)
+           (company_id, estimate_id, number, statement_date, status, approved_at,
+            retention_percent)
+         values ($1, $2, $3, '2026-11-30', $4, case when $4 = 'approved' then now() end, $5)
          returning id`,
-        [s.company.id, estimate, number, status],
+        [s.company.id, estimate, number, status, retention],
       )
       await ctx.owner.query(
         `insert into public.progress_statement_lines
@@ -357,10 +370,11 @@ describe('site costs', () => {
       )
       return id
     }
-    const billed = await statement(s.site, 'approved', 1, '10')
-    await statement(s.site, 'approved', 1, '3.025')
-    await statement(s.site, 'draft', 1, '50')
-    await statement(s.other, 'approved', 1, '70')
+    // Retention: 5% of 100 = 5.00 and 10% of 30.25 = 3.03 (rounded to the cent per SAL).
+    const billed = await statement(s.site, 'approved', 1, '10', '5')
+    await statement(s.site, 'approved', 1, '3.025', '10')
+    await statement(s.site, 'draft', 1, '50', '10')
+    await statement(s.other, 'approved', 1, '70', '10')
     await ctx.owner.query(
       `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
          site_id, taxable_cents, vat_cents, progress_statement_id)
@@ -375,6 +389,7 @@ describe('site costs', () => {
         margin: '100.00',
         certified: '130.25',
         certified_uninvoiced: '30.25',
+        retention_held: '8.03',
       },
     })
   })

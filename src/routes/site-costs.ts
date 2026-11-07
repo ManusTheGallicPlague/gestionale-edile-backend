@@ -437,6 +437,7 @@ interface SummaryRow {
   invoiced: string
   certified: string
   certified_uninvoiced: string
+  retention_held: string
 }
 
 /**
@@ -484,7 +485,8 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
              select coalesce(sum(a.cents), 0) as cents,
                coalesce(sum(a.cents) filter (where not exists (
                  select 1 from public.invoices i where i.progress_statement_id = p.id
-               )), 0) as uninvoiced
+               )), 0) as uninvoiced,
+               coalesce(sum(round(a.cents * p.retention_percent / 100)), 0) as retention
              from public.progress_statements p
              join public.estimates e on e.id = p.estimate_id and e.site_id = $1
              cross join lateral (
@@ -501,7 +503,8 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
              manual.subcontract::text as subcontract, manual.other::text as other,
              (labor.missing + machines.missing)::int as missing_rates,
              revenue.cents::text as invoiced, certified.cents::bigint::text as certified,
-             certified.uninvoiced::bigint::text as certified_uninvoiced
+             certified.uninvoiced::bigint::text as certified_uninvoiced,
+             certified.retention::bigint::text as retention_held
            from public.sites s, labor, machines, manual, revenue, certified
            where s.id = $1`,
           [request.params.site],
@@ -553,6 +556,7 @@ function summaryToContract(row: SummaryRow, withRevenue: boolean, withCertified:
           margin: centsToAmount((invoiced - total).toString()),
           certified: withCertified ? centsToAmount(row.certified) : null,
           certified_uninvoiced: withCertified ? centsToAmount(row.certified_uninvoiced) : null,
+          retention_held: withCertified ? centsToAmount(row.retention_held) : null,
         }
       : null,
   }
