@@ -53,6 +53,8 @@ interface InvoiceInput {
   withholding_cents: string | undefined
   /** undefined when absent: false on creation, unchanged on update. */
   split_payment: boolean | undefined
+  /** undefined when absent: false on creation, unchanged on update. */
+  retention_release: boolean | undefined
   due_date: string | null
   paid_on: string | null
   notes: string | null
@@ -78,6 +80,7 @@ interface InvoiceRow {
   total_cents: string
   withholding_cents: string
   split_payment: boolean
+  retention_release: boolean
   due_cents: string
   paid_cents: string
   remaining_cents: string
@@ -124,7 +127,7 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
     i.site_id, s.name as site_name, s.code as site_code, i.description,
     i.taxable_cents::text as taxable_cents, i.vat_cents::text as vat_cents,
     i.vat_nature, i.progress_statement_id, (i.taxable_cents + i.vat_cents)::text as total_cents,
-    i.withholding_cents::text as withholding_cents, i.split_payment,
+    i.withholding_cents::text as withholding_cents, i.split_payment, i.retention_release,
     (${DUE_CENTS})::text as due_cents, ${PAID_CENTS}::text as paid_cents,
     (${REMAINING_CENTS})::text as remaining_cents,
     i.due_date::text as due_date, i.paid_on::text as paid_on,
@@ -163,6 +166,7 @@ function toContract(row: InvoiceRow) {
     vat_amount: centsToAmount(row.vat_cents),
     vat_nature: row.vat_nature,
     progress_statement_id: row.progress_statement_id,
+    retention_release: row.retention_release,
     total: centsToAmount(row.total_cents),
     withholding_amount: centsToAmount(row.withholding_cents),
     split_payment: row.split_payment,
@@ -295,6 +299,11 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
     else if (raw.split_payment && direction === 'received') add('split_payment', SPLIT_ISSUED)
     else split_payment = raw.split_payment
   }
+  let retention_release: boolean | undefined
+  if ('retention_release' in raw && raw.retention_release !== undefined) {
+    if (typeof raw.retention_release !== 'boolean') add('retention_release', 'Indica vero o falso.')
+    else retention_release = raw.retention_release
+  }
   const due_date = date('due_date')
   if (
     due_date !== null &&
@@ -331,10 +340,25 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
     progress_statement_id,
     withholding_cents,
     split_payment,
+    retention_release,
     due_date,
     paid_on,
     notes,
   }
+}
+
+/** A retention release is issued, on a site, and never the invoice of a SAL. */
+function checkRetentionRelease(input: InvoiceInput) {
+  if (!input.retention_release) return
+  const message =
+    input.direction !== 'issued'
+      ? 'Lo svincolo della ritenuta è una fattura emessa.'
+      : !input.site_id
+        ? 'Per lo svincolo della ritenuta serve il cantiere.'
+        : input.progress_statement_id
+          ? 'Lo svincolo della ritenuta non addebita un SAL.'
+          : null
+  if (message) throw new ValidationFailed({ retention_release: [message] })
 }
 
 const SPLIT_ISSUED = 'La scissione dei pagamenti vale solo per le fatture emesse.'
@@ -941,14 +965,15 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('invoices.create')) throw forbidden()
       const input = parseInvoiceInput(request.body)
+      checkRetentionRelease(input)
       await checkReferences(client, input)
       const { rows } = await client
         .query<{ id: string }>(
           `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
              supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on, notes,
-             vat_nature, progress_statement_id, withholding_cents, split_payment)
+             vat_nature, progress_statement_id, withholding_cents, split_payment, retention_release)
            values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             $13, $14, $15, $16)
+             $13, $14, $15, $16, $17)
            returning id`,
           [
             input.direction,
@@ -967,6 +992,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.progress_statement_id ?? null,
             input.withholding_cents ?? '0',
             input.split_payment ?? false,
+            input.retention_release ?? false,
           ],
         )
         .catch(writeFailed)
@@ -1012,6 +1038,11 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
           throw new ValidationFailed({ split_payment: [SPLIT_ISSUED] })
         }
       }
+      // Absent: the release flag stays, checked again against direction, site and SAL.
+      if (input.retention_release === undefined) {
+        input.retention_release = current.retention_release
+      }
+      checkRetentionRelease(input)
       await checkReferences(client, input)
       const { rowCount } = await client
         .query(
@@ -1022,7 +1053,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
                vat_nature = case when $9::bigint <> 0 then null
                                  when $16::boolean then $15::text else vat_nature end,
                progress_statement_id = $17, withholding_cents = $18, split_payment = $19,
-               version = version + 1, updated_at = now()
+               retention_release = $20, version = version + 1, updated_at = now()
            where id = $13 and version = $14`,
           [
             input.direction,
@@ -1044,6 +1075,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.progress_statement_id,
             input.withholding_cents,
             input.split_payment,
+            input.retention_release,
           ],
         )
         .catch(writeFailed)

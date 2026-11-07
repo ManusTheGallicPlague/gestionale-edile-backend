@@ -441,6 +441,7 @@ interface SummaryRow {
   certified: string
   certified_uninvoiced: string
   retention_held: string
+  retention_released: string
 }
 
 /**
@@ -485,7 +486,8 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
              select coalesce(sum(i.taxable_cents), 0) as cents,
                coalesce(sum(case when i.paid_on is not null then ${DUE_CENTS}
                  else ${PAID_CENTS} end), 0) as collected,
-               coalesce(sum(${REMAINING_CENTS}), 0) as to_collect
+               coalesce(sum(${REMAINING_CENTS}), 0) as to_collect,
+               coalesce(sum(i.taxable_cents) filter (where i.retention_release), 0) as released
              from public.invoices i where i.site_id = $1 and i.direction = 'issued'
            ), certified as (
              select coalesce(sum(a.cents), 0) as cents,
@@ -511,7 +513,8 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
              revenue.cents::text as invoiced, revenue.collected::bigint::text as collected,
              revenue.to_collect::bigint::text as to_collect, certified.cents::bigint::text as certified,
              certified.uninvoiced::bigint::text as certified_uninvoiced,
-             certified.retention::bigint::text as retention_held
+             certified.retention::bigint::text as retention_held,
+             revenue.released::bigint::text as retention_released
            from public.sites s, labor, machines, manual, revenue, certified
            where s.id = $1`,
           [request.params.site],
@@ -566,6 +569,10 @@ function summaryToContract(row: SummaryRow, withRevenue: boolean, withCertified:
           certified: withCertified ? centsToAmount(row.certified) : null,
           certified_uninvoiced: withCertified ? centsToAmount(row.certified_uninvoiced) : null,
           retention_held: withCertified ? centsToAmount(row.retention_held) : null,
+          retention_released: centsToAmount(row.retention_released),
+          retention_to_release: withCertified
+            ? centsToAmount(String(BigInt(row.retention_held) - BigInt(row.retention_released)))
+            : null,
         }
       : null,
   }

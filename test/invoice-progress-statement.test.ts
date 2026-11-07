@@ -75,6 +75,26 @@ async function scene(permissions: Permission[] = ALL) {
 }
 
 describe('invoice of a progress statement', () => {
+  it('the invoice of a SAL is not the release of the retention', async () => {
+    const s = await scene()
+    const bad = await s.browser.call('POST', s.base, {
+      body: s.invoice({ retention_release: true }),
+    })
+    expect(bad.statusCode).toBe(422)
+    expect(Object.keys(bad.json<{ errors: object }>().errors)).toEqual(['retention_release'])
+    const release = await s.browser.call('POST', s.base, {
+      body: s.invoice({ number: '2/2026', progress_statement_id: null, retention_release: true }),
+    })
+    expect(release.statusCode).toBe(201)
+    const { id } = release.json<{ id: string }>()
+    const linked = await s.browser.call('PUT', `${s.base}/${id}`, {
+      body: s.invoice({ number: '2/2026' }),
+      headers: { 'if-match': '"1"' },
+    })
+    expect(linked.statusCode).toBe(422)
+    expect(Object.keys(linked.json<{ errors: object }>().errors)).toEqual(['retention_release'])
+  })
+
   it('links an issued invoice to an approved SAL, shown on both sides, once', async () => {
     const s = await scene()
     const res = await s.browser.call('POST', s.base, { body: s.invoice() })

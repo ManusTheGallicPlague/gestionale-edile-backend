@@ -3139,7 +3139,8 @@ paths:
         rispetto ai costi; senza quel permesso revenue è null. Con anche estimates.view, in
         revenue ci sono i SAL approvati dei computi del cantiere (certified) e quelli ancora
         senza fattura (certified_uninvoiced), con la ritenuta di garanzia trattenuta
-        (retention_held).
+        (retention_held) e quella ancora da svincolare (retention_to_release); lo svincolo già
+        fatturato (retention_released) c'è anche senza estimates.view.
       responses:
         '200':
           description: Il riepilogo
@@ -8849,6 +8850,13 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Id'
             - type: 'null'
+        retention_release:
+          type: boolean
+          description: |
+            Fattura emessa di svincolo della ritenuta di garanzia trattenuta sui SAL del
+            cantiere, a fine lavori: il suo imponibile conta in retention_released del
+            riepilogo del cantiere. Solo per le emesse, con un cantiere e senza SAL collegato.
+            Facoltativo: se manca, alla creazione vale false e alla modifica resta com'è.
         due_date:
           description: Scadenza di pagamento; alimenta lo scadenziario.
           oneOf:
@@ -8886,6 +8894,7 @@ components:
               paid_amount,
               remaining_amount,
               progress_statement_id,
+              retention_release,
               created_at,
               updated_at,
             ]
@@ -9215,7 +9224,17 @@ components:
     SiteRevenue:
       type: object
       required:
-        [invoiced, margin, collected, to_collect, certified, certified_uninvoiced, retention_held]
+        [
+          invoiced,
+          margin,
+          collected,
+          to_collect,
+          certified,
+          certified_uninvoiced,
+          retention_held,
+          retention_released,
+          retention_to_release,
+        ]
       properties:
         invoiced:
           description: Imponibile delle fatture emesse collegate al cantiere, pagate o no.
@@ -9253,6 +9272,19 @@ components:
           description: |
             Ritenuta di garanzia dei SAL approvati (retention_amount), da svincolare a fine
             lavori. Null senza estimates.view.
+          oneOf:
+            - $ref: '#/components/schemas/SignedAmount'
+            - type: 'null'
+        retention_released:
+          description: |
+            Imponibile delle fatture emesse di svincolo della ritenuta (retention_release) del
+            cantiere, pagate o no.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        retention_to_release:
+          description: |
+            Ritenuta ancora da svincolare: retention_held meno retention_released; negativa se
+            si è svincolato più di quanto trattenuto. Null senza estimates.view.
           oneOf:
             - $ref: '#/components/schemas/SignedAmount'
             - type: 'null'

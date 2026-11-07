@@ -351,6 +351,49 @@ describe('invoices', () => {
     ).rejects.toThrow(/invoices_split_payment_issued/)
   })
 
+  it('marks an issued invoice on a site as the release of the retention', async () => {
+    const s = await scene()
+    const res = await s.browser.call('POST', s.base, {
+      body: issued(s, { retention_release: true, description: 'Svincolo ritenuta' }),
+    })
+    expect(res.statusCode).toBe(201)
+    const invoice = res.json<Invoice>()
+    expect(invoice).toMatchObject({ retention_release: true, total: '11000.50' })
+    const url = `${s.base}/${invoice.id}`
+    const put = (body: object, version: number) =>
+      s.browser.call('PUT', url, { body, headers: { 'if-match': `"${version}"` } })
+    // Absent on update: it stays, and is checked again against direction and site.
+    const kept = await put(issued(s, { taxable_amount: '9000' }), 1)
+    expect(kept.statusCode).toBe(200)
+    expect(kept.json()).toMatchObject({ retention_release: true, taxable_amount: '9000.00' })
+    for (const body of [
+      received(s),
+      issued(s, { site_id: null }),
+      issued(s, { retention_release: 'sì' }),
+    ]) {
+      const bad = await put(body, 2)
+      expect(bad.statusCode).toBe(422)
+      expect(Object.keys(bad.json<{ errors: object }>().errors)).toEqual(['retention_release'])
+    }
+    const off = await put(issued(s, { site_id: null, retention_release: false }), 2)
+    expect(off.json()).toMatchObject({ retention_release: false, site_id: null })
+    for (const body of [
+      received(s, { retention_release: true }),
+      issued(s, { number: '14/2026', site_id: null, retention_release: true }),
+    ]) {
+      const bad = await s.browser.call('POST', s.base, { body })
+      expect(bad.statusCode).toBe(422)
+      expect(Object.keys(bad.json<{ errors: object }>().errors)).toEqual(['retention_release'])
+    }
+    const plain = await s.browser.call('POST', s.base, { body: issued(s, { number: '13/2026' }) })
+    expect(plain.json()).toMatchObject({ retention_release: false })
+    await expect(
+      ctx.owner.query('update public.invoices set retention_release = true where id = $1', [
+        invoice.id,
+      ]),
+    ).rejects.toThrow(/invoices_retention_release_check/)
+  })
+
   it('a number is used once per year (per supplier for received invoices)', async () => {
     const s = await scene()
     expect((await s.browser.call('POST', s.base, { body: issued(s) })).statusCode).toBe(201)

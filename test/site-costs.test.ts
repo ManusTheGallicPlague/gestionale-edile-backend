@@ -291,6 +291,8 @@ describe('site costs', () => {
         certified: null,
         certified_uninvoiced: null,
         retention_held: null,
+        retention_released: '0.00',
+        retention_to_release: null,
       },
     })
     const client = await ctx.owner.query<{ id: string }>(
@@ -399,7 +401,34 @@ describe('site costs', () => {
         certified: '130.25',
         certified_uninvoiced: '30.25',
         retention_held: '8.03',
+        retention_released: '0.00',
+        retention_to_release: '8.03',
       },
+    })
+    // Releasing 5.00 of the retention on this site (and 9.99 on another site, not counted).
+    await ctx.owner.query(
+      `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+         site_id, taxable_cents, vat_cents, retention_release)
+       values ($1, 'issued', '2', '2026-12-15', $2, $3, 500, 110, true),
+              ($1, 'issued', '3', '2026-12-15', $2, $4, 999, 0, true)`,
+      [s.company.id, client, s.site, s.other],
+    )
+    const released = (await s.browser.call('GET', summary)).json<{ revenue: object }>().revenue
+    expect(released).toMatchObject({
+      invoiced: '105.00',
+      certified_uninvoiced: '30.25',
+      retention_held: '8.03',
+      retention_released: '5.00',
+      retention_to_release: '3.03',
+    })
+    // Without estimates.view the release already invoiced shows, what is left does not.
+    await ctx.owner.query(
+      `delete from public.role_permissions where permission = 'estimates.view'
+       and role_id in (select id from public.roles where company_id = $1)`,
+      [s.company.id],
+    )
+    expect((await s.browser.call('GET', summary)).json()).toMatchObject({
+      revenue: { retention_released: '5.00', retention_to_release: null, retention_held: null },
     })
   })
 })
