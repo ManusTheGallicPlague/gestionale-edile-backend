@@ -2361,6 +2361,63 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/warehouse/items/import:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    post:
+      operationId: importWarehouseItems
+      summary: Importazione di articoli nuovi di magazzino da un file CSV, con la giacenza iniziale
+      description: |
+        Permesso: warehouse.create. Come importClients: stesso formato del file (al massimo
+        5000 articoli), solo articoli nuovi, tutti o nessuno, errori sotto `file` o
+        `row.<n>`; il file di exportWarehouseItems si reimporta così com'è, se nessuna
+        giacenza è negativa. Colonne per nome:
+        articolo (nome) e unità sono obbligatorie; le altre sono codice, giacenza (12,500
+        oppure 12.5, non negativa, al massimo tre decimali) e note. Ogni riga si controlla
+        come createWarehouseItem; un codice già presente nell'azienda o ripetuto nel file
+        (senza distinguere maiuscole) è un errore della riga. Una giacenza maggiore di zero
+        diventa un carico con la data di oggi e la nota «Giacenza iniziale (importazione)».
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+            example: "codice;articolo;unità;giacenza\r\nCEM-01;Cemento 32,5 R;sacco;40\r\n"
+      responses:
+        '200':
+          description: Articoli importati
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [created, stock_loaded]
+                properties:
+                  created:
+                    type: integer
+                    minimum: 1
+                    description: Articoli aggiunti.
+                  stock_loaded:
+                    type: integer
+                    minimum: 0
+                    description: Articoli con un carico della giacenza iniziale.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: File più grande di 5 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Il corpo non è un file CSV (Content-Type text/csv).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/warehouse/items/export:
     parameters:
       - $ref: '#/components/parameters/Company'

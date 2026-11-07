@@ -16,6 +16,10 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, toCsv } from '../csv.js'
+import { csvScope } from '../http/files.js'
+import { ImportFailed } from '../csv-import.js'
+import { RowErrors } from '../clients/import.js'
+import { itemRowMessages, parseWarehouseItemsCsv } from '../warehouse/import.js'
 
 export const MOVEMENT_KINDS = ['in', 'out'] as const
 type Kind = (typeof MOVEMENT_KINDS)[number]
@@ -351,6 +355,71 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
         data: rows.map(itemToContract),
         meta: { total: count.rows[0]?.total ?? 0, page: q.page, per_page: q.perPage },
       }
+    })
+  })
+
+  csvScope(app, config, (scope) => {
+    scope.post<{ Params: Params }>(`${items}/import`, async (request) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('warehouse.create')) throw forbidden()
+        const body = request.body
+        if (!Buffer.isBuffer(body)) {
+          throw new ApiError(415, 'Il corpo deve essere un file CSV (text/csv).')
+        }
+        let imported
+        try {
+          imported = parseWarehouseItemsCsv(body, (row) => {
+            try {
+              return { input: parseItemInput(row) }
+            } catch (error) {
+              if (error instanceof ValidationFailed) return { errors: error.errors }
+              throw error
+            }
+          })
+        } catch (error) {
+          if (error instanceof ImportFailed) throw new ValidationFailed(error.errors)
+          throw error
+        }
+        // One savepoint per row, so a duplicate code is reported on its row.
+        const errors = new RowErrors()
+        let loaded = 0
+        for (const { line, input, stock } of imported) {
+          await client.query('savepoint import_row')
+          let id: string | undefined
+          try {
+            const { rows } = await client.query<{ id: string }>(
+              `insert into public.warehouse_items (company_id, code, name, unit, notes)
+               values (app.current_company_id(), $1, $2, $3, $4) returning id`,
+              [input.code, input.name, input.unit, input.notes],
+            )
+            id = rows[0]?.id
+            await client.query('release savepoint import_row')
+          } catch (error) {
+            if (!isUniqueViolation(error)) throw error
+            await client.query('rollback to savepoint import_row')
+            errors.add(
+              line,
+              itemRowMessages({ code: ['Esiste già un articolo con questo codice.'] }),
+            )
+            continue
+          }
+          if (stock !== null && id) {
+            await client.query(
+              `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
+                 quantity, notes, created_by)
+               values (app.current_company_id(), $1, (now() at time zone 'Europe/Rome')::date, 'in',
+                 $2, $3, $4)`,
+              [id, stock, 'Giacenza iniziale (importazione)', session.user.id],
+            )
+            loaded++
+          }
+        }
+        if (!errors.empty) throw new ValidationFailed(errors.errors)
+        return { created: imported.length, stock_loaded: loaded }
+      })
     })
   })
 
