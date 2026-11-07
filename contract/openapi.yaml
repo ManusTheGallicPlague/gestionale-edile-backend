@@ -695,6 +695,16 @@ paths:
               archived:
                 type: boolean
                 default: false
+              compliance:
+                type: string
+                enum: [expired, expiring, no_valid_durc]
+                description: |
+                  Regolarità dai documenti del fornitore (DURC, visura, assicurazione, altro),
+                  guardando per ogni tipo solo la scadenza più lontana: un DURC vecchio scaduto
+                  non conta se ce n'è uno nuovo. expired: almeno un tipo scaduto. expiring:
+                  nessuno scaduto, almeno uno che scade entro 30 giorni da oggi, oggi compreso.
+                  no_valid_durc: nessun DURC valido oggi (mai caricato o scaduto), di solito con
+                  filter[subcontractor]=true.
       responses:
         '200':
           description: Una pagina di fornitori
@@ -885,6 +895,16 @@ paths:
               archived:
                 type: boolean
                 default: false
+              compliance:
+                type: string
+                enum: [expired, expiring, no_valid_durc]
+                description: |
+                  Regolarità dai documenti del fornitore (DURC, visura, assicurazione, altro),
+                  guardando per ogni tipo solo la scadenza più lontana: un DURC vecchio scaduto
+                  non conta se ce n'è uno nuovo. expired: almeno un tipo scaduto. expiring:
+                  nessuno scaduto, almeno uno che scade entro 30 giorni da oggi, oggi compreso.
+                  no_valid_durc: nessun DURC valido oggi (mai caricato o scaduto), di solito con
+                  filter[subcontractor]=true.
       responses:
         '200':
           description: Il file CSV

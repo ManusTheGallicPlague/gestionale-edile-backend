@@ -83,6 +83,27 @@ function duplicateErrors(error: { constraint?: string | undefined }): FieldError
   return null
 }
 
+const COMPLIANCE = ['expired', 'expiring', 'no_valid_durc'] as const
+
+const TODAY = "(now() at time zone 'Europe/Rome')::date"
+
+/**
+ * The latest expiry of each kind of compliance document of the supplier: an older DURC that
+ * expired does not count once a newer one is on file. Documents without expiry are left out.
+ */
+const LATEST_EXPIRIES = `
+  select max(d.expires_on) as expires_on from public.supplier_documents d
+  where d.supplier_id = suppliers.id and d.expires_on is not null group by d.kind`
+
+const COMPLIANCE_SQL: Record<(typeof COMPLIANCE)[number], string> = {
+  expired: `exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${TODAY})`,
+  expiring: `not exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${TODAY})
+    and exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on <= ${TODAY} + 30)`,
+  no_valid_durc: `not exists (select 1 from public.supplier_documents d
+    where d.supplier_id = suppliers.id and d.kind = 'durc'
+      and (d.expires_on is null or d.expires_on >= ${TODAY}))`,
+}
+
 function readList(query: Record<string, unknown>) {
   const errors: FieldErrors = {}
   const single = (name: string): string | undefined => {
@@ -129,9 +150,24 @@ function readList(query: Record<string, unknown>) {
   }
   const subcontractor = boolean('filter[subcontractor]')
   const archived = boolean('filter[archived]') ?? false
+  const complianceValue = single('filter[compliance]')
+  const compliance =
+    complianceValue === undefined ? undefined : COMPLIANCE.find((c) => c === complianceValue)
+  if (complianceValue !== undefined && !compliance) {
+    errors['filter[compliance]'] = ['Vale expired, expiring oppure no_valid_durc.']
+  }
 
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? 'name', search, category, subcontractor, archived }
+  return {
+    page,
+    perPage,
+    sort: sort ?? 'name',
+    search,
+    category,
+    subcontractor,
+    archived,
+    compliance,
+  }
 }
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -147,6 +183,7 @@ function listFilter(list: ReturnType<typeof readList>) {
     values.push(list.subcontractor)
     where.push(`subcontractor = $${values.length}`)
   }
+  if (list.compliance) where.push(COMPLIANCE_SQL[list.compliance])
   if (list.search) {
     values.push(`%${escapeLike(list.search)}%`)
     const p = `$${values.length}`

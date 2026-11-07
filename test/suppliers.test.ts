@@ -165,12 +165,62 @@ describe('list', () => {
     expect(await names('?filter[archived]=true')).toEqual([])
   })
 
+  it('filters by compliance documents, looking at the latest expiry of each kind', async () => {
+    const { browser, base, company } = await signedIn()
+    const ids: Record<string, string> = {}
+    for (const name of ['Rinnovato', 'Scaduto', 'In scadenza', 'Lontano', 'Senza', 'Senza data']) {
+      const res = await browser.call('POST', base, {
+        body: supplierBody({ name, subcontractor: true, categories: ['subcontracting'] }),
+      })
+      ids[name] = res.json<{ id: string }>().id
+    }
+    const today = "(now() at time zone 'Europe/Rome')::date"
+    const doc = (name: string, kind: string, offset: number | null) =>
+      ctx.owner.query(
+        `insert into public.supplier_documents (company_id, supplier_id, kind, expires_on)
+         values ($1, $2, $3, case when $4::int is null then null else ${today} + $4::int end)`,
+        [company.id, ids[name], kind, offset],
+      )
+    // An old DURC expired, a new one valid: fine. Insurance expiring today counts as expiring.
+    await doc('Rinnovato', 'durc', -40)
+    await doc('Rinnovato', 'durc', 80)
+    await doc('Scaduto', 'durc', 60)
+    await doc('Scaduto', 'insurance', -1)
+    await doc('In scadenza', 'durc', 30)
+    await doc('In scadenza', 'insurance', 0)
+    await doc('Lontano', 'durc', 31)
+    await doc('Senza data', 'durc', null)
+    await doc('Senza data', 'chamber_extract', -5)
+    // Another company's supplier with an expired DURC stays out.
+    const other = await signedIn()
+    const foreign = await other.browser.call('POST', other.base, { body: supplierBody() })
+    await ctx.owner.query(
+      `insert into public.supplier_documents (company_id, supplier_id, kind, expires_on)
+       values ($1, $2, 'durc', ${today} - 1)`,
+      [other.company.id, foreign.json<{ id: string }>().id],
+    )
+    const names = async (query: string) =>
+      (await browser.call('GET', `${base}${query}`)).json<Listed>().data.map((s) => s.name)
+    expect(await names('?filter[compliance]=expired')).toEqual(['Scaduto', 'Senza data'])
+    expect(await names('?filter[compliance]=expiring')).toEqual(['In scadenza'])
+    expect(await names('?filter[compliance]=no_valid_durc&filter[subcontractor]=true')).toEqual([
+      'Senza',
+    ])
+    const csv = await browser.call('GET', `${base}/export?filter[compliance]=expired`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.trim().split('\r\n')).toHaveLength(3)
+    expect((await browser.call('GET', `${base}/export?filter[compliance]=durc`)).statusCode).toBe(
+      422,
+    )
+  })
+
   it('refuses wrong filters with 422', async () => {
     const { browser, base } = await signedIn()
     for (const query of [
       'filter[category]=cemento',
       'filter[subcontractor]=forse',
       'filter[archived]=1',
+      'filter[compliance]=scaduto',
       'sort=vat_number',
     ]) {
       const res = await browser.call('GET', `${base}?${query}`)
