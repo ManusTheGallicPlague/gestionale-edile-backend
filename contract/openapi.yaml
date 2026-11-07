@@ -338,6 +338,31 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/clients/balances:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listClientBalances
+      summary: Crediti verso i clienti, cliente per cliente
+      description: |
+        Permessi: clients.view e invoices.view. I clienti con fatture emesse ancora da
+        saldare, anche se archiviati, dal residuo più alto (a parità, per nome). Gli importi
+        sono quelli di SubjectAccount; outstanding e overdue in fondo sono le somme di tutti i
+        clienti, non solo della pagina.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Una pagina di clienti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubjectBalanceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/clients/export:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -707,6 +732,31 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/suppliers/balances:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listSupplierBalances
+      summary: Debiti verso i fornitori, fornitore per fornitore
+      description: |
+        Permessi: suppliers.view e invoices.view. I fornitori con fatture ricevute ancora da
+        saldare, anche se archiviati, dal residuo più alto (a parità, per nome). Gli importi
+        sono quelli di SubjectAccount; outstanding e overdue in fondo sono le somme di tutti i
+        fornitori, non solo della pagina.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+      responses:
+        '200':
+          description: Una pagina di fornitori
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SubjectBalanceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/suppliers/export:
@@ -8921,6 +8971,40 @@ components:
             - $ref: '#/components/schemas/Amount'
         overdue:
           description: Parte di outstanding già scaduta.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+    SubjectBalanceList:
+      type: object
+      required: [data, meta, outstanding, overdue]
+      properties:
+        data:
+          type: array
+          items:
+            type: object
+            required: [subject, open_invoice_count, outstanding, overdue, oldest_due_date]
+            properties:
+              subject: { $ref: '#/components/schemas/SubjectRef' }
+              open_invoice_count:
+                type: integer
+                minimum: 1
+              outstanding:
+                description: Ancora da incassare o da pagare.
+                allOf:
+                  - $ref: '#/components/schemas/Amount'
+              overdue:
+                description: Parte di outstanding già scaduta.
+                allOf:
+                  - $ref: '#/components/schemas/Amount'
+              oldest_due_date:
+                description: La scadenza più vecchia tra le fatture aperte; null se nessuna ne ha.
+                oneOf:
+                  - $ref: '#/components/schemas/Date'
+                  - type: 'null'
+        meta: { $ref: '#/components/schemas/ListMeta' }
+        outstanding:
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        overdue:
           allOf:
             - $ref: '#/components/schemas/Amount'
     DashboardInvoices:

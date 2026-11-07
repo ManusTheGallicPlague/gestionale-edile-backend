@@ -258,4 +258,102 @@ describe('statement of account', () => {
     ).toBe(404)
     expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
   })
+
+  it('lists the balance of each client, highest first, with totals of all pages', async () => {
+    const s = await scene()
+    const third = (
+      await ctx.owner.query<{ id: string }>(
+        "insert into public.clients (company_id, kind, name, archived_at) values ($1, 'person', 'Bruno Neri', now()) returning id",
+        [s.company.id],
+      )
+    ).rows[0]?.id
+    await invoice(s, s.browser, { due_date: '2026-02-28' })
+    await invoice(s, s.browser, { taxable_amount: '10', vat_amount: '0', due_date: '2026-03-01' })
+    await invoice(s, s.browser, { paid_on: '2026-01-20' })
+    await invoice(s, s.browser, { client_id: s.other, taxable_amount: '5000', vat_amount: '0' })
+    // Archived, with no due date: still listed, never overdue.
+    await invoice(s, s.browser, { client_id: third, due_date: null, taxable_amount: '1230' })
+    // A received invoice does not count.
+    await invoice(s, s.browser, { direction: 'received', client_id: null, supplier_id: s.supplier })
+
+    const base = `${s.base}/clients/balances`
+    const res = await s.browser.call('GET', base)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      data: [
+        {
+          subject: { id: s.other, name: 'Anna Verdi' },
+          open_invoice_count: 1,
+          outstanding: '5000.00',
+          overdue: '0.00',
+          oldest_due_date: '2099-12-31',
+        },
+        {
+          subject: { id: third, name: 'Bruno Neri' },
+          open_invoice_count: 1,
+          outstanding: '1450.00',
+          overdue: '0.00',
+          oldest_due_date: null,
+        },
+        {
+          subject: { id: s.client, name: 'Mario Bianchi' },
+          open_invoice_count: 2,
+          outstanding: '1230.00',
+          overdue: '1230.00',
+          oldest_due_date: '2026-02-28',
+        },
+      ],
+      meta: { total: 3, page: 1, per_page: 25 },
+      outstanding: '7680.00',
+      overdue: '1230.00',
+    })
+
+    const second = await s.browser.call('GET', `${base}?page=2&per_page=2`)
+    expect(second.json()).toMatchObject({
+      data: [{ subject: { id: s.client } }],
+      meta: { total: 3, page: 2, per_page: 2 },
+      outstanding: '7680.00',
+    })
+    // Past the last page: no rows, the same totals.
+    const past = await s.browser.call('GET', `${base}?page=9`)
+    expect(past.json()).toEqual({
+      data: [],
+      meta: { total: 3, page: 9, per_page: 25 },
+      outstanding: '7680.00',
+      overdue: '1230.00',
+    })
+    expect((await s.browser.call('GET', `${base}?per_page=101`)).statusCode).toBe(422)
+
+    const suppliers = await s.browser.call('GET', `${s.base}/suppliers/balances`)
+    expect(suppliers.json()).toMatchObject({
+      data: [{ subject: { id: s.supplier, name: 'Laterizi di prova' }, outstanding: '1220.00' }],
+      meta: { total: 1 },
+    })
+
+    // Another company sees none of these; their own lists are empty.
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', base)).statusCode).toBe(404)
+    expect((await theirs.browser.call('GET', `${theirs.base}/clients/balances`)).json()).toEqual({
+      data: [],
+      meta: { total: 0, page: 1, per_page: 25 },
+      outstanding: '0.00',
+      overdue: '0.00',
+    })
+  })
+
+  it('lists balances only with both view permissions', async () => {
+    const noInvoices = await scene(['clients.view', 'suppliers.view'])
+    expect(
+      (await noInvoices.browser.call('GET', `${noInvoices.base}/clients/balances`)).statusCode,
+    ).toBe(403)
+    const noClients = await scene(['invoices.view', 'suppliers.view'])
+    expect(
+      (await noClients.browser.call('GET', `${noClients.base}/clients/balances`)).statusCode,
+    ).toBe(403)
+    expect(
+      (await noClients.browser.call('GET', `${noClients.base}/suppliers/balances`)).statusCode,
+    ).toBe(200)
+    const anon = new Browser(ctx.app)
+    expect((await anon.call('GET', `${noClients.base}/clients/balances`)).statusCode).toBe(401)
+  })
 })

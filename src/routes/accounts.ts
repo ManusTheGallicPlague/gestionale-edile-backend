@@ -4,7 +4,7 @@ import type { Db } from '../db.js'
 import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
-import { forbidden, notFound } from '../http/errors.js'
+import { ValidationFailed, forbidden, notFound, type FieldErrors } from '../http/errors.js'
 import { requireSession } from '../http/request-context.js'
 import type { Permission } from '../permissions.js'
 import { accountPdf } from '../accounts/pdf.js'
@@ -73,6 +73,25 @@ async function enterSubject(
   return id
 }
 
+/** page and per_page of a list, as in the other lists. */
+function readPaging(query: Record<string, unknown>): { page: number; perPage: number } {
+  const errors: FieldErrors = {}
+  const integer = (name: string, fallback: number, max?: number): number => {
+    const value = query[name]
+    if (value === undefined) return fallback
+    const n = typeof value === 'string' && /^\d{1,6}$/.test(value) ? Number(value) : NaN
+    if (!Number.isInteger(n) || n < 1 || (max !== undefined && n > max)) {
+      errors[name] = [max ? `Un numero intero da 1 a ${max}.` : 'Un numero intero da 1 in su.']
+      return fallback
+    }
+    return n
+  }
+  const page = integer('page', 1)
+  const perPage = integer('per_page', 25, 100)
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { page, perPage }
+}
+
 /** Statement of account of a client (issued invoices) or a supplier (received invoices). */
 export function accountRoutes(app: FastifyInstance, db: Db): void {
   for (const subject of SUBJECTS) {
@@ -104,6 +123,90 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
             settled: centsToAmount((BigInt(r.amount_due) - BigInt(r.outstanding)).toString()),
             outstanding: centsToAmount(r.outstanding),
             overdue: centsToAmount(r.overdue),
+          }
+        })
+      },
+    )
+  }
+
+  for (const subject of SUBJECTS) {
+    app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+      `/api/companies/:company/${subject.path}/balances`,
+      async (request) => {
+        const session = requireSession(request)
+        const { page, perPage } = readPaging(request.query)
+        return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+          const permissions = await enterCompany(client, request.params.company)
+          if (!permissions.has(subject.view) || !permissions.has('invoices.view')) {
+            throw forbidden()
+          }
+          const { rows } = await client.query<{
+            id: string
+            name: string
+            open_invoice_count: number
+            outstanding: string
+            overdue: string
+            oldest_due_date: string | null
+            total_count: number
+            total_outstanding: string
+            total_overdue: string
+          }>(
+            `with open as (
+               select i.${subject.column} as subject_id, (${REMAINING_CENTS}) as remaining,
+                 i.due_date, i.due_date < ${TODAY} as late
+               from public.invoices i
+               where i.direction = $1 and i.paid_on is null and i.${subject.column} is not null
+             ), balances as (
+               select o.subject_id, count(*)::int as open_invoice_count,
+                 sum(o.remaining) as outstanding,
+                 coalesce(sum(o.remaining) filter (where o.late), 0) as overdue,
+                 min(o.due_date)::text as oldest_due_date
+               from open o where o.remaining > 0
+               group by o.subject_id
+             )
+             select b.subject_id as id, x.name, b.open_invoice_count,
+               b.outstanding::text as outstanding, b.overdue::text as overdue, b.oldest_due_date,
+               (count(*) over ())::int as total_count,
+               (sum(b.outstanding) over ())::text as total_outstanding,
+               (sum(b.overdue) over ())::text as total_overdue
+             from balances b
+             join ${subject.table} x on x.id = b.subject_id
+             order by b.outstanding desc, x.name asc, x.id asc
+             limit $2 offset $3`,
+            [subject.direction, perPage, (page - 1) * perPage],
+          )
+          // Past the last page the window totals are missing: read them apart.
+          let totals = rows[0]
+            ? {
+                count: rows[0].total_count,
+                outstanding: rows[0].total_outstanding,
+                overdue: rows[0].total_overdue,
+              }
+            : undefined
+          if (!totals) {
+            const t = await client.query<{ count: number; outstanding: string; overdue: string }>(
+              `select count(distinct i.${subject.column})::int as count,
+                 coalesce(sum(${REMAINING_CENTS}), 0)::text as outstanding,
+                 coalesce(sum(${REMAINING_CENTS}) filter (where i.due_date < ${TODAY}), 0)::text
+                   as overdue
+               from public.invoices i
+               where i.direction = $1 and i.paid_on is null and i.${subject.column} is not null
+                 and ${REMAINING_CENTS} > 0`,
+              [subject.direction],
+            )
+            totals = t.rows[0] ?? { count: 0, outstanding: '0', overdue: '0' }
+          }
+          return {
+            data: rows.map((r) => ({
+              subject: { id: r.id, name: r.name },
+              open_invoice_count: r.open_invoice_count,
+              outstanding: centsToAmount(r.outstanding),
+              overdue: centsToAmount(r.overdue),
+              oldest_due_date: r.oldest_due_date,
+            })),
+            meta: { total: totals.count, page, per_page: perPage },
+            outstanding: centsToAmount(totals.outstanding),
+            overdue: centsToAmount(totals.overdue),
           }
         })
       },
