@@ -6,6 +6,7 @@ import { isForeignKeyViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
 import { italianDate, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
+import { formatQuoteNumber } from '../quotes/number.js'
 import { UUID } from '../deadlines/input.js'
 import {
   ApiError,
@@ -19,6 +20,7 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 import { quotePdf } from '../quotes/pdf.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
+import { readSite, sendSite } from './sites.js'
 import { VAT_RATES, isVatNature, type VatNature } from '../quotes/vat.js'
 import { LINE_COLUMNS, lineToContract, type LineRow } from './quote-lines.js'
 
@@ -45,6 +47,7 @@ interface QuoteRow extends QuoteInput {
   revision_of_year: number | null
   revision_of_seq: number | null
   revision_of_revision: number | null
+  site_id: string | null
   issue_date: string | null
   valid_until: string | null
   sent_at: Date | null
@@ -62,6 +65,7 @@ const SELECT = `select q.id, q.client_id, q.subject, q.validity_days, q.notes, q
     src.revision as revision_of_revision, q.issue_date::text as issue_date,
     (q.issue_date + q.validity_days)::text as valid_until, q.sent_at, q.version,
     q.created_at, q.updated_at, c.name as client_name,
+    (select s.id from public.sites s where s.quote_id = q.id) as site_id,
     (select coalesce(jsonb_agg(jsonb_build_object(
         'rate', r.vat_rate, 'nature', r.vat_nature, 'taxable', r.taxable::text,
         'vat', r.vat::text)
@@ -87,12 +91,6 @@ const SORTS = {
   updated_at: 'q.updated_at asc, q.id asc',
   '-updated_at': 'q.updated_at desc, q.id desc',
 } as const
-
-function formatNumber(year: number | null, seq: number | null, revision: number | null) {
-  if (year === null || seq === null) return null
-  const base = `${year}/${String(seq).padStart(3, '0')}`
-  return revision ? `${base}-R${revision}` : base
-}
 
 /** Totals in integer cents (BigInt), from the per-rate sums computed by the database. */
 function totals(breakdown: QuoteRow['vat_breakdown']) {
@@ -121,18 +119,23 @@ function toContract(row: QuoteRow) {
     notes: row.notes,
     terms: row.terms,
     status: row.status,
-    number: formatNumber(row.number_year, row.number_seq, row.revision),
+    number: formatQuoteNumber(row.number_year, row.number_seq, row.revision),
     revision: row.revision,
     revision_of: row.revision_of_id
       ? {
           id: row.revision_of_id,
-          number: formatNumber(row.revision_of_year, row.revision_of_seq, row.revision_of_revision),
+          number: formatQuoteNumber(
+            row.revision_of_year,
+            row.revision_of_seq,
+            row.revision_of_revision,
+          ),
         }
       : null,
     issue_date: row.issue_date,
     valid_until: row.valid_until,
     sent_at: row.sent_at ? row.sent_at.toISOString() : null,
     totals: totals(row.vat_breakdown),
+    site_id: row.site_id,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -340,7 +343,7 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
             const t = totals(r.vat_breakdown)
             const comma = (amount: string) => amount.replace('.', ',')
             return [
-              formatNumber(r.number_year, r.number_seq, r.revision),
+              formatQuoteNumber(r.number_year, r.number_seq, r.revision),
               r.issue_date ? italianDate(r.issue_date) : null,
               r.client_name,
               r.subject,
@@ -581,6 +584,43 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
     })
     if (!row) throw notFound()
     return send(reply, row)
+  })
+
+  app.post<{ Params: Params }>(`${base}/:quote/site`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const site = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.view')) throw notFound()
+      if (!permissions.has('sites.create')) throw forbidden()
+      const id = request.params.quote ?? ''
+      if (!UUID.test(id)) throw notFound()
+      // Locked, so two requests at once do not both get past the checks.
+      const { rows } = await client.query<{ status: Status }>(
+        'select status from public.quotes where id = $1 for update',
+        [id],
+      )
+      const quote = rows[0]
+      if (!quote) throw notFound()
+      if (quote.status !== 'accepted') {
+        throw new ApiError(409, messages.quoteNotAccepted, 'invalid_transition')
+      }
+      const existing = await client.query('select 1 from public.sites where quote_id = $1', [id])
+      if (existing.rowCount) throw new ApiError(409, messages.quoteHasSite, 'site_exists')
+      const quoteRow = await readOne(client, id)
+      if (!quoteRow) throw notFound()
+      const taxable = quoteRow.vat_breakdown.reduce((sum, r) => sum + BigInt(r.taxable), 0n)
+      const { rows: created } = await client.query<{ id: string }>(
+        `insert into public.sites (company_id, name, client_id, status, budget_cents, quote_id)
+         values (app.current_company_id(), $1, $2, 'planned', $3, $4)
+         returning id`,
+        // A budget is never negative: a quote of deductions only leaves it empty.
+        [quoteRow.subject, quoteRow.client_id, taxable < 0n ? null : taxable.toString(), id],
+      )
+      return readSite(client, created[0]?.id ?? '')
+    })
+    if (!site) throw new Error('insert returned no row')
+    return sendSite(reply, site, 201)
   })
 
   app.post<{ Params: Params }>(`${base}/:quote/revisions`, async (request, reply) => {

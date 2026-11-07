@@ -1305,6 +1305,41 @@ describe('the API role cannot cross companies', () => {
     ).rejects.toThrow(/foreign key/)
   })
 
+  it('sites: cannot be linked to a quote of another company', async () => {
+    const clientB = await owner.query<{ id: string }>(
+      "insert into public.clients (company_id, kind, name, tax_code) values ($1, 'person', 'Cliente B', 'RSSMRA80A01L219M') returning id",
+      [companyB.id],
+    )
+    const quoteB = await owner.query<{ id: string }>(
+      `insert into public.quotes (company_id, client_id, subject, validity_days, status,
+         number_year, number_seq, revision, issue_date, sent_at)
+       values ($1, $2, 'Preventivo B', 30, 'accepted', 2026, 1, 0, '2026-11-02', now())
+       returning id`,
+      [companyB.id, clientB.rows[0]?.id],
+    )
+    const quoteId = quoteB.rows[0]?.id
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query("insert into public.sites (company_id, name, quote_id) values ($1, 'A', $2)", [
+          companyA.id,
+          quoteId,
+        ]),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    await expect(
+      as(alice.id, companyA.id, async (c) => {
+        const own = await c.query<{ id: string }>(
+          "insert into public.sites (company_id, name) values ($1, 'A') returning id",
+          [companyA.id],
+        )
+        return c.query('update public.sites set quote_id = $1 where id = $2', [
+          quoteId,
+          own.rows[0]?.id,
+        ])
+      }),
+    ).rejects.toThrow(/foreign key/)
+  })
+
   it('price lists and their items: cannot read, write or attach across companies', async () => {
     const listB = await owner.query<{ id: string }>(
       "insert into public.price_lists (company_id, name) values ($1, 'B') returning id",

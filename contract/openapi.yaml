@@ -5310,6 +5310,41 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/quotes/{quote}/site:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/QuoteId'
+    post:
+      operationId: createSiteFromQuote
+      summary: Cantiere da un preventivo accettato
+      description: |
+        Permessi: quotes.view e sites.create. Crea il cantiere del lavoro di un preventivo
+        accettato: nome dall'oggetto, stesso cliente, budget uguale all'imponibile, stato
+        planned, senza codice, indirizzo e date (si completano con updateSite). Il cantiere
+        resta collegato al preventivo (quote nel cantiere, site_id nel preventivo); per ogni
+        preventivo si crea un solo cantiere. Senza permesso di vedere il preventivo risponde 404.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '201':
+          description: Il cantiere creato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Site' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            Il preventivo non è accettato (code invalid_transition) o ha già un cantiere
+            (code site_exists).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/companies/{company}/quotes/{quote}/revisions:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -5721,7 +5756,7 @@ components:
           description: |
             Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
             Per ora: csrf_invalid, stale_record, precondition_required, has_documents,
-            statement_draft_exists, statement_not_draft.
+            statement_draft_exists, statement_not_draft, invalid_transition, site_exists.
     ValidationError:
       type: object
       required: [message, errors]
@@ -6685,12 +6720,17 @@ components:
       allOf:
         - $ref: '#/components/schemas/SiteInput'
         - type: object
-          required: [id, client, location, created_at, updated_at]
+          required: [id, client, location, quote, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             client:
               oneOf:
                 - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            quote:
+              description: Il preventivo da cui è nato il cantiere (createSiteFromQuote), o null.
+              oneOf:
+                - $ref: '#/components/schemas/QuoteRef'
                 - type: 'null'
             created_at:
               type: string
@@ -8374,9 +8414,14 @@ components:
         - $ref: '#/components/schemas/QuoteInput'
         - type: object
           required:
-            [id, client, status, number, revision, revision_of, issue_date, valid_until, sent_at, totals, created_at, updated_at]
+            [id, client, status, number, revision, revision_of, issue_date, valid_until, sent_at, totals, site_id, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            site_id:
+              description: Il cantiere creato da questo preventivo (createSiteFromQuote), o null.
+              oneOf:
+                - $ref: '#/components/schemas/Id'
+                - type: 'null'
             totals: { $ref: '#/components/schemas/QuoteTotals' }
             client: { $ref: '#/components/schemas/SubjectRef' }
             status: { $ref: '#/components/schemas/QuoteStatus' }

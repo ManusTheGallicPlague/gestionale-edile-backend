@@ -309,6 +309,10 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       await client.query('delete from public.deadlines where company_id = $1', [companyId])
       // Invoices point to clients, suppliers and sites: they go first.
       await client.query('delete from public.invoices where company_id = $1', [companyId])
+      // Sites created from a quote keep it: unlink them, so the quotes can be replaced.
+      await client.query('update public.sites set quote_id = null where company_id = $1', [
+        companyId,
+      ])
       await client.query('delete from public.quotes where company_id = $1', [companyId])
       // Daily reports point to sites, employees and vehicles: they go first.
       await client.query('delete from public.daily_reports where company_id = $1', [companyId])
@@ -563,6 +567,14 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            select id from public.clients where company_id = $1 and archived_at is null
            order by created_at offset s.n limit 1
          ) c on true`,
+        [companyId],
+      )
+      // The bathroom site comes from the accepted quote 2026/002 (createSiteFromQuote).
+      await client.query(
+        `update public.sites s set quote_id = q.id
+         from public.quotes q
+         where s.company_id = $1 and s.code = '2026-02'
+           and q.company_id = $1 and q.number_year = 2026 and q.number_seq = 2`,
         [companyId],
       )
       await client.query(

@@ -17,6 +17,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { formatQuoteNumber } from '../quotes/number.js'
 
 export const SITE_STATUSES = ['planned', 'active', 'suspended', 'completed'] as const
 type Status = (typeof SITE_STATUSES)[number]
@@ -63,6 +64,10 @@ interface SiteRow extends SiteValues {
   latitude: string | null
   longitude: string | null
   client_name: string | null
+  quote_id: string | null
+  quote_year: number | null
+  quote_seq: number | null
+  quote_revision: number | null
   version: number
   created_at: Date
   updated_at: Date
@@ -72,9 +77,11 @@ type Params = { company: string; site?: string }
 
 const SELECT = `select s.id, s.code, s.name, s.client_id, s.address, s.status,
     s.start_on::text as start_on, s.end_on::text as end_on, s.budget_cents::text as budget_cents,
-    s.notes, s.latitude::text as latitude, s.longitude::text as longitude, s.version, s.created_at, s.updated_at, c.name as client_name
+    s.notes, s.latitude::text as latitude, s.longitude::text as longitude, s.version, s.created_at, s.updated_at, c.name as client_name,
+    s.quote_id, q.number_year as quote_year, q.number_seq as quote_seq, q.revision as quote_revision
   from public.sites s
-  left join public.clients c on c.id = s.client_id`
+  left join public.clients c on c.id = s.client_id
+  left join public.quotes q on q.id = s.quote_id`
 
 const SORTS = {
   name: 'lower(s.name) asc, s.id asc',
@@ -104,12 +111,18 @@ function toContract(row: SiteRow) {
       row.latitude === null || row.longitude === null
         ? null
         : { latitude: row.latitude, longitude: row.longitude },
+    quote: row.quote_id
+      ? {
+          id: row.quote_id,
+          number: formatQuoteNumber(row.quote_year, row.quote_seq, row.quote_revision),
+        }
+      : null,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
 }
 
-const send = (reply: FastifyReply, row: SiteRow, status = 200) =>
+export const sendSite = (reply: FastifyReply, row: SiteRow, status = 200) =>
   reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row))
 
 function expectedVersion(header: string | string[] | undefined): number {
@@ -299,13 +312,13 @@ function listFilter(list: ReturnType<typeof readList>) {
   return { where, values }
 }
 
-async function readOne(client: PoolClient, id: string) {
+export async function readSite(client: PoolClient, id: string) {
   const { rows } = await client.query<SiteRow>(`${SELECT} where s.id = $1`, [id])
   return rows[0]
 }
 
 async function missingOrStale(client: PoolClient, id: string): Promise<never> {
-  if (!(await readOne(client, id))) throw notFound()
+  if (!(await readSite(client, id))) throw notFound()
   throw new ApiError(412, messages.siteStale, 'stale_record')
 }
 
@@ -392,10 +405,10 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       if (!permissions.has('sites.view')) throw notFound()
       const id = request.params.site ?? ''
       if (!UUID.test(id)) throw notFound()
-      return readOne(client, id)
+      return readSite(client, id)
     })
     if (!row) throw notFound()
-    return send(reply, row)
+    return sendSite(reply, row)
   })
 
   app.post<{ Params: Params }>(base, async (request, reply) => {
@@ -419,10 +432,10 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
           ],
         )
         .catch(writeFailed)
-      return readOne(client, rows[0]?.id ?? '')
+      return readSite(client, rows[0]?.id ?? '')
     })
     if (!row) throw new Error('insert returned no row')
-    return send(reply, row, 201)
+    return sendSite(reply, row, 201)
   })
 
   app.put<{ Params: Params }>(`${base}/:site`, async (request, reply) => {
@@ -454,10 +467,10 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
         )
         .catch(writeFailed)
       if (!rowCount) return missingOrStale(client, id)
-      return readOne(client, id)
+      return readSite(client, id)
     })
     if (!row) throw notFound()
-    return send(reply, row)
+    return sendSite(reply, row)
   })
 
   app.delete<{ Params: Params }>(`${base}/:site`, async (request, reply) => {
