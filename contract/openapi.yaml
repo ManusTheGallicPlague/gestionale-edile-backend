@@ -6686,7 +6686,7 @@ paths:
   /api/companies/{company}/quotes/{quote}/duplicate:
     parameters:
       - $ref: '#/components/parameters/Company'
-      - $ref: '#/components/parameters/Quote'
+      - $ref: '#/components/parameters/QuoteId'
     post:
       operationId: duplicateQuote
       summary: Copia di un preventivo, anche per un altro cliente
