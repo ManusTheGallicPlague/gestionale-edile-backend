@@ -1622,6 +1622,21 @@ describe('the API role cannot cross companies', () => {
     expect(seen.rows[0]?.m).toBe(false)
   })
 
+  it('company logos: my_companies_with_logo names only the companies of the user', async () => {
+    for (const id of [companyA.id, companyB.id]) {
+      await owner.query(
+        `insert into public.company_logos (company_id, content_type, data)
+         values ($1, 'image/png', '\\x89504e47') on conflict (company_id) do nothing`,
+        [id],
+      )
+    }
+    const { rows } = await as(alice.id, companyA.id, (c) =>
+      c.query<{ id: string }>('select app.my_companies_with_logo() as id'),
+    )
+    expect(rows.map((r) => r.id)).toContain(companyA.id)
+    expect(rows.map((r) => r.id)).not.toContain(companyB.id)
+  })
+
   it('members: cannot change or deactivate members of another company', async () => {
     const roleB = await fx.role(companyB.id, `Membri B ${Math.random()}`, ['users.manage'])
     const carol = await fx.user()

@@ -43,8 +43,15 @@ describe('GET /api/me', () => {
           name: 'Alfa S.r.l.',
           role: 'Titolare',
           permissions: ['clients.update', 'clients.view'],
+          has_logo: false,
         },
-        { slug: b.slug, name: 'Beta S.p.A.', role: 'Capo cantiere', permissions: ['clients.view'] },
+        {
+          slug: b.slug,
+          name: 'Beta S.p.A.',
+          role: 'Capo cantiere',
+          permissions: ['clients.view'],
+          has_logo: false,
+        },
       ],
     })
   })
@@ -65,5 +72,27 @@ describe('GET /api/me', () => {
     expect(res.json<{ companies: { permissions: unknown }[] }>().companies[0]?.permissions).toEqual(
       [],
     )
+  })
+
+  it('says which companies have a logo', async () => {
+    const user = await fx.user()
+    const a = await fx.company('Con logo S.r.l.')
+    const b = await fx.company('Senza logo S.r.l.')
+    await fx.member(user.id, a.id, await fx.role(a.id, 'Titolare', []))
+    await fx.member(user.id, b.id, await fx.role(b.id, 'Titolare', []))
+    await ctx.owner.query(
+      "insert into public.company_logos (company_id, content_type, data) values ($1, 'image/png', '\\x89504e47')",
+      [a.id],
+    )
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const res = await browser.call('GET', '/api/me')
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      companies: [
+        { slug: a.slug, has_logo: true },
+        { slug: b.slug, has_logo: false },
+      ],
+    })
   })
 })

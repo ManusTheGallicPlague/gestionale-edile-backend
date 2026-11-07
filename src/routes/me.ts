@@ -87,8 +87,10 @@ async function loadMe(db: Db, user: SessionUser) {
       name: string
       role: string
       permissions: string[]
+      has_logo: boolean
     }>(
       `select c.slug, c.name, r.name as role,
+                c.id in (select app.my_companies_with_logo()) as has_logo,
                 coalesce(array_agg(rp.permission order by rp.permission)
                   filter (where rp.permission is not null), '{}') as permissions
          from public.memberships m
@@ -96,13 +98,14 @@ async function loadMe(db: Db, user: SessionUser) {
          join public.roles r on r.id = m.role_id
          left join public.role_permissions rp on rp.role_id = r.id
          where m.user_id = app.current_user_id() and m.disabled_at is null
-         group by c.slug, c.name, r.name
+         group by c.id, c.slug, c.name, r.name
          order by c.name`,
     )
     return rows.map((row) => ({
       slug: row.slug,
       name: row.name,
       role: row.role,
+      has_logo: row.has_logo,
       // Only permissions the contract knows: the frontend's types are generated from it.
       permissions: row.permissions.filter(isPermission),
     }))

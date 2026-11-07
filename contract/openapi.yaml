@@ -5573,9 +5573,12 @@ components:
           items: { $ref: '#/components/schemas/Membership' }
     Membership:
       type: object
-      required: [slug, name, role, permissions]
+      required: [slug, name, role, permissions, has_logo]
       properties:
         slug: { $ref: '#/components/schemas/Slug' }
+        has_logo:
+          type: boolean
+          description: L'azienda ha un logo, che si legge da getCompanyLogo.
         name:
           type: string
           examples: [Impresa Rossi S.r.l.]
