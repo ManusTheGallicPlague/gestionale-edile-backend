@@ -22,11 +22,14 @@ const ALL: Permission[] = [
   'employees.view',
   'vehicles.view',
   'deadlines.view',
+  'price_lists.view',
+  'documents.view',
 ]
 
 interface Hit {
   type: string
   id: string
+  parent_id: string | null
   title: string
   subtitle: string | null
 }
@@ -53,9 +56,9 @@ async function scene(permissions: Permission[] = ALL) {
     `insert into public.suppliers (company_id, name, city) values
        ($1, 'Ferramenta Rossi', 'Padova') returning id`,
   )
-  await q(
+  const site = await q(
     `insert into public.sites (company_id, name, code, address) values
-       ($1, 'Villa sul lago', '2026-07', 'Via Rossi 3, Verona')`,
+       ($1, 'Villa sul lago', '2026-07', 'Via Rossi 3, Verona') returning id`,
   )
   await q(
     `insert into public.quotes (company_id, client_id, subject, status, number_year, number_seq, revision,
@@ -92,11 +95,32 @@ async function scene(permissions: Permission[] = ALL) {
        ($1, 'DURC Ferramenta Rossi', '2026-12-31', 'durc')`,
   )
 
+  const priceList = await q(
+    "insert into public.price_lists (company_id, name) values ($1, 'Prezzario 2026') returning id",
+  )
+  await q(
+    `insert into public.price_list_items (company_id, price_list_id, code, description, unit,
+       unit_price_cents) values ($1, $2, 'ROSSI.01', 'Intonaco civile', 'm²', 1850)`,
+    [priceList.rows[0]?.id],
+  )
+  await q(
+    `insert into public.site_documents (company_id, site_id, kind, title, file_name,
+       content_type, size_bytes) values ($1, $2, 'document', 'Contratto', 'contratto-rossi.pdf',
+       'application/pdf', 100)`,
+    [site.rows[0]?.id],
+  )
+
   const user = await fx.user()
   await fx.member(user.id, id, await fx.role(id, 'Ricerca', permissions))
   const browser = new Browser(ctx.app)
   await browser.signIn(user.email)
-  return { browser, company, url: `/api/companies/${company.slug}/search` }
+  return {
+    browser,
+    company,
+    url: `/api/companies/${company.slug}/search`,
+    siteId: site.rows[0]?.id,
+    priceListId: priceList.rows[0]?.id,
+  }
 }
 
 describe('quick search', () => {
@@ -117,7 +141,13 @@ describe('quick search', () => {
       ['employee', 'Rossi Luca', 'Muratore'],
       ['vehicle', 'Escavatore Rossi', 'AB123CD'],
       ['deadline', 'DURC Ferramenta Rossi', '31/12/2026'],
+      ['price_list_item', 'Intonaco civile', 'ROSSI.01'],
+      ['site_document', 'Contratto', 'Villa sul lago'],
     ])
+    const parent = (type: string) => body.items.find((h) => h.type === type)?.parent_id
+    expect(parent('price_list_item')).toBe(s.priceListId)
+    expect(parent('site_document')).toBe(s.siteId)
+    expect(parent('client')).toBeNull()
   })
 
   it('finds quotes and orders by number, employees by first name first, vehicles by plate', async () => {
@@ -176,7 +206,7 @@ describe('quick search', () => {
       'select id from public.clients where company_id = $1',
       [other.company.id],
     )
-    expect(ids).toHaveLength(10)
+    expect(ids).toHaveLength(12)
     for (const row of theirs.rows) expect(ids).not.toContain(row.id)
 
     const cross = await mine.browser.call('GET', `${other.url}?q=rossi`)

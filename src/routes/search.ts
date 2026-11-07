@@ -18,10 +18,10 @@ const QUOTE_NUMBER = `case when q.number_year is null then null else q.number_ye
 const ORDER_NUMBER = `o.number_year::text || '/' || ${seq('o.number_seq')}`
 
 /**
- * One query per type. Each selects id, title and subtitle from `x`, where `matches` is the
- * condition on $1 (the contains pattern); prefix ordering uses $2.
+ * One query per type, filtering on $1 (the contains pattern). Each selects id, title and
+ * subtitle, and parent_id when the hit lives inside something else; prefix ordering uses $2.
  */
-const TYPES: { type: string; permission: Permission; sql: string }[] = [
+const TYPES: { type: string; permission: Permission; sql: string; parent?: true }[] = [
   {
     type: 'client',
     permission: 'clients.view',
@@ -88,6 +88,21 @@ const TYPES: { type: string; permission: Permission; sql: string }[] = [
     sql: `select id, title, to_char(due_on, 'DD/MM/YYYY') as subtitle from public.deadlines
       where title ilike $1`,
   },
+  {
+    type: 'price_list_item',
+    permission: 'price_lists.view',
+    parent: true,
+    sql: `select id, price_list_id as parent_id, description as title, code as subtitle
+      from public.price_list_items where code ilike $1 or description ilike $1`,
+  },
+  {
+    type: 'site_document',
+    permission: 'documents.view',
+    parent: true,
+    sql: `select d.id, d.site_id as parent_id, d.title, s.name as subtitle
+      from public.site_documents d join public.sites s on s.id = d.site_id
+      where d.title ilike $1 or d.file_name ilike $1`,
+  },
 ]
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -102,14 +117,23 @@ function readQuery(query: Record<string, unknown>): string {
   return q
 }
 
-async function searchType(client: PoolClient, sql: string, q: string) {
-  const { rows } = await client.query<{ id: string; title: string; subtitle: string | null }>(
-    `select id, title, subtitle from (${sql}) x
+async function searchType(client: PoolClient, t: (typeof TYPES)[number], q: string) {
+  const { rows } = await client.query<Omit<Hit, 'type'>>(
+    `select id, ${t.parent ? 'parent_id' : 'null::uuid as parent_id'}, title, subtitle
+     from (${t.sql}) x
      order by (title ilike $2) desc, lower(title), id
      limit ${PER_TYPE}`,
     [`%${escapeLike(q)}%`, `${escapeLike(q)}%`],
   )
   return rows
+}
+
+interface Hit {
+  type: string
+  id: string
+  parent_id: string | null
+  title: string
+  subtitle: string | null
 }
 
 /** Quick search across the company: only the types the user may see. */
@@ -121,10 +145,10 @@ export function searchRoutes(app: FastifyInstance, db: Db): void {
       return withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         const q = readQuery(request.query)
-        const items: { type: string; id: string; title: string; subtitle: string | null }[] = []
+        const items: Hit[] = []
         for (const t of TYPES) {
           if (!permissions.has(t.permission)) continue
-          for (const row of await searchType(client, t.sql, q)) items.push({ type: t.type, ...row })
+          for (const row of await searchType(client, t, q)) items.push({ type: t.type, ...row })
         }
         return { q, items }
       })

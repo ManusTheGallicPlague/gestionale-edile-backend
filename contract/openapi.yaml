@@ -3084,7 +3084,10 @@ paths:
         2026/001), estimate (estimates.view: titolo), invoice (invoices.view: numero e
         descrizione), purchase_order (purchases.view: numero e nome del fornitore), employee
         (employees.view: nome, cognome e codice fiscale), vehicle (vehicles.view: nome e
-        targa), deadline (deadlines.view: titolo). Clienti e fornitori archiviati sono esclusi.
+        targa), deadline (deadlines.view: titolo), price_list_item (price_lists.view: codice e
+        descrizione della voce), site_document (documents.view: titolo e nome del file).
+        parent_id è il prezzario della voce o il cantiere del documento, null per gli altri
+        tipi. Clienti e fornitori archiviati sono esclusi.
         I tipi escono in quest'ordine; dentro un tipo prima i titoli che iniziano con il testo,
         poi gli altri in ordine alfabetico.
       parameters:
@@ -8690,11 +8693,11 @@ components:
         q: { type: string, description: Il testo cercato, senza spazi ai lati. }
         items:
           type: array
-          maxItems: 50
+          maxItems: 60
           items: { $ref: '#/components/schemas/SearchHit' }
     SearchHit:
       type: object
-      required: [type, id, title, subtitle]
+      required: [type, id, parent_id, title, subtitle]
       properties:
         type:
           type: string
@@ -8710,8 +8713,15 @@ components:
               employee,
               vehicle,
               deadline,
+              price_list_item,
+              site_document,
             ]
         id: { type: string, format: uuid }
+        parent_id:
+          description: Il prezzario della voce o il cantiere del documento; null per gli altri tipi.
+          oneOf:
+            - { type: string, format: uuid }
+            - type: 'null'
         title: { type: string, description: 'Cosa mostrare: nome, oggetto o numero.' }
         subtitle:
           description: Un dettaglio per distinguere risultati simili (città, codice, numero, data).
