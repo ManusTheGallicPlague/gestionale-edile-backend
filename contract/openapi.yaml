@@ -4311,6 +4311,37 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/estimates/{estimate}/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    get:
+      operationId: getEstimatePdf
+      summary: PDF del computo metrico estimativo
+      description: |
+        Permesso: estimates.view. Il computo in A4, da stampare o allegare: intestazione
+        dell'azienda, titolo con committente, cantiere e luogo dei lavori, capitoli
+        nell'ordine dell'albero (prima le voci, poi i sottocapitoli), per ogni voce il numero
+        progressivo, codice, descrizione, righe di misura (parti uguali, lunghezza,
+        larghezza, altezza o peso, quantità), «Sommano» con unità di misura, quantità,
+        prezzo e importo; il totale di ogni capitolo e del computo, e un riepilogo per
+        capitoli. Il file si chiama computo.pdf. Senza permesso risponde 404, non 403.
+      responses:
+        '200':
+          description: Il PDF
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/estimates/{estimate}/structure:
     parameters:
       - $ref: '#/components/parameters/Company'

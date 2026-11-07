@@ -16,6 +16,9 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { estimatePdf } from '../estimates/pdf.js'
+import { readLogoForPdf } from './logo.js'
+import { readProfile } from './settings.js'
 
 /** Chapters can be nested up to this many levels (the first level is 1). */
 export const MAX_CHAPTER_DEPTH = 4
@@ -580,6 +583,47 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       },
     )
     return reply.header('ETag', etag(version)).send(body)
+  })
+
+  app.get<{ Params: Params }>(`${base}/pdf`, async (request, reply) => {
+    const session = requireSession(request)
+    const buffer = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.view')
+      const { body } = await readStructure(client, estimateId)
+      const { rows } = await client.query<{
+        title: string
+        client: string | null
+        site: string | null
+        address: string | null
+      }>(
+        `select e.title, c.name as client, s.name as site, e.site_address as address
+         from public.estimates e
+         left join public.clients c on c.id = e.client_id
+         left join public.sites s on s.id = e.site_id
+         where e.id = $1`,
+        [estimateId],
+      )
+      const estimate = rows[0]
+      if (!estimate) throw notFound()
+      const profile = await readProfile(client)
+      return estimatePdf({
+        logo: await readLogoForPdf(client),
+        company: {
+          ...profile,
+          share_capital:
+            profile.share_capital_cents === null
+              ? null
+              : centsToAmount(profile.share_capital_cents),
+        },
+        estimate,
+        ...body,
+      })
+    })
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', 'attachment; filename="computo.pdf"')
+      .header('Cache-Control', 'private, no-store')
+      .send(buffer)
   })
 
   app.put<{ Params: Params }>(`${base}/structure`, async (request, reply) => {
