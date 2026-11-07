@@ -173,6 +173,11 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: titolare e ufficio vogliono
 - [x] Copia di un ordine al fornitore per riordinare (`duplicatePurchaseOrder` su `…/purchase-orders/{order}/duplicate`): bozza di oggi con il numero successivo, stesso fornitore, cantiere, note e righe, senza data di consegna
 - [x] Rapportino «come ieri» (`copy_previous=true` in `getTodayDailyReport`): la proposta prende persone, mezzi, ore e descrizioni dall'ultimo rapportino precedente del cantiere, solo attivi
 
+### 19. Ricerca rapida
+Aggiunta il 07/11/2026, con il piano tutto spuntato: nella barra in alto del frontend (componente Command di shadcn/ui) si scrive un nome, un numero o una targa e si salta alla scheda, senza sapere prima in quale elenco cercare.
+
+- [x] Ricerca in tutta l'azienda (`searchCompany` su `…/search?q=`): clienti, fornitori, cantieri, preventivi, computi, fatture, ordini, dipendenti, mezzi e scadenze, al massimo 5 per tipo, solo i tipi che l'utente può vedere
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -316,6 +321,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 07/11/2026: la copia di un preventivo (`duplicateQuote`) è distinta dalla revisione: nessun `revision_of`, nessun cantiere, numero nuovo al primo invio, e si copia anche da un preventivo accettato o in bozza; chiede `quotes.view` e `quotes.create` come la revisione (403 prima di cercare il preventivo).
 - 07/11/2026: la copia di un ordine al fornitore prende la data di oggi (ora italiana) e quindi il numero del suo anno, e lascia vuota la consegna, che va concordata di nuovo; niente corpo nella richiesta: per cambiare fornitore o righe si modifica la bozza.
 - 07/11/2026: il rapportino «come ieri» è un parametro facoltativo della proposta di `getTodayDailyReport` (non cambia il comportamento senza parametro) e copia solo le righe di persone e mezzi, non meteo, lavori svolti e note, che cambiano ogni giorno.
+- 07/11/2026: la ricerca rapida usa `ilike` senza indici trigrammi: per un'impresa con qualche migliaio di righe per tabella basta, e `pg_trgm` è un'estensione in più da installare; si aggiungerà se servisse. Clienti e fornitori archiviati non escono; un tipo senza permesso è semplicemente assente (non 403), come le sezioni della dashboard. Il 422 per un testo troppo corto (meno di 2 caratteri) evita di restituire mezzo database a ogni tasto.
 
 ## Registro dei giri
 

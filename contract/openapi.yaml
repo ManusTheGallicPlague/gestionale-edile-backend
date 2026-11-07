@@ -3069,6 +3069,40 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/search:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: searchCompany
+      summary: Ricerca rapida in tutta l'azienda
+      description: |
+        Qualsiasi membro dell'azienda la chiama, per la ricerca della barra in alto. Cerca il
+        testo (da 2 a 100 caratteri, maiuscole e minuscole uguali) e restituisce al massimo 5
+        risultati per tipo, solo dei tipi che l'utente può vedere: client (clients.view: nome,
+        partita IVA, codice fiscale, email), supplier (suppliers.view, come i clienti), site
+        (sites.view: nome, codice, indirizzo), quote (quotes.view: oggetto e numero, es.
+        2026/001), estimate (estimates.view: titolo), invoice (invoices.view: numero e
+        descrizione), purchase_order (purchases.view: numero e nome del fornitore), employee
+        (employees.view: nome, cognome e codice fiscale), vehicle (vehicles.view: nome e
+        targa), deadline (deadlines.view: titolo). Clienti e fornitori archiviati sono esclusi.
+        I tipi escono in quest'ordine; dentro un tipo prima i titoli che iniziano con il testo,
+        poi gli altri in ordine alfabetico.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: Il testo da cercare.
+          schema: { type: string, minLength: 2, maxLength: 100 }
+      responses:
+        '200':
+          description: I risultati
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SearchResults' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/sites/{site}/activities:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8649,6 +8683,41 @@ components:
           type: array
           items: { $ref: '#/components/schemas/SiteDocument' }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    SearchResults:
+      type: object
+      required: [q, items]
+      properties:
+        q: { type: string, description: Il testo cercato, senza spazi ai lati. }
+        items:
+          type: array
+          maxItems: 50
+          items: { $ref: '#/components/schemas/SearchHit' }
+    SearchHit:
+      type: object
+      required: [type, id, title, subtitle]
+      properties:
+        type:
+          type: string
+          enum:
+            [
+              client,
+              supplier,
+              site,
+              quote,
+              estimate,
+              invoice,
+              purchase_order,
+              employee,
+              vehicle,
+              deadline,
+            ]
+        id: { type: string, format: uuid }
+        title: { type: string, description: 'Cosa mostrare: nome, oggetto o numero.' }
+        subtitle:
+          description: Un dettaglio per distinguere risultati simili (città, codice, numero, data).
+          oneOf:
+            - type: string
+            - type: 'null'
     Dashboard:
       type: object
       required:
