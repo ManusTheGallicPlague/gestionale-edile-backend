@@ -219,7 +219,7 @@ describe('invoices', () => {
     expect(kept.statusCode).toBe(200)
     expect(kept.json()).toMatchObject({ vat_nature: 'N6.3' })
     const csv = await s.browser.call('GET', `${s.base}/export`)
-    expect(csv.body).toContain(';1500,00;0,00;N6.3;1500,00;0,00;1500,00;')
+    expect(csv.body).toContain(';1500,00;0,00;N6.3;1500,00;0,00;No;1500,00;')
 
     const withVat = await put(received(s, { vat_nature: 'N6.3' }), 2)
     expect(withVat.statusCode).toBe(422)
@@ -270,7 +270,7 @@ describe('invoices', () => {
     const list = await s.browser.call('GET', s.base)
     expect(list.json()).toMatchObject({ total_amount: '1220.00', outstanding_amount: '1020.00' })
     const csv = await s.browser.call('GET', `${s.base}/export`)
-    expect(csv.body).toContain(';1000,00;220,00;;1220,00;200,00;1020,00;')
+    expect(csv.body).toContain(';1000,00;220,00;;1220,00;200,00;No;1020,00;')
 
     const url = `${s.base}/${invoice.id}`
     const put = (body: object, version: number) =>
@@ -299,6 +299,56 @@ describe('invoices', () => {
         invoice.id,
       ]),
     ).rejects.toThrow(/invoices_withholding_within_taxable/)
+  })
+
+  it('with split payment the public administration pays the VAT: not in the amount due', async () => {
+    const s = await scene()
+    const res = await s.browser.call('POST', s.base, { body: issued(s, { split_payment: true }) })
+    expect(res.statusCode).toBe(201)
+    const invoice = res.json<Invoice & { deadline_id: string }>()
+    expect(invoice).toMatchObject({
+      total: '11000.50',
+      split_payment: true,
+      amount_due: '10000.00',
+    })
+    const deadline = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/deadlines/${invoice.deadline_id}`,
+    )
+    expect(deadline.json()).toMatchObject({ amount: '10000.00' })
+    const list = await s.browser.call('GET', s.base)
+    expect(list.json()).toMatchObject({ total_amount: '11000.50', outstanding_amount: '10000.00' })
+    const csv = await s.browser.call('GET', `${s.base}/export`)
+    expect(csv.body).toContain(';11000,50;0,00;Sì;10000,00;')
+
+    const url = `${s.base}/${invoice.id}`
+    const put = (body: object, version: number) =>
+      s.browser.call('PUT', url, { body, headers: { 'if-match': `"${version}"` } })
+    // Absent on update: it stays, together with a withholding tax.
+    const kept = await put(issued(s, { withholding_amount: '400' }), 1)
+    expect(kept.statusCode).toBe(200)
+    expect(kept.json()).toMatchObject({ split_payment: true, amount_due: '9600.00' })
+    // Only for issued invoices, also when kept from before; and a boolean.
+    for (const body of [
+      received(s),
+      received(s, { split_payment: true }),
+      issued(s, { split_payment: 'sì' }),
+    ]) {
+      const bad = await put(body, 2)
+      expect(bad.statusCode).toBe(422)
+      expect(Object.keys(bad.json<{ errors: object }>().errors)).toEqual(['split_payment'])
+    }
+    // The withholding of 400 stays: 1830 − 400.
+    const off = await put(received(s, { split_payment: false }), 2)
+    expect(off.statusCode).toBe(200)
+    expect(off.json()).toMatchObject({ split_payment: false, amount_due: '1430.00' })
+    const plain = await s.browser.call('POST', s.base, { body: issued(s, { number: '13/2026' }) })
+    expect(plain.json()).toMatchObject({ split_payment: false })
+    await expect(
+      ctx.owner.query('update public.invoices set split_payment = true where id = $1', [
+        invoice.id,
+      ]),
+    ).rejects.toThrow(/invoices_split_payment_issued/)
   })
 
   it('a number is used once per year (per supplier for received invoices)', async () => {
@@ -454,9 +504,9 @@ describe('invoices', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="fatture.csv"')
     const lines = res.body.replace('﻿', '').trim().split('\r\n')
     expect(lines).toEqual([
-      "Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Natura IVA;Totale;Ritenuta d'acconto;Netto a pagare;Scadenza pagamento;Pagata il;Stato;Note",
-      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;;11000,50;0,00;11000,50;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
-      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;;1830,00;0,00;1830,00;;;Da pagare;',
+      "Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Natura IVA;Totale;Ritenuta d'acconto;Scissione dei pagamenti;Netto a pagare;Scadenza pagamento;Pagata il;Stato;Note",
+      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;;11000,50;0,00;No;11000,50;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
+      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;;1830,00;0,00;No;1830,00;;;Da pagare;',
     ])
     const filtered = await s.browser.call('GET', `${url}?filter[direction]=received`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(2)

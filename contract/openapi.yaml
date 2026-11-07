@@ -4339,7 +4339,7 @@ paths:
       description: |
         Permesso: invoices.view. Dalla più recente. total_amount è la somma dei totali delle
         fatture che rispettano i filtri, non solo della pagina; outstanding_amount la parte
-        ancora da pagare o incassare (netto della ritenuta d'acconto).
+        ancora da pagare o incassare (somma degli amount_due).
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -7236,6 +7236,13 @@ components:
             com'è.
           allOf:
             - $ref: '#/components/schemas/Amount'
+        split_payment:
+          type: boolean
+          description: |
+            Scissione dei pagamenti (art. 17-ter DPR 633/72): fattura emessa a una pubblica
+            amministrazione, che versa l'IVA direttamente all'erario; amount_due non comprende
+            l'IVA. Solo per le emesse. Facoltativo: se manca, alla creazione vale false e alla
+            modifica resta com'è.
         progress_statement_id:
           description: |
             Il SAL approvato che questa fattura emessa addebita (fattura d'acconto sullo stato di
@@ -7274,6 +7281,7 @@ components:
               file,
               vat_nature,
               withholding_amount,
+              split_payment,
               amount_due,
               progress_statement_id,
               created_at,
@@ -7309,8 +7317,9 @@ components:
                 - $ref: '#/components/schemas/Amount'
             amount_due:
               description: |
-                Netto a pagare (o da incassare): totale meno la ritenuta d'acconto. È l'importo
-                della scadenza nello scadenziario.
+                Netto a pagare (o da incassare): totale meno la ritenuta d'acconto e, con la
+                scissione dei pagamenti, meno l'IVA. È l'importo della scadenza nello
+                scadenziario.
               allOf:
                 - $ref: '#/components/schemas/Amount'
             payment_status: { $ref: '#/components/schemas/InvoicePaymentStatus' }

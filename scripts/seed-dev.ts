@@ -701,29 +701,33 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          )
          insert into public.invoices (company_id, direction, number, invoice_date, client_id,
            supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on,
-           vat_nature, withholding_cents)
+           vat_nature, withholding_cents, split_payment)
          select $1, i.direction, i.number || '/' || extract(year from current_date + i.days),
            current_date + i.days,
            case when i.direction = 'issued' then (select id from c) end,
            case when i.direction = 'received' then (select id from p) end,
            (select id from s), i.description, i.taxable, i.vat, current_date + i.due,
-           case when i.paid then current_date + i.days + 10 end, i.nature, i.withholding
+           case when i.paid then current_date + i.days + 10 end, i.nature, i.withholding,
+           i.split
          from (values
            ('issued', '1', -40, 'Primo SAL', 2000000::bigint, 440000::bigint, 20, false,
-             null::text, 0::bigint),
+             null::text, 0::bigint, false),
            ('issued', '2', -70, 'Acconto lavori', 800000::bigint, 176000::bigint, -10, false,
-             null, 0),
+             null, 0, false),
            ('received', 'F-118', -22, 'Calcestruzzo e pompaggio', 602459::bigint,
-             132541::bigint, 8, false, null, 0),
+             132541::bigint, 8, false, null, 0, false),
            ('received', 'F-097', -60, 'Nolo ponteggio', 150000::bigint, 33000::bigint, 0, true,
-             null, 0),
+             null, 0, false),
            ('received', 'S-12', -15, 'Subappalto impianto elettrico, primo acconto',
-             450000::bigint, 0::bigint, 15, false, 'N6.3', 0),
+             450000::bigint, 0::bigint, 15, false, 'N6.3', 0, false),
            -- A professional's fee: 20% withholding tax on the taxable amount.
            ('received', 'P-7', -30, 'Pratica edilizia e calcoli strutturali', 300000::bigint,
-             66000::bigint, 0, false, null, 60000)
+             66000::bigint, 0, false, null, 60000, false),
+           -- Works for a public administration: split payment, the VAT goes to the treasury.
+           ('issued', '3', -5, 'Manutenzione straordinaria scuola comunale', 1200000::bigint,
+             264000::bigint, 25, false, null, 0, true)
          ) as i (direction, number, days, description, taxable, vat, due, paid, nature,
-           withholding)
+           withholding, split)
          where exists (select 1 from c) and exists (select 1 from p)`,
         [companyId],
       )
@@ -732,7 +736,8 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            supplier_id, status, done_at, invoice_id)
          select i.company_id, 'Fattura ' || i.number || ' – ' || coalesce(c.name, p.name),
            i.due_date, case i.direction when 'issued' then 'invoice_out' else 'invoice_in' end,
-           i.taxable_cents + i.vat_cents - i.withholding_cents, i.client_id, i.supplier_id,
+           i.taxable_cents + i.vat_cents - i.withholding_cents
+             - case when i.split_payment then i.vat_cents else 0 end, i.client_id, i.supplier_id,
            case when i.paid_on is null then 'open' else 'done' end,
            case when i.paid_on is not null then now() end, i.id
          from public.invoices i
