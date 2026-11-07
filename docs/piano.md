@@ -193,6 +193,7 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: l'ufficio vuole vedere in u
 
 - [x] SAL di tutta l'azienda (`listCompanyProgressStatements` su `…/progress-statements`): computo e cantiere di ogni SAL, dal più recente, filtri per cantiere, stato, fatturato sì/no e data, con i totali (importo e netto) di tutte le pagine
 - [x] SAL di tutta l'azienda in CSV (`exportCompanyProgressStatements`, file `sal.csv`): stessi filtri e ordine dell'elenco, con ritenuta, netto e fatturato sì/no
+- [x] SAL nella dashboard (`progress_statements` in `getDashboard`, con `estimates.view`): SAL in bozza e SAL approvati da fatturare, con importo e netto
 
 ## Decisioni prese
 

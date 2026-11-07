@@ -256,3 +256,21 @@ describe('progress statements of the whole company in CSV', () => {
     expect((await new Browser(ctx.app).call('GET', `${ours.url}/export`)).statusCode).toBe(401)
   })
 })
+
+describe('progress statements in the dashboard', () => {
+  it('counts drafts and the approved SAL to invoice, only of the company', async () => {
+    const s = await scene()
+    await scene() // Another company with the same SAL must not double the counts.
+    const res = await s.browser.call('GET', `/api/companies/${s.company.slug}/dashboard`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json<{ progress_statements: unknown }>().progress_statements).toEqual({
+      drafts: 1,
+      to_invoice: 2,
+      to_invoice_amount: '1050.00',
+      to_invoice_net_amount: '1000.00',
+    })
+    const blind = await scene(['invoices.view'])
+    const other = await blind.browser.call('GET', `/api/companies/${blind.company.slug}/dashboard`)
+    expect(other.json<{ progress_statements: unknown }>().progress_statements).toBeNull()
+  })
+})

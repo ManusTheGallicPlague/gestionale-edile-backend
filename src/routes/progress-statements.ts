@@ -245,6 +245,33 @@ async function readCompanyStatements(
   return rows
 }
 
+/** Drafts, and approved SAL without an invoice with their amounts, for the dashboard. */
+export async function statementTotals(client: PoolClient) {
+  const { rows } = await client.query<{
+    drafts: number
+    to_invoice: number
+    amount: string
+    net: string
+  }>(
+    companyStatements(
+      ['true'],
+      `count(*) filter (where st.status = 'draft')::int as drafts,
+       count(*) filter (where st.status = 'approved' and st.invoice_id is null)::int as to_invoice,
+       coalesce(sum(st.amount_cents::bigint)
+         filter (where st.status = 'approved' and st.invoice_id is null), 0)::text as amount,
+       coalesce(sum(st.amount_cents::bigint - st.retention_cents::bigint)
+         filter (where st.status = 'approved' and st.invoice_id is null), 0)::text as net`,
+    ),
+  )
+  const r = rows[0]
+  return {
+    drafts: r?.drafts ?? 0,
+    to_invoice: r?.to_invoice ?? 0,
+    to_invoice_amount: centsToAmount(r?.amount ?? '0'),
+    to_invoice_net_amount: centsToAmount(r?.net ?? '0'),
+  }
+}
+
 function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.statementMissingIfMatch, 'precondition_required')

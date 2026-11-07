@@ -6,6 +6,7 @@ import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
 import { requireSession } from '../http/request-context.js'
 import { REMAINING_CENTS } from './invoices.js'
+import { statementTotals } from './progress-statements.js'
 
 /**
  * Every cost of a site, one row each: labour and vehicles of approved daily reports at
@@ -231,6 +232,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         reports: can('reports.view') ? await reportCounts(client, today) : null,
         deadlines: can('deadlines.view') ? await nearDeadlines(client, today) : null,
         invoices: can('invoices.view') ? await invoiceTotals(client, today) : null,
+        progress_statements: can('estimates.view') ? await statementTotals(client) : null,
       }
     })
   })

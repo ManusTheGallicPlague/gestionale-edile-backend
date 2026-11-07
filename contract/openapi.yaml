@@ -3273,7 +3273,7 @@ paths:
         Qualsiasi membro dell'azienda la chiama; ogni sezione è null se manca il suo permesso:
         sites con sites.view; over_budget con sites.view e costs.view; costs_this_month con
         costs.view; reports con reports.view; deadlines con deadlines.view; invoices con
-        invoices.view. Le date sono quelle
+        invoices.view; progress_statements con estimates.view. Le date sono quelle
         di oggi in Italia. over_budget elenca, dal più sforato, al massimo 10 cantieri non chiusi
         con un budget e costi oltre il budget (manodopera e mezzi dai rapportini approvati, più
         i costi inseriti a mano, come in getSiteCostSummary). costs_this_month somma i costi del
@@ -9043,6 +9043,7 @@ components:
           reports,
           deadlines,
           invoices,
+          progress_statements,
         ]
       properties:
         today: { $ref: '#/components/schemas/Date' }
@@ -9110,6 +9111,21 @@ components:
         invoices:
           oneOf:
             - $ref: '#/components/schemas/DashboardInvoices'
+            - type: 'null'
+        progress_statements:
+          description: |
+            SAL di tutti i computi: in bozza, e approvati senza una fattura emessa collegata
+            (da fatturare), con l'importo e il netto dopo la ritenuta di garanzia. Sono gli
+            stessi di listCompanyProgressStatements con filter[status]=approved e
+            filter[invoiced]=false.
+          oneOf:
+            - type: object
+              required: [drafts, to_invoice, to_invoice_amount, to_invoice_net_amount]
+              properties:
+                drafts: { type: integer, minimum: 0 }
+                to_invoice: { type: integer, minimum: 0 }
+                to_invoice_amount: { $ref: '#/components/schemas/SignedAmount' }
+                to_invoice_net_amount: { $ref: '#/components/schemas/SignedAmount' }
             - type: 'null'
     SubjectAccount:
       type: object
