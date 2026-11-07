@@ -352,6 +352,16 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              overdue:
+                description: true per avere solo chi ha qualcosa di scaduto.
+                type: boolean
       responses:
         '200':
           description: Una pagina di clienti
@@ -370,9 +380,20 @@ paths:
       operationId: exportClientBalances
       summary: Esportazione dei crediti verso i clienti in CSV
       description: |
-        Permessi come listClientBalances. Gli stessi clienti nello stesso ordine, senza
+        Permessi e filtro come listClientBalances. Gli stessi clienti nello stesso ordine, senza
         paginazione, nel formato dell'esportazione dei clienti: date come 30/11/2026, importi
         con la virgola decimale (1234,50). Il file si chiama crediti-clienti.csv.
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              overdue:
+                description: true per avere solo chi ha qualcosa di scaduto.
+                type: boolean
       responses:
         '200':
           description: Il file CSV
@@ -388,6 +409,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/clients/export:
     parameters:
@@ -774,6 +796,16 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              overdue:
+                description: true per avere solo chi ha qualcosa di scaduto.
+                type: boolean
       responses:
         '200':
           description: Una pagina di fornitori
@@ -792,9 +824,20 @@ paths:
       operationId: exportSupplierBalances
       summary: Esportazione dei debiti verso i fornitori in CSV
       description: |
-        Permessi come listSupplierBalances. Gli stessi fornitori nello stesso ordine, senza
+        Permessi e filtro come listSupplierBalances. Gli stessi fornitori nello stesso ordine, senza
         paginazione, nel formato dell'esportazione dei clienti: date come 30/11/2026, importi
         con la virgola decimale (1234,50). Il file si chiama debiti-fornitori.csv.
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              overdue:
+                description: true per avere solo chi ha qualcosa di scaduto.
+                type: boolean
       responses:
         '200':
           description: Il file CSV
@@ -810,6 +853,7 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/suppliers/export:
     parameters:

@@ -324,6 +324,27 @@ describe('statement of account', () => {
     })
     expect((await s.browser.call('GET', `${base}?per_page=101`)).statusCode).toBe(422)
 
+    // Only those with something overdue, with their own totals.
+    const late = await s.browser.call('GET', `${base}?filter[overdue]=true`)
+    expect(late.json()).toEqual({
+      data: [
+        {
+          subject: { id: s.client, name: 'Mario Bianchi' },
+          open_invoice_count: 2,
+          outstanding: '1230.00',
+          overdue: '1230.00',
+          oldest_due_date: '2026-02-28',
+        },
+      ],
+      meta: { total: 1, page: 1, per_page: 25 },
+      outstanding: '1230.00',
+      overdue: '1230.00',
+    })
+    expect((await s.browser.call('GET', `${base}?filter[overdue]=false`)).json()).toMatchObject({
+      meta: { total: 3 },
+    })
+    expect((await s.browser.call('GET', `${base}?filter[overdue]=si`)).statusCode).toBe(422)
+
     const suppliers = await s.browser.call('GET', `${s.base}/suppliers/balances`)
     expect(suppliers.json()).toMatchObject({
       data: [{ subject: { id: s.supplier, name: 'Laterizi di prova' }, outstanding: '1220.00' }],
@@ -375,6 +396,15 @@ describe('statement of account', () => {
     expect(rows[1]).toMatch(/^"?'=SOMMA\(1;2\)"?;1;31\/12\/2099;5000,00;0,00$/)
     expect(rows[2]).toBe('Mario Bianchi;1;28/02/2026;1000,50;1000,50')
     expect(rows).toHaveLength(4)
+    const late = await s.browser.call(
+      'GET',
+      `${s.base}/clients/balances/export?filter[overdue]=true`,
+    )
+    expect(late.body.replace(/^\uFEFF/, '').split('\r\n')).toHaveLength(3)
+    expect(
+      (await s.browser.call('GET', `${s.base}/clients/balances/export?filter[overdue]=1`))
+        .statusCode,
+    ).toBe(422)
 
     const suppliers = await s.browser.call('GET', `${s.base}/suppliers/balances/export`)
     expect(suppliers.headers['content-disposition']).toBe(

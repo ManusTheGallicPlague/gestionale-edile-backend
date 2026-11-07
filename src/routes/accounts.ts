@@ -75,7 +75,7 @@ async function enterSubject(
 }
 
 interface BalanceRow {
-  id: string
+  id: string | null
   name: string
   open_invoice_count: number
   outstanding: string
@@ -86,30 +86,51 @@ interface BalanceRow {
   total_overdue: string
 }
 
-/** Open balance of each subject, highest first; $1 direction, $2 limit, $3 offset. */
+/**
+ * Open balance of each subject, highest first: $1 direction, $2 limit, $3 offset, $4 only
+ * those with something overdue. A single row with a null id when the page is empty.
+ */
 const balancesSql = (subject: Subject) =>
   `with open as (
-               select i.${subject.column} as subject_id, (${REMAINING_CENTS}) as remaining,
-                 i.due_date, i.due_date < ${TODAY} as late
-               from public.invoices i
-               where i.direction = $1 and i.paid_on is null and i.${subject.column} is not null
-             ), balances as (
-               select o.subject_id, count(*)::int as open_invoice_count,
-                 sum(o.remaining) as outstanding,
-                 coalesce(sum(o.remaining) filter (where o.late), 0) as overdue,
-                 min(o.due_date)::text as oldest_due_date
-               from open o where o.remaining > 0
-               group by o.subject_id
-             )
-             select b.subject_id as id, x.name, b.open_invoice_count,
-               b.outstanding::text as outstanding, b.overdue::text as overdue, b.oldest_due_date,
-               (count(*) over ())::int as total_count,
-               (sum(b.outstanding) over ())::text as total_outstanding,
-               (sum(b.overdue) over ())::text as total_overdue
-             from balances b
-             join ${subject.table} x on x.id = b.subject_id
-             order by b.outstanding desc, x.name asc, x.id asc
-             limit $2 offset $3`
+     select i.${subject.column} as subject_id, (${REMAINING_CENTS}) as remaining,
+       i.due_date, i.due_date < ${TODAY} as late
+     from public.invoices i
+     where i.direction = $1 and i.paid_on is null and i.${subject.column} is not null
+   ), balances as (
+     select o.subject_id, count(*)::int as open_invoice_count,
+       sum(o.remaining) as outstanding,
+       coalesce(sum(o.remaining) filter (where o.late), 0) as overdue,
+       min(o.due_date)::text as oldest_due_date
+     from open o where o.remaining > 0
+     group by o.subject_id
+   ), chosen as (
+     select b.*, x.name from balances b
+     join ${subject.table} x on x.id = b.subject_id
+     where not $4::boolean or b.overdue > 0
+   ), page as (
+     select * from chosen
+     order by outstanding desc, name asc, subject_id asc
+     limit $2 offset $3
+   ), totals as (
+     select count(*)::int as total_count,
+       coalesce(sum(outstanding), 0)::text as total_outstanding,
+       coalesce(sum(overdue), 0)::text as total_overdue
+     from chosen
+   )
+   -- One row even past the last page, so the totals are always there.
+   select p.subject_id as id, p.name, p.open_invoice_count,
+     p.outstanding::text as outstanding, p.overdue::text as overdue, p.oldest_due_date,
+     t.total_count, t.total_outstanding, t.total_overdue
+   from totals t left join page p on true
+   order by p.outstanding desc, p.name asc, p.subject_id asc`
+
+/** filter[overdue]=true: only the subjects with something overdue. */
+function readOverdueFilter(query: Record<string, unknown>): boolean {
+  const value = query['filter[overdue]']
+  if (value === undefined || value === 'false') return false
+  if (value === 'true') return true
+  throw new ValidationFailed({ 'filter[overdue]': ['Valori ammessi: true, false.'] })
+}
 
 /** page and per_page of a list, as in the other lists. */
 function readPaging(query: Record<string, unknown>): { page: number; perPage: number } {
@@ -173,6 +194,7 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
       async (request) => {
         const session = requireSession(request)
         const { page, perPage } = readPaging(request.query)
+        const overdueOnly = readOverdueFilter(request.query)
         return withIdentity(db.app, { userId: session.user.id }, async (client) => {
           const permissions = await enterCompany(client, request.params.company)
           if (!permissions.has(subject.view) || !permissions.has('invoices.view')) {
@@ -182,39 +204,21 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
             subject.direction,
             perPage,
             (page - 1) * perPage,
+            overdueOnly,
           ])
-          // Past the last page the window totals are missing: read them apart.
-          let totals = rows[0]
-            ? {
-                count: rows[0].total_count,
-                outstanding: rows[0].total_outstanding,
-                overdue: rows[0].total_overdue,
-              }
-            : undefined
-          if (!totals) {
-            const t = await client.query<{ count: number; outstanding: string; overdue: string }>(
-              `select count(distinct i.${subject.column})::int as count,
-                 coalesce(sum(${REMAINING_CENTS}), 0)::text as outstanding,
-                 coalesce(sum(${REMAINING_CENTS}) filter (where i.due_date < ${TODAY}), 0)::text
-                   as overdue
-               from public.invoices i
-               where i.direction = $1 and i.paid_on is null and i.${subject.column} is not null
-                 and ${REMAINING_CENTS} > 0`,
-              [subject.direction],
-            )
-            totals = t.rows[0] ?? { count: 0, outstanding: '0', overdue: '0' }
-          }
+          const totals = rows[0]
+          const pageRows = rows.filter((r): r is BalanceRow & { id: string } => r.id !== null)
           return {
-            data: rows.map((r) => ({
+            data: pageRows.map((r) => ({
               subject: { id: r.id, name: r.name },
               open_invoice_count: r.open_invoice_count,
               outstanding: centsToAmount(r.outstanding),
               overdue: centsToAmount(r.overdue),
               oldest_due_date: r.oldest_due_date,
             })),
-            meta: { total: totals.count, page, per_page: perPage },
-            outstanding: centsToAmount(totals.outstanding),
-            overdue: centsToAmount(totals.overdue),
+            meta: { total: totals?.total_count ?? 0, page, per_page: perPage },
+            outstanding: centsToAmount(totals?.total_outstanding ?? '0'),
+            overdue: centsToAmount(totals?.total_overdue ?? '0'),
           }
         })
       },
@@ -222,10 +226,11 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
   }
 
   for (const subject of SUBJECTS) {
-    app.get<{ Params: { company: string } }>(
+    app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
       `/api/companies/:company/${subject.path}/balances/export`,
       async (request, reply) => {
         const session = requireSession(request)
+        const overdueOnly = readOverdueFilter(request.query)
         const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
           const permissions = await enterCompany(client, request.params.company)
           if (!permissions.has(subject.view) || !permissions.has('invoices.view')) {
@@ -235,7 +240,9 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
             subject.direction,
             MAX_EXPORT_ROWS,
             0,
+            overdueOnly,
           ])
+          const balances = rows.filter((r) => r.id !== null)
           return toCsv(
             [
               subject.param === 'client' ? 'Cliente' : 'Fornitore',
@@ -244,7 +251,7 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
               subject.param === 'client' ? 'Da incassare' : 'Da pagare',
               'Di cui scaduto',
             ],
-            rows.map((r) => [
+            balances.map((r) => [
               r.name,
               r.open_invoice_count,
               r.oldest_due_date === null ? null : italianDate(r.oldest_due_date),
