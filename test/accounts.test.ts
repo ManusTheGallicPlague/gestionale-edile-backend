@@ -180,4 +180,82 @@ describe('statement of account', () => {
     const anon = new Browser(ctx.app)
     expect((await anon.call('GET', `${s.base}/clients/${s.client}/account`)).statusCode).toBe(401)
   })
+
+  it('prints the open invoices of a client as a payment reminder', async () => {
+    const s = await scene()
+    await ctx.owner.query(
+      `update public.clients set vat_number = '01234567897', street = 'Via Po 2',
+         postal_code = '14100', city = 'Asti', province = 'AT' where id = $1`,
+      [s.client],
+    )
+    await ctx.owner.query(
+      `insert into public.company_profiles (company_id, legal_name, iban)
+       values ($1, 'Edilizia di prova Srl', 'IT60X0542811101000000123456')
+       on conflict (company_id) do update set iban = excluded.iban`,
+      [s.company.id],
+    )
+    const url = `${s.base}/clients/${s.client}/account/pdf`
+    const empty = await s.browser.call('GET', url)
+    expect(empty.statusCode).toBe(200)
+    expect(empty.rawPayload.toString('latin1')).toContain('(Nessuna fattura da incassare.)')
+
+    await invoice(s, s.browser, { number: 'F-PAGATA', paid_on: '2026-01-20' })
+    await invoice(s, s.browser, { number: 'F-NUOVA', date: '2026-03-01', due_date: '2099-12-31' })
+    const late = await invoice(s, s.browser, { number: 'F-VECCHIA', due_date: '2026-02-28' })
+    await s.browser.call('POST', `${s.base}/invoices/${late.id}/payments`, {
+      body: { date: '2026-02-10', amount: '200.50', method: null, notes: null },
+      headers: { 'If-Match': '"1"' },
+    })
+    await invoice(s, s.browser, { number: 'F-ALTRO', client_id: s.other })
+
+    const res = await s.browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="estratto-conto.pdf"')
+    const text = res.rawPayload.toString('latin1')
+    expect(text.startsWith('%PDF-1.4\n')).toBe(true)
+    expect(text).toContain('(Estratto conto)')
+    expect(text).toContain('(Mario Bianchi)')
+    expect(text).toContain('(P. IVA 01234567897)')
+    expect(text).toContain('(14100 Asti \\(AT\\))')
+    // The oldest due date first; paid invoices and other clients' are left out.
+    expect(text.indexOf('(F-VECCHIA)')).toBeGreaterThan(0)
+    expect(text.indexOf('(F-VECCHIA)')).toBeLessThan(text.indexOf('(F-NUOVA)'))
+    expect(text).not.toContain('(F-PAGATA)')
+    expect(text).not.toContain('(F-ALTRO)')
+    expect(text).toContain('(28/02/2026 scaduta)')
+    expect(text).toContain('(31/12/2099)')
+    expect(text).toContain('(200,50)')
+    expect(text).toContain('(1.019,50)')
+    expect(text).toContain('(\x80 2.239,50)')
+    expect(text).toContain('(\x80 1.019,50)')
+    expect(text).toContain('(Per il pagamento: IBAN IT60X0542811101000000123456)')
+
+    // Another company, without invoices.view, without clients.view, without a session.
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', url)).statusCode).toBe(404)
+    expect(
+      (await theirs.browser.call('GET', `${theirs.base}/clients/${s.client}/account/pdf`))
+        .statusCode,
+    ).toBe(404)
+    const noInvoices = await scene(['clients.view'])
+    expect(
+      (
+        await noInvoices.browser.call(
+          'GET',
+          `${noInvoices.base}/clients/${noInvoices.client}/account/pdf`,
+        )
+      ).statusCode,
+    ).toBe(403)
+    const noClients = await scene(['invoices.view'])
+    expect(
+      (
+        await noClients.browser.call(
+          'GET',
+          `${noClients.base}/clients/${noClients.client}/account/pdf`,
+        )
+      ).statusCode,
+    ).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
+  })
 })

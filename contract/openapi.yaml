@@ -557,6 +557,37 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/clients/{client}/account/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/ClientId'
+    get:
+      operationId: getClientAccountPdf
+      summary: PDF dell'estratto conto di un cliente, da mandare come sollecito
+      description: |
+        Permessi: clients.view e invoices.view, come getClientAccount. In A4: intestazione
+        dell'azienda, cliente con indirizzo e partita IVA, data di oggi, le fatture emesse non
+        ancora pagate dalla scadenza più vecchia (numero, data, scadenza, netto a pagare, già
+        incassato, residuo; «scaduta» accanto alla scadenza passata), totale da incassare e parte
+        scaduta, e l'IBAN dell'azienda se c'è. Senza fatture aperte esce la riga «Nessuna
+        fattura da incassare.». Il file si chiama estratto-conto.pdf.
+      responses:
+        '200':
+          description: Il PDF
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/suppliers:
     parameters:
       - $ref: '#/components/parameters/Company'
