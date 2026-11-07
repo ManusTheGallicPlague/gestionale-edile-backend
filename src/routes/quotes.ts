@@ -83,7 +83,26 @@ const SELECT = `select q.id, q.client_id, q.subject, q.validity_days, q.notes, q
   join public.clients c on c.id = q.client_id
   left join public.quotes src on src.id = q.revision_of_id`
 
+const TODAY = "(now() at time zone 'Europe/Rome')::date"
+const AWAITING = `(q.status = 'sent' and not exists (
+  select 1 from public.quotes r where r.revision_of_id = q.id and r.status <> 'draft'))`
+
+/**
+ * Quotes to follow up, as conditions on a quote aliased q; the dashboard counts them.
+ * Awaiting: sent and not replaced by a sent revision (a draft revision is not with the
+ * client yet).
+ */
+export const FOLLOW_UPS = {
+  awaiting: AWAITING,
+  expiring: `(${AWAITING} and q.issue_date + q.validity_days between ${TODAY} and ${TODAY} + 7)`,
+  past_validity: `(${AWAITING} and q.issue_date + q.validity_days < ${TODAY})`,
+  accepted_without_site: `(q.status = 'accepted'
+    and not exists (select 1 from public.sites s where s.quote_id = q.id))`,
+} as const
+
 const SORTS = {
+  valid_until: 'q.issue_date + q.validity_days asc nulls last, q.id asc',
+  '-valid_until': 'q.issue_date + q.validity_days desc nulls last, q.id desc',
   number: 'q.number_year asc nulls last, q.number_seq asc nulls last, q.id asc',
   '-number': 'q.number_year desc nulls last, q.number_seq desc nulls last, q.id desc',
   issue_date: 'q.issue_date asc nulls last, q.id asc',
@@ -236,8 +255,21 @@ function readList(query: Record<string, unknown>) {
   if (clientId !== undefined && !UUID.test(clientId)) {
     errors['filter[client]'] = ['Identificativo non valido.']
   }
+  const followUpValue = single('filter[follow_up]')
+  const followUp = followUpValue && followUpValue in FOLLOW_UPS ? followUpValue : undefined
+  if (followUpValue !== undefined && !followUp) {
+    errors['filter[follow_up]'] = ['Valore non valido.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? '-updated_at', search, status, clientId }
+  return {
+    page,
+    perPage,
+    sort: sort ?? '-updated_at',
+    search,
+    status,
+    clientId,
+    followUp: followUp as keyof typeof FOLLOW_UPS | undefined,
+  }
 }
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -251,6 +283,7 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.status) add((p) => `q.status = ${p}`, list.status)
   if (list.clientId) add((p) => `q.client_id = ${p}`, list.clientId)
+  if (list.followUp) where.push(FOLLOW_UPS[list.followUp])
   if (list.search) {
     add(
       (p) =>

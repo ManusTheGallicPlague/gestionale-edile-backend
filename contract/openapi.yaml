@@ -6494,14 +6494,18 @@ paths:
         - $ref: '#/components/parameters/Search'
         - name: sort
           in: query
-          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          description: |
+            Campo di ordinamento; il segno meno vuol dire ordine decrescente. valid_until mette
+            le bozze, che non hanno una validità, in fondo.
           schema:
             type: string
-            enum: [number, -number, issue_date, -issue_date, updated_at, -updated_at]
+            enum: [number, -number, issue_date, -issue_date, updated_at, -updated_at, valid_until, -valid_until]
             default: -updated_at
         - name: filter
           in: query
-          description: Filtri, ad esempio filter[status]=sent o filter[client]=<id>.
+          description: |
+            Filtri, ad esempio filter[status]=sent, filter[client]=<id> o
+            filter[follow_up]=expiring.
           style: deepObject
           explode: true
           schema:
@@ -6509,6 +6513,7 @@ paths:
             properties:
               status: { $ref: '#/components/schemas/QuoteStatus' }
               client: { $ref: '#/components/schemas/Id' }
+              follow_up: { $ref: '#/components/schemas/QuoteFollowUp' }
       responses:
         '200':
           description: Una pagina di preventivi
@@ -6561,7 +6566,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [number, -number, issue_date, -issue_date, updated_at, -updated_at]
+            enum: [number, -number, issue_date, -issue_date, updated_at, -updated_at, valid_until, -valid_until]
             default: -updated_at
         - name: filter
           in: query
@@ -6572,6 +6577,7 @@ paths:
             properties:
               status: { $ref: '#/components/schemas/QuoteStatus' }
               client: { $ref: '#/components/schemas/Id' }
+              follow_up: { $ref: '#/components/schemas/QuoteFollowUp' }
       responses:
         '200':
           description: Il file CSV
@@ -10498,6 +10504,15 @@ components:
           type: string
           description: Il prossimo numero come verrà stampato, ad esempio 2026/046.
           pattern: '^\d{4}/\d{3,}$'
+    QuoteFollowUp:
+      type: string
+      description: |
+        Preventivi da seguire, gli stessi contati nella sezione quotes di getDashboard.
+        awaiting: inviati e non sostituiti da una revisione già inviata. expiring: in attesa,
+        con la validità (valid_until) che finisce entro 7 giorni da oggi, oggi compreso.
+        past_validity: in attesa, con la validità già finita. accepted_without_site: accettati
+        senza un cantiere creato dal preventivo.
+      enum: [awaiting, expiring, past_validity, accepted_without_site]
     QuoteStatus:
       type: string
       description: 'draft: bozza. sent: inviato. accepted: accettato. rejected: rifiutato. expired: scaduto.'
