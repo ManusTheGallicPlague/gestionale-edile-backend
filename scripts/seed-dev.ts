@@ -731,13 +731,25 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where exists (select 1 from c) and exists (select 1 from p)`,
         [companyId],
       )
+      // The overdue advance invoice is partly collected: a 5,000 euro transfer.
+      await client.query(
+        `insert into public.invoice_payments
+           (company_id, invoice_id, payment_date, amount_cents, method, notes)
+         select $1, i.id, i.invoice_date + 30, 500000, 'bank_transfer', 'Primo acconto'
+         from public.invoices i where i.company_id = $1 and i.number like '2/%'
+           and i.direction = 'issued'`,
+        [companyId],
+      )
       await client.query(
         `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, client_id,
            supplier_id, status, done_at, invoice_id)
          select i.company_id, 'Fattura ' || i.number || ' – ' || coalesce(c.name, p.name),
            i.due_date, case i.direction when 'issued' then 'invoice_out' else 'invoice_in' end,
            i.taxable_cents + i.vat_cents - i.withholding_cents
-             - case when i.split_payment then i.vat_cents else 0 end, i.client_id, i.supplier_id,
+             - case when i.split_payment then i.vat_cents else 0 end
+             - case when i.paid_on is null then (select coalesce(sum(ip.amount_cents), 0)
+                 from public.invoice_payments ip where ip.invoice_id = i.id) else 0 end,
+           i.client_id, i.supplier_id,
            case when i.paid_on is null then 'open' else 'done' end,
            case when i.paid_on is not null then now() end, i.id
          from public.invoices i

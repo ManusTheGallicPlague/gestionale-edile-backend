@@ -79,6 +79,8 @@ interface InvoiceRow {
   withholding_cents: string
   split_payment: boolean
   due_cents: string
+  paid_cents: string
+  remaining_cents: string
   due_date: string | null
   paid_on: string | null
   payment_status: PaymentStatus
@@ -102,6 +104,14 @@ const STATUS_LABELS: Record<PaymentStatus, string> = {
 export const DUE_CENTS = `i.taxable_cents + i.vat_cents - i.withholding_cents
     - case when i.split_payment then i.vat_cents else 0 end`
 
+/** Sum of the payments registered on the invoice (instalments, advances). */
+export const PAID_CENTS = `(select coalesce(sum(ip.amount_cents), 0) from public.invoice_payments ip
+    where ip.invoice_id = i.id)`
+
+/** What is left to pay: the amount due less the payments; zero once the invoice is paid. */
+export const REMAINING_CENTS = `case when i.paid_on is not null then 0
+    else ${DUE_CENTS} - ${PAID_CENTS} end`
+
 // "Today" is the Italian one, not the server's.
 const PAYMENT_STATUS = `case
     when i.paid_on is not null then 'paid'
@@ -115,7 +125,8 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
     i.taxable_cents::text as taxable_cents, i.vat_cents::text as vat_cents,
     i.vat_nature, i.progress_statement_id, (i.taxable_cents + i.vat_cents)::text as total_cents,
     i.withholding_cents::text as withholding_cents, i.split_payment,
-    (${DUE_CENTS})::text as due_cents,
+    (${DUE_CENTS})::text as due_cents, ${PAID_CENTS}::text as paid_cents,
+    (${REMAINING_CENTS})::text as remaining_cents,
     i.due_date::text as due_date, i.paid_on::text as paid_on,
     ${PAYMENT_STATUS} as payment_status, d.id as deadline_id,
     (select ${ATTACHMENT_JSON} from public.invoice_files f where f.invoice_id = i.id) as file,
@@ -156,6 +167,8 @@ function toContract(row: InvoiceRow) {
     withholding_amount: centsToAmount(row.withholding_cents),
     split_payment: row.split_payment,
     amount_due: centsToAmount(row.due_cents),
+    paid_amount: centsToAmount(row.paid_cents),
+    remaining_amount: centsToAmount(row.remaining_cents),
     due_date: row.due_date,
     paid_on: row.paid_on,
     payment_status: row.payment_status,
@@ -394,7 +407,7 @@ async function syncDeadline(client: PoolClient, invoiceId: string): Promise<void
        supplier_id, status, done_at, invoice_id)
      select i.company_id, left('Fattura ' || i.number || ' – ' || coalesce(c.name, p.name), 200),
        i.due_date, case i.direction when 'issued' then 'invoice_out' else 'invoice_in' end,
-       ${DUE_CENTS}, i.client_id, i.supplier_id,
+       case when i.paid_on is null then ${REMAINING_CENTS} else ${DUE_CENTS} end, i.client_id, i.supplier_id,
        case when i.paid_on is null then 'open' else 'done' end,
        case when i.paid_on is not null then now() end, i.id
      from public.invoices i
@@ -410,6 +423,93 @@ async function syncDeadline(client: PoolClient, invoiceId: string): Promise<void
        version = deadlines.version + 1, updated_at = now()`,
     [invoiceId],
   )
+}
+
+/**
+ * With payments registered, paid_on follows them: the date of the last one once they cover
+ * the amount due, null before. Without payments it stays as written. Payments beyond the
+ * amount due (after a change of the amounts) are refused, and the error rolls back.
+ */
+async function syncPaid(client: PoolClient, invoiceId: string): Promise<void> {
+  const { rows } = await client.query<{ paid: string | null; due: string; last: string | null }>(
+    `select (select sum(amount_cents) from public.invoice_payments where invoice_id = i.id)::text
+         as paid,
+       (${DUE_CENTS})::text as due,
+       (select max(payment_date) from public.invoice_payments where invoice_id = i.id)::text
+         as last
+     from public.invoices i where i.id = $1`,
+    [invoiceId],
+  )
+  const row = rows[0]
+  if (!row || row.paid === null) return
+  if (BigInt(row.paid) > BigInt(row.due)) {
+    throw new ValidationFailed({
+      _: [
+        `I pagamenti registrati (${centsToAmount(row.paid)}) superano il netto a pagare della fattura.`,
+      ],
+    })
+  }
+  const paidOn = BigInt(row.paid) === BigInt(row.due) ? row.last : null
+  await client.query(
+    `update public.invoices set paid_on = $2::date
+     where id = $1 and paid_on is distinct from $2::date`,
+    [invoiceId, paidOn],
+  )
+}
+
+const PAYMENT_METHODS = ['bank_transfer', 'riba', 'check', 'cash', 'card', 'other'] as const
+type PaymentMethod = (typeof PAYMENT_METHODS)[number]
+
+interface PaymentInput {
+  date: string
+  amount_cents: string
+  method: PaymentMethod | null
+  notes: string | null
+}
+
+function parsePaymentInput(body: unknown): PaymentInput {
+  const errors: FieldErrors = {}
+  const add = (field: string, message: string) => {
+    ;(errors[field] ??= []).push(message)
+  }
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+    throw new ValidationFailed({ _: ['Il corpo della richiesta deve essere un oggetto JSON.'] })
+  }
+  const raw = body as Record<string, unknown>
+  for (const field of ['date', 'amount', 'method', 'notes']) {
+    if (!(field in raw)) add(field, 'Campo mancante.')
+  }
+  let date: string | null = null
+  if ('date' in raw) {
+    if (typeof raw.date !== 'string' || !isIsoDate(raw.date)) {
+      add('date', 'Data non valida (AAAA-MM-GG).')
+    } else date = raw.date
+  }
+  let amount_cents: string | null = null
+  if ('amount' in raw) {
+    const cents = typeof raw.amount === 'string' ? amountToCents(raw.amount.trim()) : null
+    if (cents === null) {
+      add('amount', 'Un importo come 1234.50, con il punto e al massimo due decimali.')
+    } else if (BigInt(cents) <= 0n) add('amount', "L'importo deve essere più di zero.")
+    else if (BigInt(cents) >= MAX_CENTS) add('amount', 'Importo troppo alto.')
+    else amount_cents = cents
+  }
+  let method: PaymentMethod | null = null
+  if ('method' in raw && raw.method !== null) {
+    const found = PAYMENT_METHODS.find((m) => m === raw.method)
+    if (!found) add('method', 'Modalità di pagamento non valida.')
+    else method = found
+  }
+  let notes: string | null = null
+  if ('notes' in raw && raw.notes !== null) {
+    if (typeof raw.notes !== 'string') add('notes', 'Deve essere un testo.')
+    else if (raw.notes.trim().length > 500) add('notes', 'Al massimo 500 caratteri.')
+    else notes = raw.notes.trim() === '' ? null : raw.notes.trim()
+  }
+  if (Object.keys(errors).length > 0 || date === null || amount_cents === null) {
+    throw new ValidationFailed(errors)
+  }
+  return { date, amount_cents, method, notes }
 }
 
 async function readOne(client: PoolClient, id: string): Promise<InvoiceRow | undefined> {
@@ -537,7 +637,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const count = await client.query<{ total: number; amount: string; outstanding: string }>(
         `select count(*)::int as total,
            coalesce(sum(i.taxable_cents + i.vat_cents), 0)::text as amount,
-           coalesce(sum(${DUE_CENTS})
+           coalesce(sum(${REMAINING_CENTS})
              filter (where i.paid_on is null), 0)::text as outstanding
          from public.invoices i where ${where.join(' and ')}`,
         values.slice(0, filters),
@@ -742,6 +842,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
         )
         .catch(writeFailed)
       if (!rowCount) return missingOrStale(client, id)
+      await syncPaid(client, id)
       await syncDeadline(client, id)
       return readOne(client, id)
     })
@@ -822,6 +923,113 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
     if (!row) throw notFound()
     return send(reply, row)
   })
+
+  app.get<{ Params: Params }>(`${base}/:invoice/payments`, async (request) => {
+    const session = requireSession(request)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('invoices.view')) throw notFound()
+      const id = request.params.invoice ?? ''
+      if (!UUID.test(id)) throw notFound()
+      if (!(await readOne(client, id))) throw notFound()
+      const { rows } = await client.query<{
+        id: string
+        payment_date: string
+        amount_cents: string
+        method: PaymentMethod | null
+        notes: string | null
+        created_at: Date
+      }>(
+        `select id, payment_date::text as payment_date, amount_cents::text as amount_cents,
+           method, notes, created_at
+         from public.invoice_payments where invoice_id = $1
+         order by payment_date, created_at, id`,
+        [id],
+      )
+      return {
+        data: rows.map((r) => ({
+          id: r.id,
+          date: r.payment_date,
+          amount: centsToAmount(r.amount_cents),
+          method: r.method,
+          notes: r.notes,
+          created_at: r.created_at.toISOString(),
+        })),
+      }
+    })
+  })
+
+  app.post<{ Params: Params }>(`${base}/:invoice/payments`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('invoices.update')) throw forbidden()
+      const id = request.params.invoice ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      const input = parsePaymentInput(request.body)
+      // Locks the invoice: concurrent payments wait here, so the sum check below holds.
+      await bumpVersion(client, id, version)
+      const current = await readOne(client, id)
+      if (!current) throw notFound()
+      const room = BigInt(current.due_cents) - BigInt(current.paid_cents)
+      if (current.paid_on !== null && current.paid_cents === '0') {
+        throw new ValidationFailed({ amount: ['La fattura è già segnata come pagata.'] })
+      }
+      if (BigInt(input.amount_cents) > room) {
+        throw new ValidationFailed({
+          amount: [`Supera quanto resta da pagare (${centsToAmount(room.toString())}).`],
+        })
+      }
+      await client.query(
+        `insert into public.invoice_payments
+           (company_id, invoice_id, payment_date, amount_cents, method, notes)
+         values (app.current_company_id(), $1, $2, $3, $4, $5)`,
+        [id, input.date, input.amount_cents, input.method, input.notes],
+      )
+      await syncPaid(client, id)
+      await syncDeadline(client, id)
+      return readOne(client, id)
+    })
+    if (!row) throw notFound()
+    return send(reply, row)
+  })
+
+  app.delete<{ Params: Params & { payment?: string } }>(
+    `${base}/:invoice/payments/:payment`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('invoices.update')) throw forbidden()
+        const id = request.params.invoice ?? ''
+        const paymentId = request.params.payment ?? ''
+        if (!UUID.test(id) || !UUID.test(paymentId)) throw notFound()
+        const version = expectedVersion(request.headers['if-match'])
+        await bumpVersion(client, id, version)
+        const { rowCount } = await client.query(
+          'delete from public.invoice_payments where id = $1 and invoice_id = $2',
+          [paymentId, id],
+        )
+        // No such payment: the error rolls the version back.
+        if (!rowCount) throw notFound()
+        const left = await client.query(
+          'select 1 from public.invoice_payments where invoice_id = $1 limit 1',
+          [id],
+        )
+        // The last one gone: the invoice is no longer paid by payments.
+        if (!left.rowCount)
+          await client.query('update public.invoices set paid_on = null where id = $1', [id])
+        else await syncPaid(client, id)
+        await syncDeadline(client, id)
+        return readOne(client, id)
+      })
+      if (!row) throw notFound()
+      return send(reply, row)
+    },
+  )
 
   uploadScope(app, config, (scope) => {
     scope.put<{ Params: Params; Querystring: Record<string, unknown> }>(

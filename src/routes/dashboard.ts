@@ -5,7 +5,7 @@ import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
 import { requireSession } from '../http/request-context.js'
-import { DUE_CENTS } from './invoices.js'
+import { REMAINING_CENTS } from './invoices.js'
 
 /**
  * Every cost of a site, one row each: labour and vehicles of approved daily reports at
@@ -192,11 +192,11 @@ async function invoiceTotals(client: PoolClient, today: string) {
     payable_overdue: string
   }>(
     `select
-       coalesce(sum(${DUE_CENTS}) filter (where i.direction = 'issued'), 0)::text as receivable,
-       coalesce(sum(${DUE_CENTS}) filter (where i.direction = 'issued' and i.due_date < $1::date),
+       coalesce(sum(${REMAINING_CENTS}) filter (where i.direction = 'issued'), 0)::text as receivable,
+       coalesce(sum(${REMAINING_CENTS}) filter (where i.direction = 'issued' and i.due_date < $1::date),
          0)::text as receivable_overdue,
-       coalesce(sum(${DUE_CENTS}) filter (where i.direction = 'received'), 0)::text as payable,
-       coalesce(sum(${DUE_CENTS}) filter (where i.direction = 'received'
+       coalesce(sum(${REMAINING_CENTS}) filter (where i.direction = 'received'), 0)::text as payable,
+       coalesce(sum(${REMAINING_CENTS}) filter (where i.direction = 'received'
          and i.due_date < $1::date), 0)::text as payable_overdue
      from public.invoices i where i.paid_on is null`,
     [today],

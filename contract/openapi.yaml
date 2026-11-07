@@ -4377,7 +4377,7 @@ paths:
       description: |
         Permesso: invoices.view. Dalla più recente. total_amount è la somma dei totali delle
         fatture che rispettano i filtri, non solo della pagina; outstanding_amount la parte
-        ancora da pagare o incassare (somma degli amount_due).
+        ancora da pagare o incassare (somma dei remaining_amount).
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -4660,6 +4660,98 @@ paths:
       responses:
         '200':
           description: File eliminato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/invoices/{invoice}/payments:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/InvoiceId'
+    get:
+      operationId: listInvoicePayments
+      summary: Incassi o pagamenti parziali di una fattura
+      description: |
+        Permesso: invoices.view. Senza permesso risponde 404, non 403. Tutti i pagamenti della
+        fattura (acconti, rate), dal più vecchio; niente paginazione.
+      responses:
+        '200':
+          description: I pagamenti della fattura
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/InvoicePayment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createInvoicePayment
+      summary: Registrazione di un incasso o di un pagamento, anche parziale
+      description: |
+        Permesso: invoices.update. If-Match con la versione della fattura: la risposta è la
+        fattura con la versione nuova. La somma dei pagamenti non può superare amount_due
+        (422 sotto amount). Quando la somma arriva ad amount_due la fattura risulta pagata:
+        paid_on prende la data dell'ultimo pagamento e la scadenza nello scadenziario si chiude;
+        finché non ci arriva, paid_on è null e la scadenza resta aperta con l'importo residuo.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/InvoicePaymentInput' }
+      responses:
+        '200':
+          description: Pagamento registrato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
+  /api/companies/{company}/invoices/{invoice}/payments/{payment}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/InvoiceId'
+      - name: payment
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    delete:
+      operationId: deleteInvoicePayment
+      summary: Eliminazione di un pagamento registrato per errore
+      description: |
+        Permesso: invoices.update. If-Match con la versione della fattura: la risposta è la
+        fattura con la versione nuova, con paid_on ricalcolato dai pagamenti rimasti (null se
+        non ne resta nessuno). Un pagamento si elimina e si registra di nuovo: non si modifica.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: Pagamento eliminato
           headers:
             ETag: { $ref: '#/components/headers/ETag' }
           content:
@@ -7301,7 +7393,10 @@ components:
             - $ref: '#/components/schemas/Date'
             - type: 'null'
         paid_on:
-          description: Data del pagamento o dell'incasso; null se non ancora pagata.
+          description: |
+            Data del pagamento o dell'incasso; null se non ancora pagata. Se la fattura ha
+            pagamenti registrati (createInvoicePayment) il valore inviato non conta: paid_on è
+            la data dell'ultimo pagamento quando coprono amount_due, altrimenti null.
           oneOf:
             - $ref: '#/components/schemas/Date'
             - type: 'null'
@@ -7326,6 +7421,8 @@ components:
               withholding_amount,
               split_payment,
               amount_due,
+              paid_amount,
+              remaining_amount,
               progress_statement_id,
               created_at,
               updated_at,
@@ -7365,6 +7462,16 @@ components:
                 scadenziario.
               allOf:
                 - $ref: '#/components/schemas/Amount'
+            paid_amount:
+              description: Somma degli incassi o pagamenti registrati (listInvoicePayments).
+              allOf:
+                - $ref: '#/components/schemas/Amount'
+            remaining_amount:
+              description: |
+                Quanto resta da incassare o pagare: amount_due meno paid_amount; 0.00 quando la
+                fattura è pagata.
+              allOf:
+                - $ref: '#/components/schemas/Amount'
             payment_status: { $ref: '#/components/schemas/InvoicePaymentStatus' }
             deadline_id:
               description: La scadenza nello scadenziario; null senza scadenza di pagamento.
@@ -7375,6 +7482,39 @@ components:
               type: string
               format: date-time
             updated_at:
+              type: string
+              format: date-time
+    InvoicePaymentMethod:
+      type: string
+      description: |
+        bank_transfer: bonifico. riba: ricevuta bancaria. check: assegno. cash: contanti.
+        card: carta o bancomat. other: altro (ad esempio una compensazione).
+      enum: [bank_transfer, riba, check, cash, card, other]
+    InvoicePaymentInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [date, amount, method, notes]
+      properties:
+        date: { $ref: '#/components/schemas/Date' }
+        amount:
+          description: Importo incassato o pagato, più di zero.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        method:
+          oneOf:
+            - $ref: '#/components/schemas/InvoicePaymentMethod'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 500
+    InvoicePayment:
+      allOf:
+        - $ref: '#/components/schemas/InvoicePaymentInput'
+        - type: object
+          required: [id, created_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            created_at:
               type: string
               format: date-time
     InvoiceList:
@@ -7390,7 +7530,9 @@ components:
           allOf:
             - $ref: '#/components/schemas/Amount'
         outstanding_amount:
-          description: Somma dei netti a pagare (amount_due) delle fatture filtrate non ancora pagate.
+          description: |
+            Somma di quanto resta da pagare o incassare (remaining_amount) delle fatture
+            filtrate non ancora pagate.
           allOf:
             - $ref: '#/components/schemas/Amount'
     WarehouseItemInput:
@@ -7743,9 +7885,9 @@ components:
     DashboardInvoices:
       type: object
       description: |
-        Fatture non ancora pagate, per netto a pagare (amount_due, cioè senza la ritenuta
-        d'acconto e senza l'IVA in scissione dei pagamenti). Scadute: con la scadenza di
-        pagamento passata.
+        Fatture non ancora pagate, per quanto resta da pagare (remaining_amount: il netto a
+        pagare, cioè senza la ritenuta d'acconto e senza l'IVA in scissione dei pagamenti, meno
+        gli acconti già registrati). Scadute: con la scadenza di pagamento passata.
       required: [receivable, receivable_overdue, payable, payable_overdue]
       properties:
         receivable:

@@ -287,6 +287,48 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('invoice payments: cannot read, write or hang a payment across companies', async () => {
+    const ids: Record<string, string> = {}
+    for (const companyId of [companyA.id, companyB.id]) {
+      const r = await owner.query<{ id: string }>(
+        `insert into public.invoices (company_id, direction, number, invoice_date, client_id, taxable_cents, vat_cents)
+         select $1, 'issued', 'RLS-P', '2026-11-02', c.id, 100, 22
+         from public.clients c where c.company_id = $1 limit 1 returning id`,
+        [companyId],
+      )
+      ids[companyId] = r.rows[0]?.id ?? ''
+    }
+    const payment = (invoiceId: string | undefined, companyId: string) =>
+      `insert into public.invoice_payments (invoice_id, company_id, payment_date, amount_cents)
+       values ('${invoiceId}', '${companyId}', '2026-11-03', 50)`
+    await owner.query(payment(ids[companyB.id], companyB.id))
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.invoice_payments where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    // A payment of company A on an invoice of company B: the composite foreign key says no.
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query(payment(ids[companyB.id], companyA.id))),
+    ).rejects.toThrow(/foreign key/)
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query(payment(ids[companyB.id], companyB.id))),
+    ).rejects.toThrow(/row-level security/)
+    const removed = await as(alice.id, companyA.id, (c) =>
+      c.query('delete from public.invoice_payments where company_id = $1', [companyB.id]),
+    )
+    expect(removed.rowCount).toBe(0)
+    // A payment is never changed in place, not even in one's own company.
+    await expect(
+      as(alice.id, companyA.id, async (c) => {
+        await c.query(payment(ids[companyA.id], companyA.id))
+        return c.query('update public.invoice_payments set amount_cents = 1')
+      }),
+    ).rejects.toThrow(/permission denied/)
+    await expect(auth.query('select * from public.invoice_payments')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('deadlines: cannot read, write or link across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',
