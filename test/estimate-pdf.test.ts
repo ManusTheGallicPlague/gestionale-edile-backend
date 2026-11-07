@@ -194,3 +194,38 @@ describe('estimate csv', () => {
     expect((await new Browser(ctx.app).call('GET', `${s.base}/items/export`)).statusCode).toBe(401)
   })
 })
+
+describe('estimate pdf without prices', () => {
+  it('keeps quantities and measurements, leaves out prices, amounts and totals', async () => {
+    const s = await scene()
+    const c = await s.chapter('Demolizioni', 'A')
+    const it = await s.item(c.id, 'A.01', 'Rimozione di intonaco', '8.5')
+    await s.measure(it.id, 'Parete nord', ['2', '4.5', null, '3'])
+
+    const pdf = await s.browser.call('GET', `${s.base}/pdf?prices=false`)
+    expect(pdf.statusCode).toBe(200)
+    expect(pdf.headers['content-disposition']).toBe(
+      'attachment; filename="computo-senza-prezzi.pdf"',
+    )
+    const text = pdf.rawPayload.toString('latin1')
+    expect(text).toContain('(Computo metrico)')
+    expect(text).not.toContain('(Computo metrico estimativo)')
+    expect(text).toContain('(A.01 Rimozione di intonaco)')
+    expect(text).toContain('(Parete nord)')
+    expect(text).toContain('(Sommano m\xb2)')
+    expect(text).toContain('(27)')
+    // No price, amount, chapter total, estimate total or summary.
+    expect(text).not.toContain('(8,50)')
+    expect(text).not.toContain('(229,50)')
+    expect(text).not.toContain('(Totale')
+    expect(text).not.toContain('(Riepilogo per capitoli)')
+    expect(text).toContain('(Computo metrico \x96 pagina 1 di 1)')
+
+    // prices=true is the default; anything else is a 422.
+    const priced = await s.browser.call('GET', `${s.base}/pdf?prices=true`)
+    expect(priced.rawPayload.toString('latin1')).toContain('(229,50)')
+    const wrong = await s.browser.call('GET', `${s.base}/pdf?prices=no`)
+    expect(wrong.statusCode).toBe(422)
+    expect(wrong.json()).toMatchObject({ errors: { prices: ['Deve essere true o false.'] } })
+  })
+})

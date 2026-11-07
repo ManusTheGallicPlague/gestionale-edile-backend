@@ -586,46 +586,56 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
     return reply.header('ETag', etag(version)).send(body)
   })
 
-  app.get<{ Params: Params }>(`${base}/pdf`, async (request, reply) => {
-    const session = requireSession(request)
-    const buffer = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
-      const estimateId = await enterEstimate(client, request, 'estimates.view')
-      const { body } = await readStructure(client, estimateId)
-      const { rows } = await client.query<{
-        title: string
-        client: string | null
-        site: string | null
-        address: string | null
-      }>(
-        `select e.title, c.name as client, s.name as site, e.site_address as address
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/pdf`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const pricesValue = request.query.prices ?? 'true'
+      if (pricesValue !== 'true' && pricesValue !== 'false') {
+        throw new ValidationFailed({ prices: ['Deve essere true o false.'] })
+      }
+      const prices = pricesValue === 'true'
+      const buffer = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const estimateId = await enterEstimate(client, request, 'estimates.view')
+        const { body } = await readStructure(client, estimateId)
+        const { rows } = await client.query<{
+          title: string
+          client: string | null
+          site: string | null
+          address: string | null
+        }>(
+          `select e.title, c.name as client, s.name as site, e.site_address as address
          from public.estimates e
          left join public.clients c on c.id = e.client_id
          left join public.sites s on s.id = e.site_id
          where e.id = $1`,
-        [estimateId],
-      )
-      const estimate = rows[0]
-      if (!estimate) throw notFound()
-      const profile = await readProfile(client)
-      return estimatePdf({
-        logo: await readLogoForPdf(client),
-        company: {
-          ...profile,
-          share_capital:
-            profile.share_capital_cents === null
-              ? null
-              : centsToAmount(profile.share_capital_cents),
-        },
-        estimate,
-        ...body,
+          [estimateId],
+        )
+        const estimate = rows[0]
+        if (!estimate) throw notFound()
+        const profile = await readProfile(client)
+        return estimatePdf({
+          logo: await readLogoForPdf(client),
+          company: {
+            ...profile,
+            share_capital:
+              profile.share_capital_cents === null
+                ? null
+                : centsToAmount(profile.share_capital_cents),
+          },
+          estimate,
+          ...body,
+          prices,
+        })
       })
-    })
-    return reply
-      .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', 'attachment; filename="computo.pdf"')
-      .header('Cache-Control', 'private, no-store')
-      .send(buffer)
-  })
+      const file = prices ? 'computo.pdf' : 'computo-senza-prezzi.pdf'
+      return reply
+        .header('Content-Type', 'application/pdf')
+        .header('Content-Disposition', `attachment; filename="${file}"`)
+        .header('Cache-Control', 'private, no-store')
+        .send(buffer)
+    },
+  )
 
   app.get<{ Params: Params }>(`${base}/items/export`, async (request, reply) => {
     const session = requireSession(request)

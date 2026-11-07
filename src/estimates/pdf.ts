@@ -8,6 +8,8 @@ export interface EstimatePdfData extends EstimateTree {
   company: QuotePdfData['company']
   estimate: { title: string; client: string | null; site: string | null; address: string | null }
   total: string
+  /** False: the bill of quantities with empty price and amount columns, to ask for offers. */
+  prices: boolean
 }
 
 const MARGIN = 42
@@ -35,6 +37,7 @@ const DESCRIPTION_WIDTH = 270 - MARGIN - NUMBER_WIDTH
  * total of each chapter, of the estimate and a summary by chapter.
  */
 export function estimatePdf(data: EstimatePdfData): Buffer {
+  const title = data.prices ? 'Computo metrico estimativo' : 'Computo metrico'
   const pdf = new PdfDocument()
   let y = 0
   const newPage = () => {
@@ -73,7 +76,7 @@ export function estimatePdf(data: EstimatePdfData): Buffer {
   newPage()
   const header = companyHeader(pdf, data.logo, data.company, y)
   y = header.bottom - 12
-  pdf.text(MARGIN, y, 'Computo metrico estimativo', { size: 12, bold: true })
+  pdf.text(MARGIN, y, title, { size: 12, bold: true })
   y -= LEADING + 4
   const e = data.estimate
   paragraph(e.title, { size: 9, bold: true })
@@ -121,8 +124,10 @@ export function estimatePdf(data: EstimatePdfData): Buffer {
     room(1)
     pdf.textRight(COLUMNS.height, y, `Sommano ${it.unit}`, BOLD)
     pdf.textRight(COLUMNS.quantity, y, italianQuantity(it.quantity), BOLD)
-    pdf.textRight(COLUMNS.price, y, italianAmount(it.unit_price), BODY)
-    pdf.textRight(RIGHT, y, italianAmount(it.amount), BOLD)
+    if (data.prices) {
+      pdf.textRight(COLUMNS.price, y, italianAmount(it.unit_price), BODY)
+      pdf.textRight(RIGHT, y, italianAmount(it.amount), BOLD)
+    }
     y -= LEADING + 3
   }
 
@@ -137,14 +142,18 @@ export function estimatePdf(data: EstimatePdfData): Buffer {
     y -= 2
     for (const it of itemsOf.get(c.id) ?? []) item(it)
     for (const sub of children.get(c.id) ?? []) chapter(sub, depth + 1)
-    room(1)
-    pdf.textRight(COLUMNS.price, y, `Totale ${c.title}`.slice(0, 80), BOLD)
-    pdf.textRight(RIGHT, y, italianAmount(c.amount), BOLD)
-    y -= LEADING + 6
+    if (data.prices) {
+      room(1)
+      pdf.textRight(COLUMNS.price, y, `Totale ${c.title}`.slice(0, 80), BOLD)
+      pdf.textRight(RIGHT, y, italianAmount(c.amount), BOLD)
+      y -= LEADING
+    }
+    y -= 6
   }
 
   for (const c of children.get(null) ?? []) chapter(c, 0)
 
+  if (!data.prices) return finish(pdf, title)
   pdf.line(MARGIN, y + 4, RIGHT, y + 4)
   y -= 8
   room(1)
@@ -180,9 +189,13 @@ export function estimatePdf(data: EstimatePdfData): Buffer {
     pdf.textRight(RIGHT, y, `€ ${italianAmount(data.total)}`, { size: 10, bold: true })
   }
 
-  // Page numbers, now that the count is known.
+  return finish(pdf, title)
+}
+
+/** Page numbers, now that the count is known. */
+function finish(pdf: PdfDocument, title: string): Buffer {
   for (let page = 0; page < pdf.pageCount; page++) {
-    const text = `Computo metrico estimativo – pagina ${page + 1} di ${pdf.pageCount}`
+    const text = `${title} – pagina ${page + 1} di ${pdf.pageCount}`
     pdf.text(RIGHT - textWidth(text, { size: 8 }), 30, text, { size: 8 }, page)
   }
   return pdf.toBuffer()

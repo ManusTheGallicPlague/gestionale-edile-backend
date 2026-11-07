@@ -4326,6 +4326,18 @@ paths:
         larghezza, altezza o peso, quantità), «Sommano» con unità di misura, quantità,
         prezzo e importo; il totale di ogni capitolo e del computo, e un riepilogo per
         capitoli. Il file si chiama computo.pdf. Senza permesso risponde 404, non 403.
+
+        Con prices=false esce il «Computo metrico» senza prezzi, da mandare ai fornitori e
+        ai subappaltatori per chiedere un'offerta: stesse voci, righe di misura e quantità,
+        colonne Prezzo e Importo vuote, niente totali né riepilogo. Il file si chiama
+        computo-senza-prezzi.pdf.
+      parameters:
+        - name: prices
+          in: query
+          description: false per il computo senza prezzi e importi.
+          schema:
+            type: boolean
+            default: true
       responses:
         '200':
           description: Il PDF
@@ -4341,6 +4353,7 @@ paths:
                 format: binary
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/estimates/{estimate}/items/export:
     parameters:
