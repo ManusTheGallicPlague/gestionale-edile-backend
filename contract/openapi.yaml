@@ -3668,6 +3668,43 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/activities/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportCompanyActivities
+      summary: Esportazione in CSV delle attività del cronoprogramma di tutti i cantieri
+      description: |
+        Permesso: sites.view. Stessi filtri e ordinamento di listCompanyActivities, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026.
+        Il file si chiama cronoprogramma.csv.
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              follow_up: { $ref: '#/components/schemas/ActivityFollowUp' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/progress-statements:
     parameters:
       - $ref: '#/components/parameters/Company'

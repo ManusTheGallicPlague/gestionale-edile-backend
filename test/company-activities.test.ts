@@ -172,3 +172,44 @@ describe('schedule activities in the dashboard', () => {
     expect(empty.json<{ activities: unknown }>().activities).toEqual({ late: 0, starting_soon: 0 })
   })
 })
+
+describe('schedule activities in CSV', () => {
+  it('exports the filtered activities with Italian dates and the days late', async () => {
+    const s = await scene()
+    await scene()
+    await ctx.owner.query(
+      "update public.site_activities set notes = '=SOMMA(A1); da sollecitare' where name = 'Scavi' and company_id = $1",
+      [s.company.id],
+    )
+    const res = await s.browser.call('GET', `${s.url}/export?filter[follow_up]=late`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="cronoprogramma.csv"')
+    const { rows } = await ctx.owner.query<{ s: string; e: string; f: string }>(
+      `select to_char(d - 20, 'DD/MM/YYYY') as s, to_char(d - 5, 'DD/MM/YYYY') as e,
+         to_char(d - 1, 'DD/MM/YYYY') as f
+       from (select (now() at time zone 'Europe/Rome')::date as d) x`,
+    )
+    const r = rows[0]
+    const fondazioniStart = await ctx.owner.query<{ v: string }>(
+      "select to_char((now() at time zone 'Europe/Rome')::date - 10, 'DD/MM/YYYY') as v",
+    )
+    expect(res.body.replace('﻿', '').split('\r\n')).toEqual([
+      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note',
+      `Via Roma;C-active;Scavi;${r?.s};${r?.e};60;5;"'=SOMMA(A1); da sollecitare"`,
+      `Via Roma;C-active;Fondazioni;${fondazioniStart.rows[0]?.v};${r?.f};99;1;`,
+      '',
+    ])
+    const all = await s.browser.call('GET', `${s.url}/export`)
+    expect(all.body.replace('﻿', '').trim().split('\r\n')).toHaveLength(12)
+  })
+
+  it('rejects wrong filters, and answers 403 without sites.view and 401 without a session', async () => {
+    const s = await scene()
+    const wrong = await s.browser.call('GET', `${s.url}/export?filter[follow_up]=overdue`)
+    expect(wrong.statusCode).toBe(422)
+    const blind = await scene(['reports.view'])
+    expect((await blind.browser.call('GET', `${blind.url}/export`)).statusCode).toBe(403)
+    expect((await new Browser(ctx.app).call('GET', `${s.url}/export`)).statusCode).toBe(401)
+  })
+})

@@ -15,6 +15,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 
 const MAX_ACTIVITIES = 500
 const MAX_DEPENDENCIES = 50
@@ -261,6 +262,29 @@ interface CompanyActivityRow extends ActivityRow {
   days_late: number
 }
 
+/** The company activities matching the list filters, in the list order. */
+async function readCompanyActivities(
+  client: PoolClient,
+  list: ReturnType<typeof readCompanyList>,
+  limit: number,
+  offset: number,
+) {
+  const { rows } = await client.query<CompanyActivityRow>(
+    `select x.*, s.name as site_name, s.code as site_code, s.status as site_status
+     from (${SELECT.replace(
+       'a.created_at, a.updated_at,',
+       `a.created_at, a.updated_at,
+         case when a.progress < 100 and a.end_on < ${TODAY}
+           then ${TODAY} - a.end_on else 0 end as days_late,`,
+     )} where ${list.where}) x
+     join public.sites s on s.id = x.site_id
+     order by x.end_on, x.start_on, lower(x.name), x.id
+     limit ${limit} offset ${offset}`,
+    list.values,
+  )
+  return rows
+}
+
 export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/sites/:site/activities'
 
@@ -281,6 +305,45 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
     })
 
   app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/activities/export',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readCompanyList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('sites.view')) throw forbidden()
+        const rows = await readCompanyActivities(client, list, MAX_EXPORT_ROWS, 0)
+        return toCsv(
+          [
+            'Cantiere',
+            'Codice cantiere',
+            'Attività',
+            'Inizio',
+            'Fine',
+            'Avanzamento %',
+            'Giorni di ritardo',
+            'Note',
+          ],
+          rows.map((r) => [
+            r.site_name,
+            r.site_code,
+            r.name,
+            italianDate(r.start_on),
+            italianDate(r.end_on),
+            r.progress,
+            r.days_late,
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="cronoprogramma.csv"')
+        .send(csv)
+    },
+  )
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
     '/api/companies/:company/activities',
     async (request) => {
       const session = requireSession(request)
@@ -288,19 +351,11 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
       return withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('sites.view')) throw forbidden()
-        const offset = (list.page - 1) * list.perPage
-        const { rows } = await client.query<CompanyActivityRow>(
-          `select x.*, s.name as site_name, s.code as site_code, s.status as site_status
-           from (${SELECT.replace(
-             'a.created_at, a.updated_at,',
-             `a.created_at, a.updated_at,
-               case when a.progress < 100 and a.end_on < ${TODAY}
-                 then ${TODAY} - a.end_on else 0 end as days_late,`,
-           )} where ${list.where}) x
-           join public.sites s on s.id = x.site_id
-           order by x.end_on, x.start_on, lower(x.name), x.id
-           limit ${list.perPage} offset ${offset}`,
-          list.values,
+        const rows = await readCompanyActivities(
+          client,
+          list,
+          list.perPage,
+          (list.page - 1) * list.perPage,
         )
         const count = await client.query<{ total: number }>(
           `select count(*)::int as total from public.site_activities a where ${list.where}`,
