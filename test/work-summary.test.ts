@@ -347,3 +347,79 @@ describe('ore di un cantiere per dipendente e per mezzo', () => {
     expect((await anonymous.call('GET', siteUrl(s.slug, s.villa))).statusCode).toBe(401)
   })
 })
+
+describe('ore mensili dei dipendenti per cantiere in CSV', () => {
+  const url = (slug: string, query: string) =>
+    `/api/companies/${slug}/daily-reports/monthly-site-hours?${query}`
+  const lines = (body: string) => body.replace('﻿', '').trim().split('\r\n')
+
+  it('una riga per dipendente e cantiere, con giorni e ore del mese', async () => {
+    const s = await scene(['reports.view', 'employees.view'])
+    await ctx.owner.query("update public.sites set address = 'Via Roma 1, Treviso' where id = $1", [
+      s.villa,
+    ])
+    await ctx.owner.query(
+      "update public.employees set tax_code = 'VRDLCU80A01H501U' where id = $1",
+      [s.verdi],
+    )
+    await s.report(s.villa, '2026-11-02', 'approved', { verdi: '8', bassi: '7.5' })
+    await s.report(s.villa, '2026-11-03', 'draft', { verdi: '4.25' })
+    await s.report(s.condo, '2026-11-03', 'approved', { verdi: '4' })
+    // Other months stay out.
+    await s.report(s.villa, '2026-10-31', 'approved', { verdi: '9' })
+    await s.report(s.villa, '2026-12-01', 'approved', { verdi: '9' })
+
+    const res = await s.browser.call('GET', url(s.slug, 'month=2026-11'))
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe(
+      'attachment; filename="ore-cantieri-2026-11.csv"',
+    )
+    expect(lines(res.body)).toEqual([
+      'Cognome;Nome;Codice fiscale;Cantiere;Codice cantiere;Indirizzo cantiere;Giorni;Ore',
+      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5',
+      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4',
+      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;2;12,25',
+    ])
+
+    const approved = await s.browser.call(
+      'GET',
+      url(s.slug, 'month=2026-11&filter[status]=approved'),
+    )
+    expect(lines(approved.body).slice(1)).toEqual([
+      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5',
+      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4',
+      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;1;8',
+    ])
+    const condo = await s.browser.call('GET', url(s.slug, `month=2026-11&filter[site]=${s.condo}`))
+    expect(lines(condo.body).slice(1)).toEqual(['Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4'])
+
+    for (const [query, field] of [
+      ['', 'month'],
+      ['month=2026-13', 'month'],
+      ['month=2026-11&filter[status]=nope', 'filter[status]'],
+      ['month=2026-11&filter[site]=x', 'filter[site]'],
+    ] as const) {
+      const bad = await s.browser.call('GET', url(s.slug, query))
+      expect(bad.statusCode).toBe(422)
+      expect(bad.json<{ errors: Record<string, unknown> }>().errors).toHaveProperty([field])
+    }
+  })
+
+  it('un’altra azienda vede solo le sue ore; servono entrambi i permessi', async () => {
+    const s = await scene(['reports.view', 'employees.view'])
+    await s.report(s.villa, '2026-11-02', 'approved', { verdi: '8' })
+    const theirs = await scene(['reports.view', 'employees.view'])
+    const other = await theirs.browser.call('GET', url(theirs.slug, 'month=2026-11'))
+    expect(lines(other.body)).toHaveLength(1)
+    expect((await theirs.browser.call('GET', url(s.slug, 'month=2026-11'))).statusCode).toBe(404)
+
+    for (const permissions of [['reports.view'], ['employees.view']] as Permission[][]) {
+      const guest = await scene(permissions)
+      expect((await guest.browser.call('GET', url(guest.slug, 'month=2026-11'))).statusCode).toBe(
+        403,
+      )
+    }
+    const anonymous = new Browser(ctx.app)
+    expect((await anonymous.call('GET', url(s.slug, 'month=2026-11'))).statusCode).toBe(401)
+  })
+})

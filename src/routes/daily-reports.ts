@@ -632,6 +632,82 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
     },
   )
 
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/monthly-site-hours`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const query = readMonthlyHours(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('reports.view') || !permissions.has('employees.view')) {
+          throw forbidden()
+        }
+        const values: unknown[] = [`${query.month}-01`]
+        const where = [
+          'r.report_date >= $1::date',
+          "r.report_date < ($1::date + interval '1 month')",
+        ]
+        if (query.siteId) {
+          values.push(query.siteId)
+          where.push(`r.site_id = $${values.length}`)
+        }
+        if (query.status) {
+          values.push(query.status)
+          where.push(`r.status = $${values.length}`)
+        }
+        const { rows } = await client.query<{
+          last_name: string
+          first_name: string
+          tax_code: string | null
+          site_name: string
+          site_code: string | null
+          site_address: string | null
+          days: number
+          hours: string
+        }>(
+          `select e.last_name, e.first_name, e.tax_code,
+             s.name as site_name, s.code as site_code, s.address as site_address,
+             count(distinct r.report_date)::int as days,
+             sum(l.hours)::numeric(8, 2)::text as hours
+           from public.daily_report_labor l
+           join public.daily_reports r on r.id = l.report_id
+           join public.employees e on e.id = l.employee_id
+           join public.sites s on s.id = r.site_id
+           where ${where.join(' and ')}
+           group by e.id, s.id
+           order by lower(e.last_name), lower(e.first_name), e.id, lower(s.name), s.id`,
+          values,
+        )
+        return toCsv(
+          [
+            'Cognome',
+            'Nome',
+            'Codice fiscale',
+            'Cantiere',
+            'Codice cantiere',
+            'Indirizzo cantiere',
+            'Giorni',
+            'Ore',
+          ],
+          rows.map((r) => [
+            r.last_name,
+            r.first_name,
+            r.tax_code ?? '',
+            r.site_name,
+            r.site_code ?? '',
+            r.site_address ?? '',
+            String(r.days),
+            italianQuantity(r.hours),
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="ore-cantieri-${query.month}.csv"`)
+        .send(csv)
+    },
+  )
+
   app.get<{ Params: Params }>(`${base}/:report`, async (request, reply) => {
     const session = requireSession(request)
     const report = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
