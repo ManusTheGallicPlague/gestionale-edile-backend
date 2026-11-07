@@ -11,7 +11,13 @@ beforeAll(async () => {
 })
 afterAll(() => ctx.close())
 
-const ALL: Permission[] = ['sites.view', 'costs.view', 'reports.view', 'deadlines.view']
+const ALL: Permission[] = [
+  'sites.view',
+  'costs.view',
+  'reports.view',
+  'deadlines.view',
+  'invoices.view',
+]
 
 interface Dashboard {
   today: string
@@ -25,6 +31,7 @@ interface Dashboard {
     { site: { name: string }; activities: number; progress: number; planned: number }[] | null
   reports: { to_approve: number; drafts: number } | null
   deadlines: { title: string; due_on: string; overdue: boolean; amount: string | null }[] | null
+  invoices: Record<string, string> | null
 }
 
 async function scene(permissions: Permission[] = ALL) {
@@ -220,6 +227,49 @@ describe('dashboard', () => {
     )
   })
 
+  it('sums unpaid invoices by amount due, and what is overdue, without other companies', async () => {
+    const s = await scene()
+    const other = await scene()
+    const empty = (await s.browser.call('GET', s.url)).json<Dashboard>()
+    expect(empty.invoices).toEqual({
+      receivable: '0.00',
+      receivable_overdue: '0.00',
+      payable: '0.00',
+      payable_overdue: '0.00',
+    })
+    for (const company of [s.company.id, other.company.id]) {
+      await ctx.owner.query(
+        `with c as (insert into public.clients (company_id, kind, name)
+                    values ($1, 'person', 'Cliente') returning id),
+              p as (insert into public.suppliers (company_id, name)
+                    values ($1, 'Fornitore') returning id)
+         insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+           supplier_id, taxable_cents, vat_cents, withholding_cents, split_payment, due_date,
+           paid_on)
+         select $1, x.direction, x.number, current_date - 60,
+           case when x.direction = 'issued' then (select id from c) end,
+           case when x.direction = 'received' then (select id from p) end,
+           x.taxable, x.vat, x.withholding, x.split, current_date + x.due, x.paid
+         from (values
+           ('issued', '1', 100000::bigint, 22000::bigint, 0::bigint, false, -1, null::date),
+           ('issued', '2', 50000, 11000, 0, true, 10, null),
+           ('issued', '3', 99900, 0, 0, false, -5, current_date),
+           ('received', 'A', 10000, 2200, 2000, false, -1, null),
+           ('received', 'B', 30000, 6600, 0, false, null, null)
+         ) as x (direction, number, taxable, vat, withholding, split, due, paid)`,
+        [company],
+      )
+    }
+    const d = (await s.browser.call('GET', s.url)).json<Dashboard>()
+    // 1220 + 500 (split payment: no VAT); the paid one is left out.
+    expect(d.invoices).toEqual({
+      receivable: '1720.00',
+      receivable_overdue: '1220.00',
+      payable: '468.00',
+      payable_overdue: '102.00',
+    })
+  })
+
   it('leaves out the sections the user may not see, and other companies', async () => {
     const s = await scene(['deadlines.view'])
     const d = (await s.browser.call('GET', s.url)).json<Dashboard>()
@@ -227,6 +277,7 @@ describe('dashboard', () => {
     expect(d.over_budget).toBeNull()
     expect(d.costs_this_month).toBeNull()
     expect(d.reports).toBeNull()
+    expect(d.invoices).toBeNull()
     expect(d.deadlines).toEqual([])
     const sitesOnly = await scene(['sites.view'])
     const e = (await sitesOnly.browser.call('GET', sitesOnly.url)).json<Dashboard>()

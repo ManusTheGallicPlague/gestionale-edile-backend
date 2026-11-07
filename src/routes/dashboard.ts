@@ -5,6 +5,7 @@ import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
 import { requireSession } from '../http/request-context.js'
+import { DUE_CENTS } from './invoices.js'
 
 /**
  * Every cost of a site, one row each: labour and vehicles of approved daily reports at
@@ -182,6 +183,33 @@ async function nearDeadlines(client: PoolClient, today: string) {
   }))
 }
 
+/** Unpaid invoices by amount due, issued (receivable) and received (payable). */
+async function invoiceTotals(client: PoolClient, today: string) {
+  const { rows } = await client.query<{
+    receivable: string
+    receivable_overdue: string
+    payable: string
+    payable_overdue: string
+  }>(
+    `select
+       coalesce(sum(${DUE_CENTS}) filter (where i.direction = 'issued'), 0)::text as receivable,
+       coalesce(sum(${DUE_CENTS}) filter (where i.direction = 'issued' and i.due_date < $1::date),
+         0)::text as receivable_overdue,
+       coalesce(sum(${DUE_CENTS}) filter (where i.direction = 'received'), 0)::text as payable,
+       coalesce(sum(${DUE_CENTS}) filter (where i.direction = 'received'
+         and i.due_date < $1::date), 0)::text as payable_overdue
+     from public.invoices i where i.paid_on is null`,
+    [today],
+  )
+  const r = rows[0]
+  return {
+    receivable: centsToAmount(r?.receivable ?? '0'),
+    receivable_overdue: centsToAmount(r?.receivable_overdue ?? '0'),
+    payable: centsToAmount(r?.payable ?? '0'),
+    payable_overdue: centsToAmount(r?.payable_overdue ?? '0'),
+  }
+}
+
 /** The company dashboard: each section only for those who may see its data. */
 export function dashboardRoutes(app: FastifyInstance, db: Db): void {
   app.get<{ Params: { company: string } }>('/api/companies/:company/dashboard', async (request) => {
@@ -202,6 +230,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         site_progress: can('sites.view') ? await siteProgress(client, today) : null,
         reports: can('reports.view') ? await reportCounts(client, today) : null,
         deadlines: can('deadlines.view') ? await nearDeadlines(client, today) : null,
+        invoices: can('invoices.view') ? await invoiceTotals(client, today) : null,
       }
     })
   })

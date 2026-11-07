@@ -2634,7 +2634,8 @@ paths:
       description: |
         Qualsiasi membro dell'azienda la chiama; ogni sezione è null se manca il suo permesso:
         sites con sites.view; over_budget con sites.view e costs.view; costs_this_month con
-        costs.view; reports con reports.view; deadlines con deadlines.view. Le date sono quelle
+        costs.view; reports con reports.view; deadlines con deadlines.view; invoices con
+        invoices.view. Le date sono quelle
         di oggi in Italia. over_budget elenca, dal più sforato, al massimo 10 cantieri non chiusi
         con un budget e costi oltre il budget (manodopera e mezzi dai rapportini approvati, più
         i costi inseriti a mano, come in getSiteCostSummary). costs_this_month somma i costi del
@@ -7580,7 +7581,17 @@ components:
     Dashboard:
       type: object
       required:
-        [today, sites, over_budget, costs_this_month, costs_by_month, site_progress, reports, deadlines]
+        [
+          today,
+          sites,
+          over_budget,
+          costs_this_month,
+          costs_by_month,
+          site_progress,
+          reports,
+          deadlines,
+          invoices,
+        ]
       properties:
         today: { $ref: '#/components/schemas/Date' }
         sites:
@@ -7644,6 +7655,34 @@ components:
               maxItems: 10
               items: { $ref: '#/components/schemas/DashboardDeadline' }
             - type: 'null'
+        invoices:
+          oneOf:
+            - $ref: '#/components/schemas/DashboardInvoices'
+            - type: 'null'
+    DashboardInvoices:
+      type: object
+      description: |
+        Fatture non ancora pagate, per netto a pagare (amount_due, cioè senza la ritenuta
+        d'acconto e senza l'IVA in scissione dei pagamenti). Scadute: con la scadenza di
+        pagamento passata.
+      required: [receivable, receivable_overdue, payable, payable_overdue]
+      properties:
+        receivable:
+          description: Da incassare, dalle fatture emesse.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        receivable_overdue:
+          description: Parte di receivable già scaduta.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        payable:
+          description: Da pagare, dalle fatture ricevute.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        payable_overdue:
+          description: Parte di payable già scaduta.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
     DashboardOverBudgetSite:
       type: object
       required: [site, budget, total, overrun]

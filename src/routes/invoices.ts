@@ -99,7 +99,7 @@ const STATUS_LABELS: Record<PaymentStatus, string> = {
 }
 
 /** Amount due: the total less the withholding and, with split payment, less the VAT. */
-const DUE_CENTS = `i.taxable_cents + i.vat_cents - i.withholding_cents
+export const DUE_CENTS = `i.taxable_cents + i.vat_cents - i.withholding_cents
     - case when i.split_payment then i.vat_cents else 0 end`
 
 // "Today" is the Italian one, not the server's.
