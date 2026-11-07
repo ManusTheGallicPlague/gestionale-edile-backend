@@ -767,13 +767,14 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          from public.invoices i where i.company_id = $1 and i.number like 'F-118/%'`,
         [companyId, invoicePdf.length, invoicePdf],
       )
-      // A few warehouse items: loaded on 2 November, part taken to the first site.
+      // A few warehouse items: loaded on 2 November, part taken to the first site. The planks
+      // are below their minimum stock, to reorder.
       await client.query(
         `with i as (
-           insert into public.warehouse_items (company_id, code, name, unit)
-           values ($1, 'CEM-325', 'Cemento 32.5 in sacchi da 25 kg', 'sacchi'),
-             ($1, 'SAB-02', 'Sabbia lavata 0-2 mm', 'm³'),
-             ($1, 'TAV-50', 'Tavole da ponte 4 m', 'pz')
+           insert into public.warehouse_items (company_id, code, name, unit, min_stock)
+           values ($1, 'CEM-325', 'Cemento 32.5 in sacchi da 25 kg', 'sacchi', 50),
+             ($1, 'SAB-02', 'Sabbia lavata 0-2 mm', 'm³', null),
+             ($1, 'TAV-50', 'Tavole da ponte 4 m', 'pz', 80)
            returning id, code
          )
          insert into public.warehouse_movements (company_id, item_id, movement_date, kind,

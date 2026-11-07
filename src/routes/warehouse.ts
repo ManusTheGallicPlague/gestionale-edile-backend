@@ -31,11 +31,15 @@ interface ItemInput {
   name: string
   unit: string
   notes: string | null
+  /** Undefined when not sent: a new item has none, an update keeps the current one. */
+  min_stock?: string | null | undefined
 }
 
 interface ItemRow extends ItemInput {
   id: string
   stock: string
+  min_stock: string | null
+  below_min: boolean
   version: number
   created_at: Date
   updated_at: Date
@@ -76,8 +80,12 @@ type Params = { company: string; item?: string; movement?: string; order?: strin
 const STOCK = `coalesce((select sum(case when m.kind = 'in' then m.quantity else -m.quantity end)
     from public.warehouse_movements m where m.item_id = i.id), 0)`
 
+/** Below the minimum stock: there is a minimum and the stock is under it. */
+export const BELOW_MIN = `(i.min_stock is not null and ${STOCK} < i.min_stock)`
+
 const ITEM_SELECT = `select i.id, i.code, i.name, i.unit, i.notes,
-    (${STOCK})::numeric(15, 3)::text as stock, i.version, i.created_at, i.updated_at
+    (${STOCK})::numeric(15, 3)::text as stock, i.min_stock::text as min_stock,
+    ${BELOW_MIN} as below_min, i.version, i.created_at, i.updated_at
   from public.warehouse_items i`
 
 const ITEM_SORTS = {
@@ -108,6 +116,8 @@ function itemToContract(row: ItemRow) {
     unit: row.unit,
     notes: row.notes,
     stock: row.stock,
+    min_stock: row.min_stock,
+    below_min: row.below_min,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -178,8 +188,15 @@ function parseItemInput(body: unknown): ItemInput {
   const unit = text('unit', 20)
   if (unit === null && !errors.unit) add('unit', 'Indica l’unità di misura.')
   const notes = text('notes', 2000)
+  let min_stock: string | null | undefined
+  if ('min_stock' in (body as Record<string, unknown>)) {
+    min_stock = text('min_stock', 20)
+    if (min_stock !== null && !errors.min_stock && !QUANTITY.test(min_stock)) {
+      add('min_stock', 'Una quantità da zero in su, con il punto e al massimo tre decimali.')
+    }
+  }
   if (Object.keys(errors).length > 0 || !name || !unit) throw new ValidationFailed(errors)
-  return { code, name, unit, notes }
+  return { code, name, unit, notes, min_stock }
 }
 
 function parseMovementInput(body: unknown): MovementInput {
@@ -320,6 +337,10 @@ function itemList(query: Record<string, unknown>) {
   const sortValue = q.single('sort') ?? 'name'
   const sort = sortValue in ITEM_SORTS ? (sortValue as keyof typeof ITEM_SORTS) : 'name'
   if (!(sortValue in ITEM_SORTS)) q.errors.sort = ['Ordinamento non valido.']
+  const belowMin = q.single('filter[below_min]')
+  if (belowMin !== undefined && belowMin !== 'true' && belowMin !== 'false') {
+    q.errors['filter[below_min]'] = ['Indica true o false.']
+  }
   q.done()
   const values: unknown[] = []
   let where = 'true'
@@ -327,6 +348,8 @@ function itemList(query: Record<string, unknown>) {
     values.push(`%${search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
     where = `(i.name ilike $1 or i.code ilike $1)`
   }
+  if (belowMin === 'true') where += ` and ${BELOW_MIN}`
+  if (belowMin === 'false') where += ` and not ${BELOW_MIN}`
   return { q, sort, where, values }
 }
 
@@ -470,9 +493,9 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
       const input = parseItemInput(request.body)
       const { rows } = await client
         .query<{ id: string }>(
-          `insert into public.warehouse_items (company_id, code, name, unit, notes)
-           values (app.current_company_id(), $1, $2, $3, $4) returning id`,
-          [input.code, input.name, input.unit, input.notes],
+          `insert into public.warehouse_items (company_id, code, name, unit, notes, min_stock)
+           values (app.current_company_id(), $1, $2, $3, $4, $5) returning id`,
+          [input.code, input.name, input.unit, input.notes, input.min_stock ?? null],
         )
         .catch(duplicateCode)
       return readItem(client, rows[0]?.id ?? '')
@@ -494,10 +517,20 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
       const { rowCount } = await client
         .query(
           `update public.warehouse_items
-           set code = $1, name = $2, unit = $3, notes = $4, version = version + 1,
-               updated_at = now()
+           set code = $1, name = $2, unit = $3, notes = $4,
+               min_stock = case when $7 then $8::numeric else min_stock end,
+               version = version + 1, updated_at = now()
            where id = $5 and version = $6`,
-          [input.code, input.name, input.unit, input.notes, id, version],
+          [
+            input.code,
+            input.name,
+            input.unit,
+            input.notes,
+            id,
+            version,
+            input.min_stock !== undefined,
+            input.min_stock ?? null,
+          ],
         )
         .catch(duplicateCode)
       if (!rowCount) return missingOrStale(client, id)

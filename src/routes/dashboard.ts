@@ -9,6 +9,7 @@ import { REMAINING_CENTS } from './invoices.js'
 import { statementTotals } from './progress-statements.js'
 import { FOLLOW_UPS as ORDER_FOLLOW_UPS } from './purchase-orders.js'
 import { FOLLOW_UPS } from './quotes.js'
+import { BELOW_MIN } from './warehouse.js'
 
 /**
  * Every cost of a site, one row each: labour and vehicles of approved daily reports at
@@ -279,6 +280,14 @@ async function purchaseOrderTotals(client: PoolClient) {
   }
 }
 
+/** Warehouse items to reorder: with a minimum stock and the stock under it. */
+async function warehouseCounts(client: PoolClient) {
+  const { rows } = await client.query<{ below_min: number }>(
+    `select count(*)::int as below_min from public.warehouse_items i where ${BELOW_MIN}`,
+  )
+  return { below_min: rows[0]?.below_min ?? 0 }
+}
+
 /** The company dashboard: each section only for those who may see its data. */
 export function dashboardRoutes(app: FastifyInstance, db: Db): void {
   app.get<{ Params: { company: string } }>('/api/companies/:company/dashboard', async (request) => {
@@ -303,6 +312,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         progress_statements: can('estimates.view') ? await statementTotals(client) : null,
         quotes: can('quotes.view') ? await quoteTotals(client) : null,
         purchase_orders: can('purchases.view') ? await purchaseOrderTotals(client) : null,
+        warehouse: can('warehouse.view') ? await warehouseCounts(client) : null,
       }
     })
   })

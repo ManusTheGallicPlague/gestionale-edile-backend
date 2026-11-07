@@ -220,6 +220,11 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: in cantiere il materiale ch
 - [x] Ordini nella dashboard (`purchase_orders` in `getDashboard`, con `purchases.view`): bozze, in attesa con il loro totale, in ritardo sulla consegna prevista e in consegna entro 7 giorni
 - [x] Gli stessi ordini nell'elenco e nel CSV (`filter[follow_up]` in `listPurchaseOrders` ed `exportPurchaseOrders`: `awaiting`, `late`, `due_soon`), con l'ordinamento per consegna prevista (`sort=delivery_date`, senza data in fondo)
 
+### 26. Scorta minima di magazzino
+Aggiunta il 07/11/2026, con il piano tutto spuntato: in magazzino cemento, sabbia e tavole finiscono quando servono in cantiere; l'ufficio vuole sapere cosa riordinare prima che manchi.
+
+- [x] Scorta minima degli articoli (`min_stock`, migrazione 0059) e `below_min` nell'articolo; `filter[below_min]` in `listWarehouseItems` ed `exportWarehouseItems`; articoli da riordinare nella dashboard (`warehouse` in `getDashboard`, con `warehouse.view`)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -375,6 +380,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 07/11/2026: le ore per cantiere di dipendenti e mezzi usano il costo orario attuale, come il riepilogo dei costi del cantiere (non c'è uno storico dei costi orari); costo null se il costo orario manca. Servono il permesso della scheda (senza, 404) e `reports.view` (senza, 403); senza filtri si contano tutti i rapportini, anche in bozza.
 - 07/11/2026: nella dashboard un preventivo inviato non è più «in attesa» quando una sua revisione è stata inviata; con la revisione ancora in bozza resta in attesa, perché il cliente ha in mano quello. L'imponibile arrotonda riga per riga, come i totali del preventivo.
 - 07/11/2026: gli ordini ai fornitori senza data di consegna prevista contano solo come «in attesa», mai «in ritardo»: senza una data concordata non c'è un ritardo da sollecitare.
+- 07/11/2026: la scorta minima di un articolo di magazzino si può omettere nel corpo di creazione e modifica (una modifica senza il campo la lascia com'è), così i client e l'importazione CSV di prima continuano a funzionare; non è nelle colonne dell'esportazione CSV, che restano quelle dell'importazione. «Sotto scorta» vuol dire giacenza strettamente minore della scorta minima.
 
 ## Registro dei giri
 

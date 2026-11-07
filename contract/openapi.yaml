@@ -2802,6 +2802,7 @@ paths:
       description: |
         Permesso: warehouse.view. La ricerca guarda codice e nome. La giacenza è la somma dei
         carichi meno quella degli scarichi, e può essere negativa se manca un carico.
+        filter[below_min]=true dà solo gli articoli sotto la scorta minima, da riordinare.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -2813,6 +2814,7 @@ paths:
             type: string
             enum: [name, -name, code, -code, stock, -stock]
             default: name
+        - $ref: '#/components/parameters/WarehouseItemFilter'
       responses:
         '200':
           description: Una pagina di articoli
@@ -2914,7 +2916,8 @@ paths:
       description: |
         Permesso: warehouse.view. Stessa ricerca e ordinamento dell'elenco, senza paginazione,
         nello stesso formato dell'esportazione dei clienti. Giacenza con la virgola decimale
-        (12,500). Il file si chiama magazzino.csv.
+        (12,500). Il file si chiama magazzino.csv. Le colonne restano quelle dell'importazione:
+        la scorta minima non c'è.
       parameters:
         - $ref: '#/components/parameters/Search'
         - name: sort
@@ -2923,6 +2926,7 @@ paths:
             type: string
             enum: [name, -name, code, -code, stock, -stock]
             default: name
+        - $ref: '#/components/parameters/WarehouseItemFilter'
       responses:
         '200':
           description: Il file CSV
@@ -3436,7 +3440,7 @@ paths:
         sites con sites.view; over_budget con sites.view e costs.view; costs_this_month con
         costs.view; reports con reports.view; deadlines con deadlines.view; invoices con
         invoices.view; progress_statements con estimates.view; quotes con quotes.view; purchase_orders con
-        purchases.view. Le date sono quelle
+        purchases.view; warehouse con warehouse.view. Le date sono quelle
         di oggi in Italia. over_budget elenca, dal più sforato, al massimo 10 cantieri non chiusi
         con un budget e costi oltre il budget (manodopera e mezzi dai rapportini approvati, più
         i costi inseriti a mano, come in getSiteCostSummary). costs_this_month somma i costi del
@@ -7187,6 +7191,18 @@ components:
       schema:
         type: string
         maxLength: 100
+    WarehouseItemFilter:
+      name: filter
+      in: query
+      description: Filtri, ad esempio filter[below_min]=true.
+      style: deepObject
+      explode: true
+      schema:
+        type: object
+        properties:
+          below_min:
+            description: true per i soli articoli sotto la scorta minima, false per gli altri.
+            type: boolean
 
   responses:
     Unauthorized:
@@ -8959,7 +8975,9 @@ components:
             - $ref: '#/components/schemas/Amount'
     WarehouseItemInput:
       type: object
-      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      description: |
+        I campi facoltativi si inviano comunque, con null se vuoti; min_stock invece si può
+        omettere: un articolo nuovo resta senza scorta minima, una modifica la lascia com'è.
       required: [code, name, unit, notes]
       properties:
         code:
@@ -8977,14 +8995,24 @@ components:
         notes:
           type: [string, 'null']
           maxLength: 2000
+        min_stock:
+          description: |
+            Scorta minima, da zero in su con il punto e al massimo tre decimali (in uscita
+            sempre tre); null se l'articolo non ne ha.
+          type: [string, 'null']
+          pattern: '^\d{1,11}(\.\d{1,3})?$'
+          examples: ['50.000']
     WarehouseItem:
       allOf:
         - $ref: '#/components/schemas/WarehouseItemInput'
         - type: object
-          required: [id, stock, created_at, updated_at]
+          required: [id, stock, min_stock, below_min, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             stock: { $ref: '#/components/schemas/Quantity' }
+            below_min:
+              type: boolean
+              description: true se c'è una scorta minima e la giacenza è sotto.
             created_at:
               type: string
               format: date-time
@@ -9292,6 +9320,7 @@ components:
           progress_statements,
           quotes,
           purchase_orders,
+          warehouse,
         ]
       properties:
         today: { $ref: '#/components/schemas/Date' }
@@ -9382,6 +9411,17 @@ components:
         purchase_orders:
           oneOf:
             - $ref: '#/components/schemas/DashboardPurchaseOrders'
+            - type: 'null'
+        warehouse:
+          oneOf:
+            - type: object
+              description: Magazzino, con warehouse.view.
+              required: [below_min]
+              properties:
+                below_min:
+                  type: integer
+                  minimum: 0
+                  description: Articoli sotto la scorta minima, da riordinare.
             - type: 'null'
     SubjectAccount:
       type: object
