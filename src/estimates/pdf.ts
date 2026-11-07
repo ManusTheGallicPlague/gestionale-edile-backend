@@ -1,40 +1,13 @@
 import type { PdfImage } from '../pdf/image.js'
 import { A4, PdfDocument, textWidth, wrap, type TextStyle } from '../pdf/pdf.js'
+import { groupTree, type EstimateTree, type TreeChapter, type TreeItem } from './tree.js'
 import { companyHeader, italianAmount, italianQuantity, type QuotePdfData } from '../quotes/pdf.js'
 
-export interface EstimatePdfData {
+export interface EstimatePdfData extends EstimateTree {
   logo?: PdfImage | undefined
   company: QuotePdfData['company']
   estimate: { title: string; client: string | null; site: string | null; address: string | null }
   total: string
-  chapters: {
-    id: string
-    parent_id: string | null
-    code: string | null
-    title: string
-    amount: string
-  }[]
-  /** In the order of their chapter. */
-  items: {
-    id: string
-    chapter_id: string
-    code: string | null
-    description: string
-    unit: string
-    unit_price: string
-    quantity: string
-    amount: string
-  }[]
-  /** In the order of their item. */
-  measurements: {
-    item_id: string
-    description: string | null
-    equal_parts: string | null
-    length: string | null
-    width: string | null
-    height: string | null
-    quantity: string
-  }[]
 }
 
 const MARGIN = 42
@@ -114,31 +87,13 @@ export function estimatePdf(data: EstimatePdfData): Buffer {
   y -= 6
   tableHeader()
 
-  const children = new Map<string | null, EstimatePdfData['chapters']>()
-  for (const chapter of data.chapters) {
-    const list = children.get(chapter.parent_id) ?? []
-    list.push(chapter)
-    children.set(chapter.parent_id, list)
-  }
-  const itemsOf = new Map<string, EstimatePdfData['items']>()
-  for (const item of data.items) {
-    const list = itemsOf.get(item.chapter_id) ?? []
-    list.push(item)
-    itemsOf.set(item.chapter_id, list)
-  }
-  const measurementsOf = new Map<string, EstimatePdfData['measurements']>()
-  for (const m of data.measurements) {
-    const list = measurementsOf.get(m.item_id) ?? []
-    list.push(m)
-    measurementsOf.set(m.item_id, list)
-  }
+  const { children, itemsOf, measurementsOf } = groupTree(data)
 
-  const chapterName = (c: EstimatePdfData['chapters'][number]) =>
-    c.code ? `${c.code} ${c.title}` : c.title
+  const chapterName = (c: TreeChapter) => (c.code ? `${c.code} ${c.title}` : c.title)
   let number = 0
   const descriptionX = MARGIN + NUMBER_WIDTH
 
-  const item = (it: EstimatePdfData['items'][number]) => {
+  const item = (it: TreeItem) => {
     number += 1
     const text = it.code ? `${it.code} ${it.description}` : it.description
     const rows = wrap(text, DESCRIPTION_WIDTH + (COLUMNS.height - 270), BODY)
@@ -171,7 +126,7 @@ export function estimatePdf(data: EstimatePdfData): Buffer {
     y -= LEADING + 3
   }
 
-  const chapter = (c: EstimatePdfData['chapters'][number], depth: number) => {
+  const chapter = (c: TreeChapter, depth: number) => {
     room(3)
     const indent = Math.min(depth, 3) * 8
     for (const line of wrap(chapterName(c), RIGHT - MARGIN - indent, BOLD)) {

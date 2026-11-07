@@ -146,3 +146,51 @@ describe('estimate pdf', () => {
     expect((await anonymous.call('GET', `${s.base}/pdf`)).statusCode).toBe(401)
   })
 })
+
+describe('estimate csv', () => {
+  it('exports chapters, items and measurement rows in the order of the tree', async () => {
+    const s = await scene()
+    const demolitions = await s.chapter('Demolizioni', 'A')
+    const floors = await s.chapter('Pavimenti', 'A.1', demolitions.id)
+    const plaster = await s.item(demolitions.id, 'A.01', 'Rimozione; con "carico"', '8.5')
+    await s.measure(plaster.id, 'Parete nord', ['2', '4.5', null, '3'])
+    await s.measure(plaster.id, '=Porta', ['-1', '0.8', null, '2.1'])
+    const tiles = await s.item(floors.id, 'A.02', 'Demolizione di pavimento', '1234.5')
+    await s.measure(tiles.id, null, [null, '2', '1'])
+    await s.chapter('Tinteggiature', null)
+
+    const res = await s.browser.call('GET', `${s.base}/items/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="computo.csv"')
+    const lines = res.body.replace('\uFEFF', '').split('\r\n')
+    expect(lines).toEqual([
+      'Tipo;Livello;N.;Codice;Descrizione;Unità;Parti uguali;Lunghezza;Larghezza;Altezza/peso;Quantità;Prezzo;Importo',
+      'Capitolo;1;;A;Demolizioni;;;;;;;;2684,22',
+      'Voce;1;1;A.01;"Rimozione; con ""carico""";m²;;;;;25,320;8,50;215,22',
+      'Misura;1;;;Parete nord;;2,000;4,500;;3,000;27,000;;',
+      "Misura;1;;;'=Porta;;-1,000;0,800;;2,100;-1,680;;",
+      'Capitolo;2;;A.1;Pavimenti;;;;;;;;2469,00',
+      'Voce;2;2;A.02;Demolizione di pavimento;m²;;;;;2,000;1234,50;2469,00',
+      'Misura;2;;;;;;2,000;1,000;;2,000;;',
+      'Capitolo;1;;;Tinteggiature;;;;;;;;0,00',
+      'Totale;;;;;;;;;;;;2684,22',
+      '',
+    ])
+  })
+
+  it('answers 404 to another company and without permission', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    const url = `/api/companies/${theirs.company.slug}/estimates/${s.estimateId}/items/export`
+    expect((await theirs.browser.call('GET', url)).statusCode).toBe(404)
+    expect((await s.browser.call('GET', url)).statusCode).toBe(404)
+
+    const blind = await fx.companyWithUser(['quotes.view'])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(blind.user.email)
+    await fx.member(blind.user.id, s.company.id, await fx.role(s.company.id, 'Ospite', []))
+    expect((await browser.call('GET', `${s.base}/items/export`)).statusCode).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', `${s.base}/items/export`)).statusCode).toBe(401)
+  })
+})

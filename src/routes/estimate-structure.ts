@@ -17,6 +17,7 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { estimatePdf } from '../estimates/pdf.js'
+import { estimateCsv } from '../estimates/csv.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
 
@@ -624,6 +625,19 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       .header('Content-Disposition', 'attachment; filename="computo.pdf"')
       .header('Cache-Control', 'private, no-store')
       .send(buffer)
+  })
+
+  app.get<{ Params: Params }>(`${base}/items/export`, async (request, reply) => {
+    const session = requireSession(request)
+    const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const estimateId = await enterEstimate(client, request, 'estimates.view')
+      const { body } = await readStructure(client, estimateId)
+      return estimateCsv(body)
+    })
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', 'attachment; filename="computo.csv"')
+      .send(csv)
   })
 
   app.put<{ Params: Params }>(`${base}/structure`, async (request, reply) => {

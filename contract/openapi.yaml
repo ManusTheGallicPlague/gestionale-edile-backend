@@ -4342,6 +4342,37 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/estimates/{estimate}/items/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+    get:
+      operationId: exportEstimateItems
+      summary: Esportazione del computo metrico in CSV
+      description: |
+        Permesso: estimates.view. Senza permesso risponde 404. Il computo intero, nello
+        stesso formato dell'esportazione dei clienti, nell'ordine dell'albero (come il PDF):
+        una riga per capitolo, poi le sue voci, ognuna seguita dalle sue righe di misura,
+        poi i sottocapitoli; l'ultima riga ha il totale. Colonne Tipo (Capitolo, Voce,
+        Misura, Totale), Livello (1 per i capitoli principali), N. (numero progressivo della
+        voce), Codice, Descrizione, Unità, Parti uguali, Lunghezza, Larghezza, Altezza/peso,
+        Quantità, Prezzo, Importo; numeri con la virgola decimale (1234,50), anche negativi.
+        Il file si chiama computo.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/estimates/{estimate}/structure:
     parameters:
       - $ref: '#/components/parameters/Company'
