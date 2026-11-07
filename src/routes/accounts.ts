@@ -4,6 +4,7 @@ import type { Db } from '../db.js'
 import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
+import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 import { ValidationFailed, forbidden, notFound, type FieldErrors } from '../http/errors.js'
 import { requireSession } from '../http/request-context.js'
 import type { Permission } from '../permissions.js'
@@ -73,6 +74,43 @@ async function enterSubject(
   return id
 }
 
+interface BalanceRow {
+  id: string
+  name: string
+  open_invoice_count: number
+  outstanding: string
+  overdue: string
+  oldest_due_date: string | null
+  total_count: number
+  total_outstanding: string
+  total_overdue: string
+}
+
+/** Open balance of each subject, highest first; $1 direction, $2 limit, $3 offset. */
+const balancesSql = (subject: Subject) =>
+  `with open as (
+               select i.${subject.column} as subject_id, (${REMAINING_CENTS}) as remaining,
+                 i.due_date, i.due_date < ${TODAY} as late
+               from public.invoices i
+               where i.direction = $1 and i.paid_on is null and i.${subject.column} is not null
+             ), balances as (
+               select o.subject_id, count(*)::int as open_invoice_count,
+                 sum(o.remaining) as outstanding,
+                 coalesce(sum(o.remaining) filter (where o.late), 0) as overdue,
+                 min(o.due_date)::text as oldest_due_date
+               from open o where o.remaining > 0
+               group by o.subject_id
+             )
+             select b.subject_id as id, x.name, b.open_invoice_count,
+               b.outstanding::text as outstanding, b.overdue::text as overdue, b.oldest_due_date,
+               (count(*) over ())::int as total_count,
+               (sum(b.outstanding) over ())::text as total_outstanding,
+               (sum(b.overdue) over ())::text as total_overdue
+             from balances b
+             join ${subject.table} x on x.id = b.subject_id
+             order by b.outstanding desc, x.name asc, x.id asc
+             limit $2 offset $3`
+
 /** page and per_page of a list, as in the other lists. */
 function readPaging(query: Record<string, unknown>): { page: number; perPage: number } {
   const errors: FieldErrors = {}
@@ -140,41 +178,11 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
           if (!permissions.has(subject.view) || !permissions.has('invoices.view')) {
             throw forbidden()
           }
-          const { rows } = await client.query<{
-            id: string
-            name: string
-            open_invoice_count: number
-            outstanding: string
-            overdue: string
-            oldest_due_date: string | null
-            total_count: number
-            total_outstanding: string
-            total_overdue: string
-          }>(
-            `with open as (
-               select i.${subject.column} as subject_id, (${REMAINING_CENTS}) as remaining,
-                 i.due_date, i.due_date < ${TODAY} as late
-               from public.invoices i
-               where i.direction = $1 and i.paid_on is null and i.${subject.column} is not null
-             ), balances as (
-               select o.subject_id, count(*)::int as open_invoice_count,
-                 sum(o.remaining) as outstanding,
-                 coalesce(sum(o.remaining) filter (where o.late), 0) as overdue,
-                 min(o.due_date)::text as oldest_due_date
-               from open o where o.remaining > 0
-               group by o.subject_id
-             )
-             select b.subject_id as id, x.name, b.open_invoice_count,
-               b.outstanding::text as outstanding, b.overdue::text as overdue, b.oldest_due_date,
-               (count(*) over ())::int as total_count,
-               (sum(b.outstanding) over ())::text as total_outstanding,
-               (sum(b.overdue) over ())::text as total_overdue
-             from balances b
-             join ${subject.table} x on x.id = b.subject_id
-             order by b.outstanding desc, x.name asc, x.id asc
-             limit $2 offset $3`,
-            [subject.direction, perPage, (page - 1) * perPage],
-          )
+          const { rows } = await client.query<BalanceRow>(balancesSql(subject), [
+            subject.direction,
+            perPage,
+            (page - 1) * perPage,
+          ])
           // Past the last page the window totals are missing: read them apart.
           let totals = rows[0]
             ? {
@@ -209,6 +217,47 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
             overdue: centsToAmount(totals.overdue),
           }
         })
+      },
+    )
+  }
+
+  for (const subject of SUBJECTS) {
+    app.get<{ Params: { company: string } }>(
+      `/api/companies/:company/${subject.path}/balances/export`,
+      async (request, reply) => {
+        const session = requireSession(request)
+        const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+          const permissions = await enterCompany(client, request.params.company)
+          if (!permissions.has(subject.view) || !permissions.has('invoices.view')) {
+            throw forbidden()
+          }
+          const { rows } = await client.query<BalanceRow>(balancesSql(subject), [
+            subject.direction,
+            MAX_EXPORT_ROWS,
+            0,
+          ])
+          return toCsv(
+            [
+              subject.param === 'client' ? 'Cliente' : 'Fornitore',
+              'Fatture aperte',
+              'Scadenza più vecchia',
+              subject.param === 'client' ? 'Da incassare' : 'Da pagare',
+              'Di cui scaduto',
+            ],
+            rows.map((r) => [
+              r.name,
+              r.open_invoice_count,
+              r.oldest_due_date === null ? null : italianDate(r.oldest_due_date),
+              italianAmount(r.outstanding),
+              italianAmount(r.overdue),
+            ]),
+          )
+        })
+        const file = subject.param === 'client' ? 'crediti-clienti.csv' : 'debiti-fornitori.csv'
+        return reply
+          .header('Content-Type', 'text/csv; charset=utf-8')
+          .header('Content-Disposition', `attachment; filename="${file}"`)
+          .send(csv)
       },
     )
   }

@@ -356,4 +356,42 @@ describe('statement of account', () => {
     const anon = new Browser(ctx.app)
     expect((await anon.call('GET', `${noClients.base}/clients/balances`)).statusCode).toBe(401)
   })
+
+  it('exports the balances as CSV, in the same order', async () => {
+    const s = await scene()
+    await invoice(s, s.browser, {
+      due_date: '2026-02-28',
+      taxable_amount: '1000.5',
+      vat_amount: '0',
+    })
+    await invoice(s, s.browser, { client_id: s.other, taxable_amount: '5000', vat_amount: '0' })
+    await ctx.owner.query("update public.clients set name = '=SOMMA(1;2)' where id = $1", [s.other])
+    const res = await s.browser.call('GET', `${s.base}/clients/balances/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="crediti-clienti.csv"')
+    const rows = res.body.replace(/^\uFEFF/, '').split('\r\n')
+    expect(rows[0]).toBe('Cliente;Fatture aperte;Scadenza più vecchia;Da incassare;Di cui scaduto')
+    expect(rows[1]).toMatch(/^"?'=SOMMA\(1;2\)"?;1;31\/12\/2099;5000,00;0,00$/)
+    expect(rows[2]).toBe('Mario Bianchi;1;28/02/2026;1000,50;1000,50')
+    expect(rows).toHaveLength(4)
+
+    const suppliers = await s.browser.call('GET', `${s.base}/suppliers/balances/export`)
+    expect(suppliers.headers['content-disposition']).toBe(
+      'attachment; filename="debiti-fornitori.csv"',
+    )
+    expect(suppliers.body.replace(/^\uFEFF/, '')).toBe(
+      'Fornitore;Fatture aperte;Scadenza più vecchia;Da pagare;Di cui scaduto\r\n',
+    )
+
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', `${s.base}/clients/balances/export`)).statusCode).toBe(
+      404,
+    )
+    const noInvoices = await scene(['clients.view'])
+    expect(
+      (await noInvoices.browser.call('GET', `${noInvoices.base}/clients/balances/export`))
+        .statusCode,
+    ).toBe(403)
+  })
 })
