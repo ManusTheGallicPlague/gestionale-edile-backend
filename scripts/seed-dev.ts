@@ -709,6 +709,15 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where i.company_id = $1 and i.due_date is not null`,
         [companyId],
       )
+      // The received concrete invoice comes with its (tiny, made-up) PDF.
+      const invoicePdf = Buffer.from('%PDF-1.4\n% fattura di prova\n%%EOF\n')
+      await client.query(
+        `insert into public.invoice_files
+           (invoice_id, company_id, file_name, content_type, size_bytes, data)
+         select i.id, $1, 'fattura-F-118.pdf', 'application/pdf', $2, $3
+         from public.invoices i where i.company_id = $1 and i.number like 'F-118/%'`,
+        [companyId, invoicePdf.length, invoicePdf],
+      )
       // A few warehouse items: loaded on 2 November, part taken to the first site.
       await client.query(
         `with i as (

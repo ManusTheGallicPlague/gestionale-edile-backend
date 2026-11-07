@@ -246,6 +246,47 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('invoice files: cannot read, write or hang a file across companies', async () => {
+    const ids: Record<string, string> = {}
+    for (const companyId of [companyA.id, companyB.id]) {
+      const r = await owner.query<{ id: string }>(
+        `insert into public.invoices (company_id, direction, number, invoice_date, client_id, taxable_cents, vat_cents)
+         select $1, 'issued', 'RLS-1', '2026-11-02', c.id, 100, 22
+         from public.clients c where c.company_id = $1 limit 1 returning id`,
+        [companyId],
+      )
+      ids[companyId] = r.rows[0]?.id ?? ''
+    }
+    const file = (invoiceId: string | undefined, companyId: string) =>
+      `insert into public.invoice_files
+         (invoice_id, company_id, file_name, content_type, size_bytes, data)
+       values ('${invoiceId}', '${companyId}', 'f.pdf', 'application/pdf', 1, '\\x25')`
+    await owner.query(file(ids[companyB.id], companyB.id))
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.invoice_files where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query(file(ids[companyB.id], companyA.id))),
+    ).rejects.toThrow(/foreign key|duplicate key/)
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query(file(ids[companyB.id], companyB.id))),
+    ).rejects.toThrow(/row-level security/)
+    const removed = await as(alice.id, companyA.id, (c) =>
+      c.query('delete from public.invoice_files where company_id = $1', [companyB.id]),
+    )
+    expect(removed.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, async (c) => {
+        await c.query(file(ids[companyA.id], companyA.id))
+        return c.query("update public.invoice_files set data = '\\x26'")
+      }),
+    ).rejects.toThrow(/permission denied/)
+    await expect(auth.query('select * from public.invoice_files')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('deadlines: cannot read, write or link across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',

@@ -4497,6 +4497,110 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/invoices/{invoice}/file:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/InvoiceId'
+    get:
+      operationId: getInvoiceFile
+      summary: Il PDF di una fattura
+      description: |
+        Permesso: invoices.view. Senza permesso, o se la fattura non ha un file, risponde
+        404. Il file arriva come allegato (Content-Disposition: attachment, con il nome
+        originale).
+      responses:
+        '200':
+          description: Il file
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: setInvoiceFile
+      summary: Caricamento o sostituzione del PDF di una fattura
+      description: |
+        Permesso: invoices.update. Il corpo è il file, con il suo Content-Type: PDF (la copia di
+        cortesia della fattura elettronica), JPEG o PNG (una scansione), al massimo 20 MB. Il contenuto deve
+        corrispondere al tipo dichiarato (altrimenti 422 sotto file). Nome del file nella query.
+        Un file già presente viene sostituito. If-Match con la versione della fattura: la
+        risposta è la fattura con la versione nuova.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - name: file_name
+          in: query
+          required: true
+          description: Nome originale del file; si tiene solo l'ultima parte del percorso.
+          schema: { type: string, minLength: 1, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema: { type: string, format: binary }
+          image/jpeg:
+            schema: { type: string, format: binary }
+          image/png:
+            schema: { type: string, format: binary }
+      responses:
+        '200':
+          description: File salvato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '413':
+          description: File più grande di 20 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Tipo di file non ammesso.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteInvoiceFile
+      summary: Eliminazione del PDF di una fattura
+      description: |
+        Permesso: invoices.update. If-Match con la versione della fattura. La fattura resta,
+        senza file; la risposta è la fattura con la versione nuova. Se non c'è un file, 404.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: File eliminato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Invoice' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/roles:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -6243,7 +6347,7 @@ components:
             file:
               description: Il file allegato (PDF del DURC, scansione della polizza), o null.
               oneOf:
-                - $ref: '#/components/schemas/SupplierDocumentFile'
+                - $ref: '#/components/schemas/AttachedFile'
                 - type: 'null'
             status:
               type: string
@@ -6257,7 +6361,7 @@ components:
             updated_at:
               type: string
               format: date-time
-    SupplierDocumentFile:
+    AttachedFile:
       type: object
       required: [file_name, content_type, size, uploaded_at]
       properties:
@@ -7063,9 +7167,25 @@ components:
         - $ref: '#/components/schemas/InvoiceInput'
         - type: object
           required:
-            [id, client, supplier, site, total, payment_status, deadline_id, created_at, updated_at]
+            [
+              id,
+              client,
+              supplier,
+              site,
+              total,
+              payment_status,
+              deadline_id,
+              file,
+              created_at,
+              updated_at,
+            ]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            file:
+              description: Il PDF della fattura (o la sua scansione), o null.
+              oneOf:
+                - $ref: '#/components/schemas/AttachedFile'
+                - type: 'null'
             client:
               oneOf:
                 - $ref: '#/components/schemas/SubjectRef'

@@ -8,26 +8,19 @@ import { DOCUMENT_FIELDS, parseDocumentInput, type DocumentInput } from '../supp
 import { ApiError, ValidationFailed, forbidden, messages, notFound } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import {
-  MAX_DOCUMENT_BYTES,
-  cleanFileName,
-  contentDisposition,
-  matchesType,
-} from './site-documents.js'
-
-const FILE_TYPES = ['application/pdf', 'image/jpeg', 'image/png'] as const
-
-interface FileInfo {
-  file_name: string
-  content_type: (typeof FILE_TYPES)[number]
-  size: number
-  uploaded_at: string
-}
+  ATTACHMENT_JSON,
+  ATTACHMENT_TYPES,
+  sendAttachment,
+  uploadScope,
+  type AttachmentInfo,
+} from '../http/files.js'
+import { cleanFileName, matchesType } from './site-documents.js'
 
 interface DocumentRow extends DocumentInput {
   id: string
   supplier_id: string
   status: 'valid' | 'expiring' | 'expired' | 'no_expiry'
-  file: FileInfo | null
+  file: AttachmentInfo | null
   version: number
   created_at: Date
   updated_at: Date
@@ -45,9 +38,7 @@ const COLUMNS = `id, supplier_id, kind, description, issued_on::text as issued_o
     when expires_on <= (now() at time zone 'Europe/Rome')::date + 30 then 'expiring'
     else 'valid'
   end as status,
-  (select json_build_object('file_name', f.file_name, 'content_type', f.content_type,
-     'size', f.size_bytes,
-     'uploaded_at', to_char(f.created_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
+  (select ${ATTACHMENT_JSON}
    from public.supplier_document_files f
    where f.document_id = supplier_documents.id) as file`
 
@@ -280,14 +271,7 @@ export function supplierDocumentRoutes(app: FastifyInstance, config: Config, db:
       if (!rows[0]) throw notFound()
       return rows[0]
     })
-    return reply
-      .header('Content-Type', file.content_type)
-      .header('Content-Disposition', contentDisposition(file.file_name))
-      .header('X-Content-Type-Options', 'nosniff')
-      .header('Content-Security-Policy', "default-src 'none'; sandbox")
-      .header('Cache-Control', 'private, no-cache')
-      .header('ETag', `"${file.version}"`)
-      .send(file.data)
+    return sendAttachment(reply, file)
   })
 
   app.delete<{ Params: Params }>(`${base}/:document/file`, async (request, reply) => {
@@ -312,26 +296,7 @@ export function supplierDocumentRoutes(app: FastifyInstance, config: Config, db:
     return send(reply, row)
   })
 
-  app.register((scope, _options, done) => {
-    // Refuse a stranger before reading up to 20 MB of body.
-    scope.addHook('preParsing', (request, _reply, payload, done) => {
-      try {
-        requireSession(request)
-        checkCsrf(config, request)
-      } catch (error) {
-        done(error as Error)
-        return
-      }
-      done(null, payload)
-    })
-    scope.addContentTypeParser(
-      [...FILE_TYPES],
-      { parseAs: 'buffer', bodyLimit: MAX_DOCUMENT_BYTES },
-      (_request, body, done) => {
-        done(null, body)
-      },
-    )
-
+  uploadScope(app, config, (scope) => {
     scope.put<{ Params: Params; Querystring: Record<string, unknown> }>(
       `${base}/:document/file`,
       async (request, reply) => {
@@ -349,15 +314,13 @@ export function supplierDocumentRoutes(app: FastifyInstance, config: Config, db:
           if (fileName === null || fileName.length > 200) {
             throw new ValidationFailed({
               file_name: [
-                typeof rawName === 'string' && fileName !== null
-                  ? 'Al massimo 200 caratteri.'
-                  : 'Indica il nome del file.',
+                fileName === null ? 'Indica il nome del file.' : 'Al massimo 200 caratteri.',
               ],
             })
           }
           const body = request.body
           const declared = (request.headers['content-type'] ?? '').split(';')[0]?.trim()
-          const type = FILE_TYPES.find((t) => t === declared)
+          const type = ATTACHMENT_TYPES.find((t) => t === declared)
           if (!Buffer.isBuffer(body) || body.length === 0 || !type || !matchesType(body, type)) {
             throw new ValidationFailed({
               file: ['Il file non corrisponde al suo tipo, oppure è vuoto.'],
@@ -378,6 +341,5 @@ export function supplierDocumentRoutes(app: FastifyInstance, config: Config, db:
         return send(reply, row)
       },
     )
-    done()
   })
 }

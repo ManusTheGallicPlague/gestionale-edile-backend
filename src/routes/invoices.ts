@@ -16,6 +16,14 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import {
+  ATTACHMENT_JSON,
+  ATTACHMENT_TYPES,
+  sendAttachment,
+  uploadScope,
+  type AttachmentInfo,
+} from '../http/files.js'
+import { cleanFileName, matchesType } from './site-documents.js'
 import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 export const DIRECTIONS = ['issued', 'received'] as const
@@ -61,6 +69,7 @@ interface InvoiceRow {
   paid_on: string | null
   payment_status: PaymentStatus
   deadline_id: string | null
+  file: AttachmentInfo | null
   notes: string | null
   version: number
   created_at: Date
@@ -89,6 +98,7 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
     (i.taxable_cents + i.vat_cents)::text as total_cents,
     i.due_date::text as due_date, i.paid_on::text as paid_on,
     ${PAYMENT_STATUS} as payment_status, d.id as deadline_id,
+    (select ${ATTACHMENT_JSON} from public.invoice_files f where f.invoice_id = i.id) as file,
     i.notes, i.version, i.created_at, i.updated_at
   from public.invoices i
   left join public.clients c on c.id = i.client_id
@@ -125,6 +135,7 @@ function toContract(row: InvoiceRow) {
     paid_on: row.paid_on,
     payment_status: row.payment_status,
     deadline_id: row.deadline_id,
+    file: row.file,
     notes: row.notes,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
@@ -622,5 +633,106 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       if (!rowCount) await missingOrStale(client, id)
     })
     return reply.code(204).send()
+  })
+
+  /** Takes the next version of the invoice, or answers 404/412 as the other writes do. */
+  const bumpVersion = async (client: PoolClient, id: string, version: number) => {
+    const { rowCount } = await client.query(
+      `update public.invoices set version = version + 1, updated_at = now()
+       where id = $1 and version = $2`,
+      [id, version],
+    )
+    if (!rowCount) await missingOrStale(client, id)
+  }
+
+  app.get<{ Params: Params }>(`${base}/:invoice/file`, async (request, reply) => {
+    const session = requireSession(request)
+    const file = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('invoices.view')) throw notFound()
+      const id = request.params.invoice ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const { rows } = await client.query<{
+        file_name: string
+        content_type: string
+        data: Buffer
+        version: number
+      }>(
+        `select f.file_name, f.content_type, f.data, i.version
+         from public.invoice_files f join public.invoices i on i.id = f.invoice_id
+         where i.id = $1`,
+        [id],
+      )
+      if (!rows[0]) throw notFound()
+      return rows[0]
+    })
+    return sendAttachment(reply, file)
+  })
+
+  app.delete<{ Params: Params }>(`${base}/:invoice/file`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('invoices.update')) throw forbidden()
+      const id = request.params.invoice ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      await bumpVersion(client, id, version)
+      const { rowCount } = await client.query(
+        'delete from public.invoice_files where invoice_id = $1',
+        [id],
+      )
+      // No file: the error rolls the version back.
+      if (!rowCount) throw notFound()
+      return readOne(client, id)
+    })
+    if (!row) throw notFound()
+    return send(reply, row)
+  })
+
+  uploadScope(app, config, (scope) => {
+    scope.put<{ Params: Params; Querystring: Record<string, unknown> }>(
+      `${base}/:invoice/file`,
+      async (request, reply) => {
+        const session = requireSession(request)
+        checkCsrf(config, request)
+        const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+          const permissions = await enterCompany(client, request.params.company)
+          if (!permissions.has('invoices.update')) throw forbidden()
+          const id = request.params.invoice ?? ''
+          if (!UUID.test(id)) throw notFound()
+          const version = expectedVersion(request.headers['if-match'])
+          const rawName = request.query.file_name
+          const fileName = typeof rawName === 'string' ? cleanFileName(rawName) : null
+          if (fileName === null || fileName.length > 200) {
+            throw new ValidationFailed({
+              file_name: [
+                fileName === null ? 'Indica il nome del file.' : 'Al massimo 200 caratteri.',
+              ],
+            })
+          }
+          const body = request.body
+          const declared = (request.headers['content-type'] ?? '').split(';')[0]?.trim()
+          const type = ATTACHMENT_TYPES.find((t) => t === declared)
+          if (!Buffer.isBuffer(body) || body.length === 0 || !type || !matchesType(body, type)) {
+            throw new ValidationFailed({
+              file: ['Il file non corrisponde al suo tipo, oppure è vuoto.'],
+            })
+          }
+          await bumpVersion(client, id, version)
+          await client.query('delete from public.invoice_files where invoice_id = $1', [id])
+          await client.query(
+            `insert into public.invoice_files
+               (invoice_id, company_id, file_name, content_type, size_bytes, data)
+             values ($1, app.current_company_id(), $2, $3, $4, $5)`,
+            [id, fileName, type, body.length, body],
+          )
+          return readOne(client, id)
+        })
+        if (!row) throw notFound()
+        return send(reply, row)
+      },
+    )
   })
 }
