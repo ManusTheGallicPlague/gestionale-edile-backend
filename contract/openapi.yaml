@@ -1751,6 +1751,36 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/daily-reports/{report}/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/DailyReportId'
+    get:
+      operationId: getDailyReportPdf
+      summary: PDF del rapportino da stampare e firmare
+      description: |
+        Permesso: reports.view. Il rapportino in A4, da archiviare o da far firmare al
+        committente o al direttore dei lavori: intestazione dell'azienda, cantiere, data, meteo,
+        lavori eseguiti, ore dei dipendenti e dei mezzi con i totali, note e spazi per le firme.
+        Niente costi. Una bozza esce con la dicitura «bozza»; un rapportino approvato riporta
+        chi l'ha approvato e quando. Il file si chiama rapportino-2026-11-05-C-1.pdf (data e
+        codice del cantiere, se c'è). Senza permesso risponde 404, non 403.
+      responses:
+        '200':
+          description: Il PDF
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/daily-reports/{report}/status:
     parameters:
       - $ref: '#/components/parameters/Company'

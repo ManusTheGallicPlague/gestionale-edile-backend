@@ -16,6 +16,10 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
+import { centsToAmount } from '../money.js'
+import { reportPdf } from '../daily-reports/pdf.js'
+import { readLogoForPdf } from './logo.js'
+import { readProfile } from './settings.js'
 
 export const REPORT_STATUSES = ['draft', 'submitted', 'approved'] as const
 type Status = (typeof REPORT_STATUSES)[number]
@@ -483,6 +487,61 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
     })
     if (!report) throw notFound()
     return send(reply, report)
+  })
+
+  app.get<{ Params: Params }>(`${base}/:report/pdf`, async (request, reply) => {
+    const session = requireSession(request)
+    const pdf = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('reports.view')) throw notFound()
+      const id = request.params.report ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const report = await readOne(client, id)
+      if (!report) throw notFound()
+      const { row } = report
+      const site = await client.query<{ address: string | null }>(
+        'select address from public.sites where id = $1',
+        [row.site_id],
+      )
+      const profile = await readProfile(client)
+      return {
+        name: [row.report_date, row.site_code].filter(Boolean).join('-'),
+        buffer: reportPdf({
+          logo: await readLogoForPdf(client),
+          company: {
+            ...profile,
+            share_capital:
+              profile.share_capital_cents === null
+                ? null
+                : centsToAmount(profile.share_capital_cents),
+          },
+          site: {
+            name: row.site_name,
+            code: row.site_code,
+            address: site.rows[0]?.address ?? null,
+          },
+          date: row.report_date,
+          status: row.status,
+          weather: row.weather,
+          work_done: row.work_done,
+          notes: row.notes,
+          created_by: row.created_by ? (row.created_by_name ?? null) : null,
+          approved_by: row.approved_by ? (row.approved_by_name ?? null) : null,
+          approved_at: row.approved_at,
+          total_labor_hours: row.labor_hours,
+          total_vehicle_hours: row.vehicle_hours,
+          labor: report.labor,
+          vehicles: report.vehicles,
+        }),
+      }
+    })
+    // Site codes are free text: keep the file name to safe characters.
+    const file = `rapportino-${pdf.name.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${file}"`)
+      .header('Cache-Control', 'private, no-store')
+      .send(pdf.buffer)
   })
 
   app.post<{ Params: Params }>(base, async (request, reply) => {

@@ -90,6 +90,69 @@ async function create(s: Scene, overrides: Record<string, unknown> = {}) {
 }
 
 describe('daily reports', () => {
+  it('prints the report as a PDF to sign, with hours and no costs', async () => {
+    const s = await scene()
+    await ctx.owner.query(
+      "update public.sites set code = 'C/1 \"x\"', address = 'Via Roma 1, Asti' where id = $1",
+      [s.site],
+    )
+    await ctx.owner.query("update public.vehicles set plate = 'AB123CD' where id = $1", [s.digger])
+    const { report } = await create(s, { notes: 'Consegna ferro alle 10' })
+    const url = `${s.base}/${report.id}`
+    const pdf = await s.browser.call('GET', `${url}/pdf`)
+    expect(pdf.statusCode).toBe(200)
+    expect(pdf.headers['content-type']).toBe('application/pdf')
+    // Quotes and slashes of the site code never reach the header.
+    expect(pdf.headers['content-disposition']).toBe(
+      'attachment; filename="rapportino-2026-11-05-C-1-x-.pdf"',
+    )
+    const text = pdf.rawPayload.toString('latin1')
+    expect(text.startsWith('%PDF-1.4\n')).toBe(true)
+    expect(text).toContain('(Rapportino del 05/11/2026 \\(bozza, non ancora inviato\\))')
+    expect(text).toContain('(Cantiere: C/1 "x" \x96 Villetta)')
+    expect(text).toContain('(Via Roma 1, Asti)')
+    expect(text).toContain('(Meteo: Sereno)')
+    expect(text).toContain('(Getto del solaio)')
+    expect(text).toContain('(Verdi Luca)')
+    expect(text).toContain('(Casseri)')
+    expect(text).toContain('(7,5)')
+    expect(text).toContain('(15,5)')
+    expect(text).toContain('(Escavatore \\(AB123CD\\))')
+    expect(text).toContain('(3,25)')
+    expect(text).toContain('(Consegna ferro alle 10)')
+    expect(text).toContain('(Il capo cantiere)')
+    // No costs: the hourly cost of an employee (28,00) is nowhere.
+    expect(text).not.toContain('28,00')
+    expect(text).not.toContain('\x80')
+
+    // Approved: no more «bozza», and who approved it.
+    for (const [status, version] of [
+      ['submitted', '"1"'],
+      ['approved', '"2"'],
+    ] as const) {
+      const moved = await s.browser.call('POST', `${url}/status`, {
+        body: { status },
+        headers: { 'If-Match': version },
+      })
+      expect(moved.statusCode).toBe(200)
+    }
+    const approved = (await s.browser.call('GET', `${url}/pdf`)).rawPayload.toString('latin1')
+    expect(approved).toContain('(Rapportino del 05/11/2026)')
+    expect(approved).toMatch(/\(Approvato da .+ il \d{2}\/\d{2}\/\d{4}\)/)
+
+    // Another company, a wrong id, no permission: 404.
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', `${theirs.base}/${report.id}/pdf`)).statusCode).toBe(
+      404,
+    )
+    expect((await s.browser.call('GET', `${s.base}/x/pdf`)).statusCode).toBe(404)
+    const guest = await fx.user()
+    await fx.member(guest.id, s.company.id, await fx.role(s.company.id, 'Ospite', ['sites.view']))
+    const browser = new Browser(ctx.app)
+    await browser.signIn(guest.email)
+    expect((await browser.call('GET', `${url}/pdf`)).statusCode).toBe(404)
+  })
+
   it('exports the reports as CSV with the same filters', async () => {
     const s = await scene()
     await create(s)

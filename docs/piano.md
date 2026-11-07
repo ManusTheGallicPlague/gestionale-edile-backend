@@ -151,6 +151,11 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: i prezzari regionali si pub
 - [x] Importazione CSV di dipendenti nuovi (`importEmployees`) e di mezzi nuovi (`importVehicles`), come quella dei clienti; i file di `exportEmployees` ed `exportVehicles` si reimportano così come sono
 - [x] Importazione CSV di articoli nuovi di magazzino (`importWarehouseItems`), con la giacenza come carico iniziale; il file di `exportWarehouseItems` si reimporta così com'è
 
+### 16. Carte di cantiere
+Aggiunta il 07/11/2026, con il piano tutto spuntato: il rapportino si stampa per farlo firmare al committente o alla direzione lavori, e le ore del mese vanno al consulente del lavoro per le buste paga.
+
+- [x] PDF del rapportino da stampare e firmare (`getDailyReportPdf`): cantiere, meteo, lavori, ore di dipendenti e mezzi con i totali, note e firme, senza costi
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -284,6 +289,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 07/11/2026: nell’importazione dei fornitori le categorie si scrivono in italiano o in inglese separate da virgole (come le scrive `exportSuppliers`), una categoria sconosciuta è un errore della riga; subappaltatore accetta sì/no (anche x, 1, true), vuoto vale no.
 - 07/11/2026: nell’importazione dei dipendenti «attivo» vuoto vale sì e la data di assunzione si scrive 30/11/2026 o 2026-11-30; in quella dei mezzi «tipo» vuoto vale Automezzo e «in uso» vuoto vale sì. Un codice fiscale o una targa già presenti sono un errore della riga, come le partite IVA dei clienti.
 - 07/11/2026: nell’importazione degli articoli di magazzino la giacenza maggiore di zero diventa un carico con la data di oggi (fuso di Roma) e la nota «Giacenza iniziale (importazione)», con lo stesso permesso `warehouse.create` dei movimenti; una giacenza negativa è un errore della riga (non si carica un inventario negativo).
+- 07/11/2026: il PDF del rapportino non mostra costi (come il rapportino nell'API), ha le firme del capo cantiere e del committente o della direzione lavori, e si chiama `rapportino-<data>-<codice cantiere>.pdf` con i caratteri del codice ridotti a lettere, cifre e trattini.
 
 ## Registro dei giri
 
