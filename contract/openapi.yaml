@@ -3153,6 +3153,40 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/price-lists/{list}/items/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PriceListId'
+    get:
+      operationId: exportPriceListItems
+      summary: Esportazione delle voci di un prezzario in CSV
+      description: |
+        Permesso: price_lists.view. Senza permesso risponde 404. Stessa ricerca e ordine
+        dell'elenco, senza paginazione, al massimo 20 000 voci, nello stesso formato
+        dell'esportazione dei clienti. Colonne Codice, Descrizione, Unità, Prezzo (con la
+        virgola decimale, 1234,50): il file si può modificare e reimportare con
+        importPriceListItems. Il file si chiama prezzario.csv.
+      parameters:
+        - name: search
+          in: query
+          description: Cerca nel codice e nella descrizione.
+          schema: { type: string, maxLength: 100 }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/price-lists/{list}/import:
     parameters:
       - $ref: '#/components/parameters/Company'

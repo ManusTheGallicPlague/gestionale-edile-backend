@@ -178,6 +178,51 @@ describe('price list import', () => {
     expect(await items(s.browser, list)).toEqual([])
   })
 
+  it('exports the items in a file that imports back unchanged', async () => {
+    const s = await scene()
+    const list = await newList(s.browser, s.base)
+    await s.browser.call(
+      'POST',
+      `${list}/import`,
+      csv(
+        'codice;descrizione;unità;prezzo\n' +
+          'B2;"Muratura; ""faccia vista""";m²;1.234,50\n' +
+          'a1;=SOMMA(1);m;0,05\n',
+      ),
+    )
+    const res = await s.browser.call('GET', `${list}/items/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="prezzario.csv"')
+    expect(res.body).toBe(
+      '\uFEFFCodice;Descrizione;Unità;Prezzo\r\n' +
+        "a1;'=SOMMA(1);m;0,05\r\n" +
+        'B2;"Muratura; ""faccia vista""";m²;1234,50\r\n',
+    )
+    const filtered = await s.browser.call('GET', `${list}/items/export?search=murat`)
+    expect(filtered.body.split('\r\n')).toHaveLength(3)
+
+    const again = await s.browser.call('POST', `${list}/import`, {
+      body: res.rawPayload,
+      headers: { 'content-type': 'text/csv' },
+    })
+    // The formula guard adds an apostrophe: that one description comes back changed.
+    expect(again.json()).toEqual({ created: 0, updated: 1, unchanged: 1 })
+
+    const other = await scene()
+    const foreign = await other.browser.call(
+      'GET',
+      `${other.base}/${list.split('/').pop() as string}/items/export`,
+    )
+    expect(foreign.statusCode).toBe(404)
+    const blind = await scene(['price_lists.update'])
+    const hidden = await blind.browser.call(
+      'GET',
+      `${blind.base}/00000000-0000-4000-8000-000000000000/items/export`,
+    )
+    expect(hidden.statusCode).toBe(404)
+  })
+
   it('parses prices without floating point', () => {
     expect(parsePrice('1.234,50')).toBe('123450')
     expect(parsePrice('1.234.567')).toBe('123456700')

@@ -15,7 +15,13 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
-import { ImportFailed, MAX_IMPORT_BYTES, parsePriceListCsv } from '../price-lists/import.js'
+import {
+  ImportFailed,
+  MAX_IMPORT_BYTES,
+  MAX_IMPORT_ROWS,
+  parsePriceListCsv,
+} from '../price-lists/import.js'
+import { italianAmount, toCsv } from '../csv.js'
 
 interface ListRow {
   id: string
@@ -340,6 +346,40 @@ export function priceListRoutes(app: FastifyInstance, config: Config, db: Db): v
       }
     })
   })
+
+  // Same columns the import reads, so the file can be edited and imported again.
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${items}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const page = readPage(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('price_lists.view')) throw notFound()
+        const list = await readList(client, request.params.list)
+        if (!list) throw notFound()
+        const values: unknown[] = [list.id]
+        let where = 'i.price_list_id = $1'
+        if (page.search) {
+          values.push(`%${escapeLike(page.search)}%`)
+          where += ' and (i.code ilike $2 or i.description ilike $2)'
+        }
+        values.push(MAX_IMPORT_ROWS)
+        const { rows } = await client.query<ItemRow>(
+          `${ITEM_SELECT} where ${where} order by lower(i.code), i.id limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          ['Codice', 'Descrizione', 'Unità', 'Prezzo'],
+          rows.map((r) => [r.code, r.description, r.unit, italianAmount(r.unit_price_cents)]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="prezzario.csv"')
+        .send(csv)
+    },
+  )
 
   app.post<{ Params: Params }>(items, async (request, reply) => {
     const session = requireSession(request)
