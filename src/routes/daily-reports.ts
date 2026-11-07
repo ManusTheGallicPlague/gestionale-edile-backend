@@ -882,6 +882,10 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
       if (day !== undefined && (typeof day !== 'string' || !isIsoDate(day))) {
         errors.date = ['Data non valida (AAAA-MM-GG).']
       }
+      const copy = request.query.copy_previous
+      if (copy !== undefined && copy !== 'true' && copy !== 'false') {
+        errors.copy_previous = ['Indica true o false.']
+      }
       if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
       const body = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
@@ -915,6 +919,51 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
           `select id, name, plate from public.vehicles where active
            order by lower(name), id`,
         )
+        let labor = employees.rows
+          .filter((e) => e.in_team)
+          .map((e) => ({
+            employee_id: e.id,
+            hours: STANDARD_DAY_HOURS,
+            description: null as string | null,
+          }))
+        let usedVehicles: { vehicle_id: string; hours: string; description: string | null }[] = []
+        if (copy === 'true') {
+          const previous = await client.query<{ id: string }>(
+            `select id from public.daily_reports where site_id = $1 and report_date < $2
+             order by report_date desc limit 1`,
+            [siteRow.id, date],
+          )
+          const previousId = previous.rows[0]?.id
+          if (previousId) {
+            // Only people and vehicles still active, in the order of the lists to choose from.
+            const people = await client.query<{
+              employee_id: string
+              hours: string
+              description: string | null
+            }>(
+              `select l.employee_id, l.hours::text as hours, l.description
+               from public.daily_report_labor l
+               join public.employees e on e.id = l.employee_id and e.active
+               where l.report_id = $1
+               order by lower(e.last_name), lower(e.first_name), e.id`,
+              [previousId],
+            )
+            const machines = await client.query<{
+              vehicle_id: string
+              hours: string
+              description: string | null
+            }>(
+              `select r.vehicle_id, r.hours::text as hours, r.description
+               from public.daily_report_vehicles r
+               join public.vehicles v on v.id = r.vehicle_id and v.active
+               where r.report_id = $1
+               order by lower(v.name), v.id`,
+              [previousId],
+            )
+            labor = people.rows
+            usedVehicles = machines.rows
+          }
+        }
         return {
           date,
           site: siteRow,
@@ -925,10 +974,8 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
             weather: null,
             work_done: null,
             notes: null,
-            labor: employees.rows
-              .filter((e) => e.in_team)
-              .map((e) => ({ employee_id: e.id, hours: STANDARD_DAY_HOURS, description: null })),
-            vehicles: [],
+            labor,
+            vehicles: usedVehicles,
           },
           employees: employees.rows.map((e) => ({
             id: e.id,

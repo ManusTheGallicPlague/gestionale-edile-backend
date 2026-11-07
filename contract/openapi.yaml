@@ -1659,6 +1659,10 @@ paths:
         una proposta da inviare a createDailyReport, con la squadra del cantiere a 8 ore.
         Senza date vale oggi, nel calendario italiano. Con i dipendenti e i mezzi attivi da
         scegliere (solo nomi, niente costi), anche per chi non ha employees.view o vehicles.view.
+        Con `copy_previous=true` la proposta prende persone, mezzi, ore e descrizioni delle
+        righe dall'ultimo rapportino del cantiere prima di quel giorno («come ieri»), lasciando
+        fuori dipendenti e mezzi non più attivi; meteo, lavori svolti e note restano vuoti.
+        Senza un rapportino precedente la proposta è quella della squadra.
       parameters:
         - name: site
           in: query
@@ -1667,6 +1671,11 @@ paths:
         - name: date
           in: query
           schema: { $ref: '#/components/schemas/Date' }
+        - name: copy_previous
+          in: query
+          schema:
+            type: boolean
+            default: false
       responses:
         '200':
           description: Il rapportino del giorno o la proposta

@@ -641,3 +641,62 @@ describe('daily reports', () => {
     ).toBe(403)
   })
 })
+
+describe('daily report like the previous one', () => {
+  type Proposal = {
+    labor: { employee_id: string; hours: string; description: string | null }[]
+    vehicles: { vehicle_id: string; hours: string; description: string | null }[]
+    weather: string | null
+    work_done: string | null
+  }
+
+  it('proposes people, vehicles and hours of the last earlier report of the site', async () => {
+    const s = await scene()
+    const today = (query: string) =>
+      s.browser.call('GET', `${s.base}/today?site=${s.site}&${query}`)
+
+    // No earlier report: the usual team proposal (here an empty team).
+    const none = await today('date=2026-11-05&copy_previous=true')
+    expect(none.statusCode).toBe(200)
+    expect(none.json<{ proposal: Proposal }>().proposal).toMatchObject({ labor: [], vehicles: [] })
+
+    await create(s, { date: '2026-11-03', work_done: 'Scavo' })
+    await create(s, {
+      date: '2026-11-04',
+      labor: [
+        { employee_id: s.verdi, hours: '6', description: 'Ferri' },
+        { employee_id: s.bassi, hours: '7.5', description: null },
+      ],
+      vehicles: [{ vehicle_id: s.digger, hours: '2', description: 'Scavo a sezione' }],
+    })
+    // A later report and one of another site are ignored.
+    await create(s, { date: '2026-11-06' })
+    await create(s, { site_id: s.other, date: '2026-11-04', vehicles: [] })
+
+    const res = await today('date=2026-11-05&copy_previous=true')
+    expect(res.statusCode).toBe(200)
+    expect(res.json<{ proposal: Proposal }>().proposal).toMatchObject({
+      weather: null,
+      work_done: null,
+      labor: [
+        { employee_id: s.bassi, hours: '7.50', description: null },
+        { employee_id: s.verdi, hours: '6.00', description: 'Ferri' },
+      ],
+      vehicles: [{ vehicle_id: s.digger, hours: '2.00', description: 'Scavo a sezione' }],
+    })
+
+    // People and vehicles no longer active stay out.
+    await ctx.owner.query('update public.employees set active = false where id = $1', [s.verdi])
+    await ctx.owner.query('update public.vehicles set active = false where id = $1', [s.digger])
+    const after = (await today('date=2026-11-05&copy_previous=true')).json<{ proposal: Proposal }>()
+    expect(after.proposal.labor.map((l) => l.employee_id)).toEqual([s.bassi])
+    expect(after.proposal.vehicles).toEqual([])
+
+    // Without the flag nothing changes.
+    const plain = await today('date=2026-11-05&copy_previous=false')
+    expect(plain.json<{ proposal: Proposal }>().proposal.vehicles).toEqual([])
+    const bad = await today('date=2026-11-05&copy_previous=si')
+    expect(bad.statusCode).toBe(422)
+    expect(bad.json()).toMatchObject({ errors: { copy_previous: ['Indica true o false.'] } })
+  })
+})
