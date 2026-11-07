@@ -4458,7 +4458,8 @@ paths:
       description: |
         Permesso: invoices.view. Stessi filtri e ordinamento dell'elenco, senza paginazione,
         nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con
-        la virgola decimale (1234,50). Il file si chiama fatture.csv.
+        la virgola decimale (1234,50). Con il netto a pagare ci sono anche il già pagato
+        (paid_amount) e il residuo (remaining_amount). Il file si chiama fatture.csv.
       parameters:
         - name: sort
           in: query

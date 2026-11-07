@@ -154,6 +154,8 @@ describe('invoice payments', () => {
     })
     const list = await s.browser.call('GET', s.base)
     expect(list.json()).toMatchObject({ outstanding_amount: '1020.00' })
+    const csv = await s.browser.call('GET', `${s.base}/export`)
+    expect(csv.body).toContain(';1220,00;200,00;1020,00;03/11/2026;;Scaduta;')
     const dashboard = await s.browser.call('GET', `/api/companies/${s.company.slug}/dashboard`)
     expect(dashboard.json()).toMatchObject({
       invoices: { receivable: '1020.00', receivable_overdue: '1020.00' },

@@ -504,9 +504,9 @@ describe('invoices', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="fatture.csv"')
     const lines = res.body.replace('﻿', '').trim().split('\r\n')
     expect(lines).toEqual([
-      "Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Natura IVA;Totale;Ritenuta d'acconto;Scissione dei pagamenti;Netto a pagare;Scadenza pagamento;Pagata il;Stato;Note",
-      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;;11000,50;0,00;No;11000,50;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
-      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;;1830,00;0,00;No;1830,00;;;Da pagare;',
+      "Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Natura IVA;Totale;Ritenuta d'acconto;Scissione dei pagamenti;Netto a pagare;Già pagato;Residuo;Scadenza pagamento;Pagata il;Stato;Note",
+      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;;11000,50;0,00;No;11000,50;0,00;0,00;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
+      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;;1830,00;0,00;No;1830,00;0,00;1830,00;;;Da pagare;',
     ])
     const filtered = await s.browser.call('GET', `${url}?filter[direction]=received`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
