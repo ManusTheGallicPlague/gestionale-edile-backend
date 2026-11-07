@@ -676,8 +676,99 @@ function readPaymentList(query: Record<string, unknown>) {
   return { page, perPage, where, values }
 }
 
+interface PaymentRow {
+  id: string
+  payment_date: string
+  amount_cents: string
+  method: PaymentMethod | null
+  notes: string | null
+  created_at: Date
+  invoice_id: string
+  number: string
+  direction: Direction
+  subject_id: string
+  subject_name: string
+  site_id: string | null
+  site_name: string | null
+  site_code: string | null
+}
+
+async function readPayments(
+  client: PoolClient,
+  filter: ReturnType<typeof readPaymentList>,
+  limit: number,
+  offset: number,
+): Promise<PaymentRow[]> {
+  const n = filter.values.length
+  const { rows } = await client.query<PaymentRow>(
+    `select ip.id, ip.payment_date::text as payment_date,
+       ip.amount_cents::text as amount_cents, ip.method, ip.notes, ip.created_at,
+       i.id as invoice_id, i.number, i.direction,
+       coalesce(c.id, p.id) as subject_id, coalesce(c.name, p.name, '') as subject_name,
+       s.id as site_id, s.name as site_name, s.code as site_code
+     from public.invoice_payments ip
+     join public.invoices i on i.id = ip.invoice_id
+     left join public.clients c on c.id = i.client_id
+     left join public.suppliers p on p.id = i.supplier_id
+     left join public.sites s on s.id = i.site_id
+     where ${filter.where.join(' and ')}
+     order by ip.payment_date desc, ip.created_at desc, ip.id desc
+     limit $${n + 1} offset $${n + 2}`,
+    [...filter.values, limit, offset],
+  )
+  return rows
+}
+
+const METHOD_LABELS: Record<PaymentMethod, string> = {
+  bank_transfer: 'Bonifico',
+  riba: 'RiBa',
+  check: 'Assegno',
+  cash: 'Contanti',
+  card: 'Carta',
+  other: 'Altro',
+}
+
 export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/invoices'
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/invoice-payments/export',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const filter = readPaymentList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('invoices.view')) throw forbidden()
+        const rows = await readPayments(client, filter, MAX_EXPORT_ROWS, 0)
+        return toCsv(
+          [
+            'Data',
+            'Tipo',
+            'Fattura',
+            'Cliente o fornitore',
+            'Cantiere',
+            'Importo',
+            'Modalità',
+            'Note',
+          ],
+          rows.map((r) => [
+            italianDate(r.payment_date),
+            r.direction === 'issued' ? 'Incasso' : 'Pagamento',
+            r.number,
+            r.subject_name,
+            r.site_name,
+            italianAmount(r.amount_cents),
+            r.method === null ? null : METHOD_LABELS[r.method],
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="incassi-e-pagamenti.csv"')
+        .send(csv)
+    },
+  )
 
   app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
     '/api/companies/:company/invoice-payments',
@@ -688,37 +779,11 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('invoices.view')) throw forbidden()
         const { where, values } = filter
-        const n = values.length
-        const { rows } = await client.query<{
-          id: string
-          payment_date: string
-          amount_cents: string
-          method: PaymentMethod | null
-          notes: string | null
-          created_at: Date
-          invoice_id: string
-          number: string
-          direction: Direction
-          subject_id: string
-          subject_name: string
-          site_id: string | null
-          site_name: string | null
-          site_code: string | null
-        }>(
-          `select ip.id, ip.payment_date::text as payment_date,
-             ip.amount_cents::text as amount_cents, ip.method, ip.notes, ip.created_at,
-             i.id as invoice_id, i.number, i.direction,
-             coalesce(c.id, p.id) as subject_id, coalesce(c.name, p.name, '') as subject_name,
-             s.id as site_id, s.name as site_name, s.code as site_code
-           from public.invoice_payments ip
-           join public.invoices i on i.id = ip.invoice_id
-           left join public.clients c on c.id = i.client_id
-           left join public.suppliers p on p.id = i.supplier_id
-           left join public.sites s on s.id = i.site_id
-           where ${where.join(' and ')}
-           order by ip.payment_date desc, ip.created_at desc, ip.id desc
-           limit $${n + 1} offset $${n + 2}`,
-          [...values, filter.perPage, (filter.page - 1) * filter.perPage],
+        const rows = await readPayments(
+          client,
+          filter,
+          filter.perPage,
+          (filter.page - 1) * filter.perPage,
         )
         const count = await client.query<{ total: number; collected: string; paid: string }>(
           `select count(*)::int as total,

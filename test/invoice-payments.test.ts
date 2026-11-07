@@ -304,9 +304,21 @@ describe('invoice payments', () => {
     expect((await s.browser.call('GET', `${url}?filter[method]=gold`)).statusCode).toBe(422)
     expect((await s.browser.call('GET', `${url}?filter[from]=ieri`)).statusCode).toBe(422)
 
+    const csv = await s.browser.call('GET', `${url}/export?filter[direction]=received`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.headers['content-disposition']).toBe(
+      'attachment; filename="incassi-e-pagamenti.csv"',
+    )
+    const lines = csv.body.replace('\ufeff', '').trim().split('\r\n')
+    expect(lines[0]).toBe('Data;Tipo;Fattura;Cliente o fornitore;Cantiere;Importo;Modalità;Note')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toMatch(/^10\/11\/2026;Pagamento;F-\w+;Calcestruzzi Srl;;50,00;RiBa;$/)
+    expect((await s.browser.call('GET', `${url}/export?filter[to]=x`)).statusCode).toBe(422)
+
     const blind = await scene(['deadlines.view'])
     const blindUrl = `/api/companies/${blind.company.slug}/invoice-payments`
     expect((await blind.browser.call('GET', blindUrl)).statusCode).toBe(403)
+    expect((await blind.browser.call('GET', `${blindUrl}/export`)).statusCode).toBe(403)
   })
 
   it('needs the invoices permissions; other companies see nothing', async () => {
