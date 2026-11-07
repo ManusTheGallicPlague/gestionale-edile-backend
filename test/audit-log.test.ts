@@ -91,6 +91,82 @@ describe('audit log', () => {
     expect((await browser.call('GET', `${log}?filter[entity_id]=x`)).statusCode).toBe(422)
   })
 
+  it('records price lists, schedule activities and progress statements', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'price_lists.view',
+      'price_lists.create',
+      'price_lists.update',
+      'sites.view',
+      'sites.update',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const base = `/api/companies/${company.slug}`
+    const list = await browser.call('POST', `${base}/price-lists`, {
+      body: { name: 'Prezzario', year: 2026, notes: null },
+    })
+    expect(list.statusCode).toBe(201)
+    const listId = list.json<{ id: string }>().id
+    const renamed = await browser.call('PUT', `${base}/price-lists/${listId}`, {
+      headers: { 'if-match': '"1"' },
+      body: { name: 'Prezzario 2026', year: 2026, notes: null },
+    })
+    expect(renamed.statusCode).toBe(200)
+
+    const site = await ctx.owner.query<{ id: string }>(
+      "insert into public.sites (company_id, name) values ($1, 'Villetta') returning id",
+      [company.id],
+    )
+    const siteId = site.rows[0]?.id ?? ''
+    const activity = await browser.call('POST', `${base}/sites/${siteId}/activities`, {
+      body: {
+        name: 'Scavi',
+        start_on: '2026-11-09',
+        end_on: '2026-11-13',
+        progress: 0,
+        depends_on: [],
+        notes: null,
+      },
+    })
+    expect(activity.statusCode).toBe(201)
+    const activityId = activity.json<{ id: string }>().id
+
+    // A SAL written outside the API: logged too, without an author.
+    const est = await ctx.owner.query<{ id: string }>(
+      "insert into public.estimates (company_id, title, site_id) values ($1, 'Computo', $2) returning id",
+      [company.id, siteId],
+    )
+    const sal = await ctx.owner.query<{ id: string }>(
+      `insert into public.progress_statements (company_id, estimate_id, number, statement_date)
+       values ($1, $2, 1, '2026-11-30') returning id`,
+      [company.id, est.rows[0]?.id],
+    )
+    const salId = sal.rows[0]?.id ?? ''
+    await ctx.owner.query(
+      "update public.progress_statements set status = 'approved', approved_at = now() where id = $1",
+      [salId],
+    )
+
+    const author = { id: user.id, name: 'Utente di prova' }
+    const log = `${base}/audit-log`
+    const lists = await browser.call('GET', `${log}?filter[entity]=price_list`)
+    expect(lists.statusCode).toBe(200)
+    expect(lists.json<{ data: Entry[] }>().data).toMatchObject([
+      { entity_id: listId, action: 'update', fields: ['name'], user: author },
+      { entity_id: listId, action: 'create', user: author },
+    ])
+    const activities = await browser.call('GET', `${log}?filter[entity]=site_activity`)
+    expect(activities.json<{ data: Entry[] }>().data).toMatchObject([
+      { entity_id: activityId, action: 'create', user: author },
+    ])
+    const statements = await browser.call('GET', `${log}?filter[entity]=progress_statement`)
+    expect(statements.json<{ data: Entry[] }>().data).toMatchObject([
+      { entity_id: salId, action: 'update', fields: ['approved_at', 'status'], user: null },
+      { entity_id: salId, action: 'create', user: null },
+    ])
+  })
+
   it('needs audit.view and shows only the company of the URL', async () => {
     const reader = await fx.companyWithUser(['estimates.view', 'estimates.create'])
     const browser = new Browser(ctx.app)

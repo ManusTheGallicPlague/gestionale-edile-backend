@@ -434,6 +434,7 @@ interface SummaryRow {
   subcontract: string
   other: string
   missing_rates: number
+  invoiced: string
 }
 
 /**
@@ -474,6 +475,9 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
                  as subcontract,
                coalesce(sum(amount_cents) filter (where category = 'other'), 0) as other
              from public.site_costs where site_id = $1
+           ), revenue as (
+             select coalesce(sum(taxable_cents), 0) as cents
+             from public.invoices where site_id = $1 and direction = 'issued'
            )
            select s.id, s.name, s.code, s.budget_cents::text as budget_cents,
              labor.hours::numeric(10, 2)::text as labor_hours, labor.cents::bigint::text as labor_cents,
@@ -481,39 +485,52 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
              machines.cents::bigint::text as vehicle_cents,
              manual.materials::text as materials, manual.rentals::text as rentals,
              manual.subcontract::text as subcontract, manual.other::text as other,
-             (labor.missing + machines.missing)::int as missing_rates
-           from public.sites s, labor, machines, manual
+             (labor.missing + machines.missing)::int as missing_rates,
+             revenue.cents::text as invoiced
+           from public.sites s, labor, machines, manual, revenue
            where s.id = $1`,
           [request.params.site],
         )
-        return rows[0]
+        const summary = rows[0]
+        return summary && { summary, revenue: permissions.has('invoices.view') }
       })
       if (!row) throw notFound()
-      const parts = [
-        row.labor_cents,
-        row.vehicle_cents,
-        row.materials,
-        row.rentals,
-        row.subcontract,
-        row.other,
-      ]
-      const total = parts.reduce((sum, cents) => sum + BigInt(cents), 0n)
-      const budget = row.budget_cents === null ? null : BigInt(row.budget_cents)
-      const remaining = budget === null ? null : budget - total
-      return reply.send({
-        site: { id: row.id, name: row.name, code: row.code },
-        labor: { hours: row.labor_hours, amount: centsToAmount(row.labor_cents) },
-        vehicles: { hours: row.vehicle_hours, amount: centsToAmount(row.vehicle_cents) },
-        materials: centsToAmount(row.materials),
-        rentals: centsToAmount(row.rentals),
-        subcontract: centsToAmount(row.subcontract),
-        other: centsToAmount(row.other),
-        total: centsToAmount(total.toString()),
-        budget: budget === null ? null : centsToAmount(budget.toString()),
-        budget_remaining: remaining === null ? null : centsToAmount(remaining.toString()),
-        over_budget: remaining !== null && remaining < 0n,
-        missing_hourly_costs: row.missing_rates,
-      })
+      return reply.send(summaryToContract(row.summary, row.revenue))
     },
   )
+}
+
+function summaryToContract(row: SummaryRow, withRevenue: boolean) {
+  const parts = [
+    row.labor_cents,
+    row.vehicle_cents,
+    row.materials,
+    row.rentals,
+    row.subcontract,
+    row.other,
+  ]
+  const total = parts.reduce((sum, cents) => sum + BigInt(cents), 0n)
+  const budget = row.budget_cents === null ? null : BigInt(row.budget_cents)
+  const remaining = budget === null ? null : budget - total
+  const invoiced = BigInt(row.invoiced)
+  return {
+    site: { id: row.id, name: row.name, code: row.code },
+    labor: { hours: row.labor_hours, amount: centsToAmount(row.labor_cents) },
+    vehicles: { hours: row.vehicle_hours, amount: centsToAmount(row.vehicle_cents) },
+    materials: centsToAmount(row.materials),
+    rentals: centsToAmount(row.rentals),
+    subcontract: centsToAmount(row.subcontract),
+    other: centsToAmount(row.other),
+    total: centsToAmount(total.toString()),
+    budget: budget === null ? null : centsToAmount(budget.toString()),
+    budget_remaining: remaining === null ? null : centsToAmount(remaining.toString()),
+    over_budget: remaining !== null && remaining < 0n,
+    missing_hourly_costs: row.missing_rates,
+    revenue: withRevenue
+      ? {
+          invoiced: centsToAmount(invoiced.toString()),
+          margin: centsToAmount((invoiced - total).toString()),
+        }
+      : null,
+  }
 }

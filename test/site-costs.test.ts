@@ -263,6 +263,7 @@ describe('site costs', () => {
       budget_remaining: '-265.00',
       over_budget: true,
       missing_hourly_costs: 1,
+      revenue: null,
     })
     const foreign = await scene()
     expect(
@@ -274,5 +275,43 @@ describe('site costs', () => {
       (await reader.browser.call('GET', summary.replace(s.company.slug, reader.company.slug)))
         .statusCode,
     ).toBe(404)
+  })
+
+  it('shows invoiced revenue and margin only with invoices.view', async () => {
+    const s = await scene([...ALL, 'invoices.view'])
+    const summary = `/api/companies/${s.company.slug}/sites/${s.site}/cost-summary`
+    const empty = await s.browser.call('GET', summary)
+    expect(empty.json()).toMatchObject({
+      total: '0.00',
+      revenue: { invoiced: '0.00', margin: '0.00' },
+    })
+    const client = await ctx.owner.query<{ id: string }>(
+      "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Rossi') returning id",
+      [s.company.id],
+    )
+    // Issued on this site (paid or not) count; received ones and other sites do not.
+    await ctx.owner.query(
+      `insert into public.invoices
+         (company_id, direction, number, invoice_date, client_id, supplier_id, site_id,
+          taxable_cents, vat_cents, paid_on)
+       values ($1, 'issued', '1', '2026-11-02', $2, null, $4, 50000, 11000, null),
+              ($1, 'issued', '2', '2026-11-03', $2, null, $4, 25050, 0, '2026-11-04'),
+              ($1, 'issued', '3', '2026-11-03', $2, null, $5, 99900, 0, null),
+              ($1, 'received', 'F-9', '2026-11-03', null, $3, $4, 70000, 15400, null)`,
+      [s.company.id, client.rows[0]?.id, s.supplier, s.site, s.other],
+    )
+    await s.browser.call('POST', s.base, { body: input(s, { amount: '900' }) })
+    const res = await s.browser.call('GET', summary)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      total: '900.00',
+      revenue: { invoiced: '750.50', margin: '-149.50' },
+    })
+    const blind = await scene(ALL)
+    const other = await blind.browser.call(
+      'GET',
+      `/api/companies/${blind.company.slug}/sites/${blind.site}/cost-summary`,
+    )
+    expect(other.json()).toMatchObject({ revenue: null })
   })
 })

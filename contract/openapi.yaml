@@ -2413,7 +2413,9 @@ paths:
         Permesso: costs.view. Senza permesso risponde 404, non 403. Manodopera e mezzi vengono
         dai rapportini approvati, alle ore per il costo orario attuale di dipendenti e mezzi
         (senza costo orario valgono zero e si contano in missing_hourly_costs); poi i costi
-        inseriti a mano per categoria. Importi senza IVA.
+        inseriti a mano per categoria. Importi senza IVA. Con invoices.view anche revenue: il
+        fatturato del cantiere (imponibile delle fatture emesse collegate) e il margine
+        rispetto ai costi; senza quel permesso revenue è null.
       responses:
         '200':
           description: Il riepilogo
@@ -4741,8 +4743,9 @@ paths:
       summary: Registro delle modifiche
       description: |
         Permesso: audit.view. Chi ha creato, modificato o eliminato clienti, fornitori,
-        scadenze, computi e preventivi, e quando; dal più recente. Di una modifica si danno i
-        nomi dei campi cambiati, non i valori. Con filter[entity] e filter[entity_id] si ha
+        scadenze, computi, preventivi, cantieri e gli altri documenti di AuditEntity (anche SAL,
+        prezzari e attività del cronoprogramma), e quando; dal più recente. Di una modifica si
+        danno i nomi dei campi cambiati, non i valori. Con filter[entity] e filter[entity_id] si ha
         la storia di un solo documento.
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -6193,7 +6196,8 @@ components:
         quote: preventivo. site: cantiere. employee: dipendente. vehicle: mezzo.
         daily_report: rapportino. site_cost: costo. site_document: documento o foto del cantiere.
         purchase_order: ordine a un fornitore. warehouse_item: articolo di magazzino.
-        invoice: fattura.
+        invoice: fattura. progress_statement: SAL. price_list: prezzario.
+        site_activity: attività del cronoprogramma.
       enum:
         [
           client,
@@ -6210,6 +6214,9 @@ components:
           purchase_order,
           warehouse_item,
           invoice,
+          progress_statement,
+          price_list,
+          site_activity,
         ]
     AuditEntry:
       type: object
@@ -7479,6 +7486,7 @@ components:
         - budget_remaining
         - over_budget
         - missing_hourly_costs
+        - revenue
       properties:
         site:
           type: object
@@ -7507,6 +7515,23 @@ components:
         missing_hourly_costs:
           type: integer
           description: Righe dei rapportini approvati con dipendenti o mezzi senza costo orario.
+        revenue:
+          description: Null senza invoices.view.
+          oneOf:
+            - $ref: '#/components/schemas/SiteRevenue'
+            - type: 'null'
+    SiteRevenue:
+      type: object
+      required: [invoiced, margin]
+      properties:
+        invoiced:
+          description: Imponibile delle fatture emesse collegate al cantiere, pagate o no.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        margin:
+          description: Fatturato meno il totale dei costi; negativo se i costi superano il fatturato.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
     HoursCost:
       type: object
       required: [hours, amount]

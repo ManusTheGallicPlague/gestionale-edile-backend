@@ -23,6 +23,9 @@ const ENTITIES = [
   'purchase_order',
   'warehouse_item',
   'invoice',
+  'progress_statement',
+  'price_list',
+  'site_activity',
 ] as const
 
 interface AuditRow {
