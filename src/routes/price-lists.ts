@@ -129,6 +129,26 @@ function parseList(body: unknown) {
   return { name, year, notes }
 }
 
+const PERCENT_CHANGE = /^-?\d{1,3}(\.\d{1,2})?$/
+
+/** price_change_percent of a duplicate: from -99.99 to 100, or null (0) to copy prices. */
+function parsePercent(body: unknown): string {
+  const value = (body as Record<string, unknown>).price_change_percent
+  if (value === undefined) throw new ValidationFailed({ price_change_percent: ['Campo mancante.'] })
+  if (value === null) return '0'
+  if (
+    typeof value !== 'string' ||
+    !PERCENT_CHANGE.test(value) ||
+    Number(value) <= -100 ||
+    Number(value) > 100
+  ) {
+    throw new ValidationFailed({
+      price_change_percent: ['Una percentuale da -99.99 a 100, al massimo due decimali.'],
+    })
+  }
+  return value
+}
+
 function parseItem(body: unknown) {
   const { errors, text } = reader(body)
   const code = text('code', 50, true)
@@ -312,6 +332,34 @@ export function priceListRoutes(app: FastifyInstance, config: Config, db: Db): v
       if (!rowCount) throw new ApiError(412, messages.priceListStale, 'stale_record')
     })
     return reply.code(204).send()
+  })
+
+  app.post<{ Params: Params }>(`${base}/:list/duplicate`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await inCompany(request, session.user.id, 'create', async (client) => {
+      const source = await readList(client, request.params.list)
+      if (!source) throw notFound()
+      const input = parseList(request.body)
+      const percent = parsePercent(request.body)
+      const { rows } = await client.query<{ id: string }>(
+        `insert into public.price_lists (company_id, name, year, notes)
+         values (app.current_company_id(), $1, $2, $3) returning id`,
+        [input.name, input.year, input.notes],
+      )
+      const id = rows[0]?.id
+      await client.query(
+        `insert into public.price_list_items (company_id, price_list_id, code, description, unit,
+           unit_price_cents)
+         select app.current_company_id(), $1, i.code, i.description, i.unit,
+           round(i.unit_price_cents * (100 + $3::numeric) / 100)
+         from public.price_list_items i where i.price_list_id = $2`,
+        [id, source.id, percent],
+      )
+      return readList(client, id)
+    })
+    if (!row) throw new Error('insert returned no row')
+    return reply.code(201).header('ETag', `"${row.version}"`).send(listToContract(row))
   })
 
   const items = `${base}/:list/items`

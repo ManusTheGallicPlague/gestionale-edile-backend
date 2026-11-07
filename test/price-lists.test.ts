@@ -185,4 +185,63 @@ describe('price lists', () => {
       ).statusCode,
     ).toBe(404)
   })
+
+  it('duplicates a list with its items, changing prices by a percentage', async () => {
+    const s = await scene()
+    const source = (await s.browser.call('POST', s.base, { body: listBody() })).json<{
+      id: string
+    }>()
+    const items = `${s.base}/${source.id}/items`
+    await s.browser.call('POST', items, { body: itemBody({ unit_price: '8.50' }) })
+    await s.browser.call('POST', items, {
+      body: itemBody({ code: 'B', description: 'Rinterro', unit_price: '0.05' }),
+    })
+    const dup = (body: Record<string, unknown>) =>
+      s.browser.call('POST', `${s.base}/${source.id}/duplicate`, { body })
+    const copy = await dup({
+      ...listBody({ name: 'Prezzario 2027', year: 2027 }),
+      price_change_percent: '3.5',
+    })
+    expect(copy.statusCode).toBe(201)
+    const list = copy.json<{ id: string; name: string; item_count: number }>()
+    expect(list).toMatchObject({ name: 'Prezzario 2027', item_count: 2 })
+    const prices = async (id: string) =>
+      (await s.browser.call('GET', `${s.base}/${id}/items`))
+        .json<{ data: Item[] }>()
+        .data.map((i) => [i.code, i.unit_price])
+    // 8.50 + 3.5% = 8.7975 → 8.80; 0.05 + 3.5% = 0.05175 → 0.05
+    expect(await prices(list.id)).toEqual([
+      ['01.A01.A10', '8.80'],
+      ['B', '0.05'],
+    ])
+    expect(await prices(source.id)).toEqual([
+      ['01.A01.A10', '8.50'],
+      ['B', '0.05'],
+    ])
+    const same = await dup({ ...listBody(), price_change_percent: null })
+    expect(await prices(same.json<{ id: string }>().id)).toEqual(await prices(source.id))
+    const down = await dup({ ...listBody(), price_change_percent: '-10' })
+    expect(await prices(down.json<{ id: string }>().id)).toEqual([
+      ['01.A01.A10', '7.65'],
+      ['B', '0.05'],
+    ])
+
+    for (const bad of ['-100', '100.01', '1.234', 'x', 3]) {
+      const res = await dup({ ...listBody(), price_change_percent: bad })
+      expect(res.statusCode).toBe(422)
+      expect(res.json()).toMatchObject({ errors: { price_change_percent: [expect.any(String)] } })
+    }
+    expect((await dup(listBody())).statusCode).toBe(422)
+
+    const other = await scene()
+    const foreign = await other.browser.call('POST', `${other.base}/${source.id}/duplicate`, {
+      body: { ...listBody(), price_change_percent: null },
+    })
+    expect(foreign.statusCode).toBe(404)
+    const reader = await scene(['price_lists.view'])
+    const denied = await reader.browser.call('POST', `${reader.base}/${source.id}/duplicate`, {
+      body: { ...listBody(), price_change_percent: null },
+    })
+    expect(denied.statusCode).toBe(403)
+  })
 })

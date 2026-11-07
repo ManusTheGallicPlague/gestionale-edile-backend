@@ -3153,6 +3153,41 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/price-lists/{list}/duplicate:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PriceListId'
+    post:
+      operationId: duplicatePriceList
+      summary: Copia di un prezzario, con un aumento dei prezzi facoltativo
+      description: |
+        Permessi: price_lists.view e price_lists.create (senza uno dei due risponde 403, un
+        prezzario di un’altra azienda non si trova: 404). Crea un prezzario nuovo con nome,
+        anno e note indicati e una copia di tutte le voci; con `price_change_percent` ogni
+        prezzo cambia di quella percentuale (es. 3.5 per l'aggiornamento dei prezzi all'anno
+        nuovo, -10 per uno sconto), arrotondato al centesimo. Il prezzario di partenza non
+        cambia, né le voci dei computi già prese.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PriceListDuplicateInput' }
+      responses:
+        '201':
+          description: La copia
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PriceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/price-lists/{list}/items/export:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8217,6 +8252,20 @@ components:
         notes:
           type: [string, 'null']
           maxLength: 2000
+    PriceListDuplicateInput:
+      allOf:
+        - $ref: '#/components/schemas/PriceListInput'
+        - type: object
+          required: [price_change_percent]
+          properties:
+            price_change_percent:
+              description: |
+                Variazione dei prezzi in percentuale, da -99.99 a 100, fino a due decimali;
+                null per copiare i prezzi come sono.
+              oneOf:
+                - type: string
+                  pattern: '^-?\d{1,3}(\.\d{1,2})?$'
+                - type: 'null'
     PriceList:
       allOf:
         - $ref: '#/components/schemas/PriceListInput'
