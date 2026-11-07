@@ -17,6 +17,9 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
+import { orderPdf } from '../purchases/pdf.js'
+import { readLogoForPdf } from './logo.js'
+import { readProfile } from './settings.js'
 
 export const ORDER_STATUSES = ['draft', 'sent', 'received'] as const
 type Status = (typeof ORDER_STATUSES)[number]
@@ -462,6 +465,76 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
         .send(csv)
     },
   )
+
+  app.get<{ Params: Params }>(`${base}/:order/pdf`, async (request, reply) => {
+    const session = requireSession(request)
+    const pdf = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('purchases.view')) throw notFound()
+      const id = request.params.order ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const order = await readOne(client, id)
+      if (!order) throw notFound()
+      const { rows } = await client.query<{
+        name: string
+        vat_number: string | null
+        tax_code: string | null
+        street: string | null
+        postal_code: string | null
+        city: string | null
+        province: string | null
+        site_address: string | null
+      }>(
+        `select p.name, p.vat_number, p.tax_code, p.street, p.postal_code, p.city, p.province,
+           s.address as site_address
+         from public.purchase_orders o
+         join public.suppliers p on p.id = o.supplier_id
+         left join public.sites s on s.id = o.site_id
+         where o.id = $1`,
+        [id],
+      )
+      const supplier = rows[0]
+      if (!supplier) throw notFound()
+      const profile = await readProfile(client)
+      const head = summary(order.row)
+      return {
+        number: head.number,
+        buffer: orderPdf({
+          logo: await readLogoForPdf(client),
+          company: {
+            ...profile,
+            share_capital:
+              profile.share_capital_cents === null
+                ? null
+                : centsToAmount(profile.share_capital_cents),
+          },
+          supplier,
+          number: head.number,
+          status: order.row.status,
+          date: order.row.order_date,
+          delivery_date: order.row.delivery_date,
+          site: head.site ? { name: head.site.name, address: supplier.site_address } : null,
+          notes: order.row.notes,
+          total: head.total,
+          lines: order.lines.map((l) => ({
+            description: l.description,
+            unit: l.unit,
+            quantity: l.quantity,
+            unit_price: centsToAmount(l.unit_price_cents),
+            amount: centsToAmount(l.amount_cents),
+          })),
+        }),
+      }
+    })
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header(
+        'Content-Disposition',
+        `attachment; filename="ordine-${pdf.number.replace('/', '-')}.pdf"`,
+      )
+      .header('Cache-Control', 'private, no-store')
+      .send(pdf.buffer)
+  })
 
   app.get<{ Params: Params }>(`${base}/:order`, async (request, reply) => {
     const session = requireSession(request)

@@ -73,6 +73,59 @@ type Order = {
 }
 
 describe('purchase orders', () => {
+  it('prints the order as a PDF for the supplier', async () => {
+    const s = await scene()
+    await ctx.owner.query(
+      `update public.suppliers set vat_number = '01234567897', street = 'Via Po 2',
+         postal_code = '14100', city = 'Asti', province = 'AT' where id = $1`,
+      [s.supplier],
+    )
+    await ctx.owner.query("update public.sites set address = 'Via Roma 1, Asti' where id = $1", [
+      s.site,
+    ])
+    const created = await s.browser.call('POST', s.base, {
+      body: input(s, { notes: 'Scarico con gru' }),
+    })
+    expect(created.statusCode).toBe(201)
+    const order = created.json<Order>()
+    const pdf = await s.browser.call('GET', `${s.base}/${order.id}/pdf`)
+    expect(pdf.statusCode).toBe(200)
+    expect(pdf.headers['content-type']).toBe('application/pdf')
+    const file = `ordine-${order.number.replace('/', '-')}.pdf`
+    expect(pdf.headers['content-disposition']).toBe(`attachment; filename="${file}"`)
+    const text = pdf.rawPayload.toString('latin1')
+    expect(text.startsWith('%PDF-1.4\n')).toBe(true)
+    expect(text).toContain(`(Ordine n. ${order.number} \\(bozza, non ancora inviato\\))`)
+    expect(text).toContain('(Data: 04/11/2026)')
+    expect(text).toContain('(Calcestruzzi Srl)')
+    expect(text).toContain('(P. IVA 01234567897)')
+    expect(text).toContain('(14100 Asti \\(AT\\))')
+    expect(text).toContain('(Consegna in cantiere: Villetta, Via Roma 1, Asti)')
+    expect(text).toContain('(Consegna richiesta entro il 10/11/2026)')
+    expect(text).toContain('(Calcestruzzo C25/30)')
+    expect(text).toContain('(12,5)')
+    // 12.5 × 130 = 1625.00; 0.333 × 0.05 = 0.02 (rounded): 1625.02.
+    expect(text).toContain('(\x80 1.625,02)')
+    expect(text).toContain('(Scarico con gru)')
+
+    // Another company, a wrong id, no permission: 404.
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', `${theirs.base}/${order.id}/pdf`)).statusCode).toBe(
+      404,
+    )
+    expect((await s.browser.call('GET', `${s.base}/x/pdf`)).statusCode).toBe(404)
+    // A member of the same company without purchases.view.
+    const guest = await fx.user()
+    await fx.member(
+      guest.id,
+      s.company.id,
+      await fx.role(s.company.id, 'Ospite', ['suppliers.view']),
+    )
+    const browser = new Browser(ctx.app)
+    await browser.signIn(guest.email)
+    expect((await browser.call('GET', `${s.base}/${order.id}/pdf`)).statusCode).toBe(404)
+  })
+
   it('exports the orders as CSV with the same filters', async () => {
     const s = await scene()
     await s.browser.call('POST', s.base, { body: input(s) })

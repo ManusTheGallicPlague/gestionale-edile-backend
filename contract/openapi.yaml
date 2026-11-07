@@ -1981,6 +1981,35 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/purchase-orders/{order}/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PurchaseOrderId'
+    get:
+      operationId: getPurchaseOrderPdf
+      summary: PDF dell'ordine al fornitore
+      description: |
+        Permesso: purchases.view. L'ordine in A4, da mandare al fornitore: intestazione
+        dell'azienda, fornitore con indirizzo e partita IVA, cantiere di consegna e data di
+        consegna se ci sono, righe con unità, quantità, prezzo e importo, totale senza IVA e
+        note. Una bozza esce con la dicitura «bozza». Il file si chiama ordine-2026-001.pdf.
+        Senza permesso risponde 404, non 403.
+      responses:
+        '200':
+          description: Il PDF
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/purchase-orders/{order}:
     parameters:
       - $ref: '#/components/parameters/Company'
