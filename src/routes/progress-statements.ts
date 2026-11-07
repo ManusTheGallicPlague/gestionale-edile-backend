@@ -20,6 +20,7 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 const MAX_LINES = 2000
 /** numeric(14,3): at most 11 digits before the point. */
 const QUANTITY = /^-?\d{1,11}(?:\.\d{1,3})?$/
+const PERCENT = /^(?:100(?:\.0{1,2})?|\d{1,2}(?:\.\d{1,2})?)$/
 
 type Params = { company: string; estimate: string; statement?: string }
 
@@ -30,11 +31,13 @@ interface StatementRow {
   statement_date: string
   status: 'draft' | 'approved'
   notes: string | null
+  retention_percent: string
   approved_at: Date | null
   version: number
   created_at: Date
   updated_at: Date
   amount_cents: string
+  retention_cents: string
   previous_cents: string
 }
 
@@ -56,21 +59,26 @@ interface LineRow {
 interface StatementInput {
   statement_date: string
   notes: string | null
+  /** Null when absent: the previous statement's on creation, unchanged on update. */
+  retentionPercent: string | null
   lines: { item_id: string; quantity: string }[]
 }
 
 /** Line amounts are rounded to the cent one by one; totals add the rounded amounts. */
 const SELECT = `select s.id, s.estimate_id, s.number, s.statement_date::text as statement_date,
-    s.status, s.notes, s.approved_at, s.version, s.created_at, s.updated_at,
-    coalesce((select sum(round(l.quantity * l.unit_price_cents))
-              from public.progress_statement_lines l where l.statement_id = s.id), 0)::text
-      as amount_cents,
+    s.status, s.notes, s.retention_percent::text as retention_percent, s.approved_at, s.version,
+    s.created_at, s.updated_at, cur.cents::text as amount_cents,
+    round(cur.cents * s.retention_percent / 100)::text as retention_cents,
     coalesce((select sum(round(l.quantity * l.unit_price_cents))
               from public.progress_statement_lines l
               join public.progress_statements p on p.id = l.statement_id
               where p.estimate_id = s.estimate_id and p.number < s.number), 0)::text
       as previous_cents
-  from public.progress_statements s`
+  from public.progress_statements s
+  cross join lateral (
+    select coalesce(sum(round(l.quantity * l.unit_price_cents)), 0) as cents
+    from public.progress_statement_lines l where l.statement_id = s.id
+  ) cur`
 
 const LINES = `with cur as (
     select item_id, quantity, unit_price_cents, round(quantity * unit_price_cents) as cents
@@ -113,6 +121,9 @@ const summaryToContract = (row: StatementRow) => ({
   amount: centsToAmount(row.amount_cents),
   previous_amount: centsToAmount(row.previous_cents),
   cumulative_amount: centsToAmount(cumulative(row)),
+  retention_percent: row.retention_percent,
+  retention_amount: centsToAmount(row.retention_cents),
+  net_amount: centsToAmount((BigInt(row.amount_cents) - BigInt(row.retention_cents)).toString()),
   approved_at: row.approved_at?.toISOString() ?? null,
   created_at: row.created_at.toISOString(),
   updated_at: row.updated_at.toISOString(),
@@ -161,6 +172,12 @@ function parseStatement(body: unknown): StatementInput {
     if (trimmed.length > 2000) errors.notes = ['Al massimo 2000 caratteri.']
     notes = trimmed === '' ? null : trimmed
   }
+  let retentionPercent: string | null = null
+  if (raw.retention_percent !== undefined && raw.retention_percent !== null) {
+    if (typeof raw.retention_percent !== 'string' || !PERCENT.test(raw.retention_percent)) {
+      errors.retention_percent = ['Una percentuale da 0 a 100, al massimo due decimali.']
+    } else retentionPercent = raw.retention_percent
+  }
   const lines: StatementInput['lines'] = []
   if (!Array.isArray(raw.lines)) errors.lines = ['Serve un elenco di righe.']
   else if (raw.lines.length > MAX_LINES) errors.lines = [`Al massimo ${MAX_LINES} righe.`]
@@ -179,7 +196,7 @@ function parseStatement(body: unknown): StatementInput {
     })
   }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { statement_date, notes, lines }
+  return { statement_date, notes, retentionPercent, lines }
 }
 
 async function readStatement(client: PoolClient, estimateId: string, id: string | undefined) {
@@ -285,11 +302,13 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
         }
         const { rows } = await client.query<{ id: string }>(
           `insert into public.progress_statements (company_id, estimate_id, number, statement_date,
-             notes)
-           select app.current_company_id(), $1, coalesce(max(number), 0) + 1, $2, $3
+             notes, retention_percent)
+           select app.current_company_id(), $1, coalesce(max(number), 0) + 1, $2, $3,
+             coalesce($4::numeric, (select p.retention_percent from public.progress_statements p
+                                    where p.estimate_id = $1 order by p.number desc limit 1), 0)
            from public.progress_statements where estimate_id = $1
            returning id`,
-          [estimateId, input.statement_date, input.notes],
+          [estimateId, input.statement_date, input.notes, input.retentionPercent],
         )
         const id = rows[0]?.id
         if (!id) throw new Error('insert returned no row')
@@ -335,9 +354,10 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
         const input = parseStatement(request.body)
         await client.query(
           `update public.progress_statements set statement_date = $1, notes = $2,
+             retention_percent = coalesce($4::numeric, retention_percent),
              version = version + 1, updated_at = now()
            where id = $3`,
-          [input.statement_date, input.notes, current.id],
+          [input.statement_date, input.notes, current.id, input.retentionPercent],
         )
         await writeLines(client, estimateId, current.id, input.lines)
         const row = await readStatement(client, estimateId, current.id)

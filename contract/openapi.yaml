@@ -7750,6 +7750,15 @@ components:
         notes:
           type: [string, 'null']
           maxLength: 2000
+        retention_percent:
+          description: |
+            Ritenuta di garanzia in percentuale, da 0 a 100, fino a due decimali. Facoltativa:
+            se manca (o è null), alla creazione vale quella del SAL precedente del computo (0
+            per il primo) e alla modifica resta com'è.
+          oneOf:
+            - type: string
+              pattern: '^\d{1,3}(\.\d{1,2})?$'
+            - type: 'null'
         lines:
           type: array
           maxItems: 2000
@@ -7766,7 +7775,8 @@ components:
       type: object
       required:
         [id, estimate_id, number, statement_date, status, notes, amount, previous_amount,
-         cumulative_amount, approved_at, created_at, updated_at]
+         cumulative_amount, retention_percent, retention_amount, net_amount, approved_at,
+         created_at, updated_at]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         estimate_id: { $ref: '#/components/schemas/Id' }
@@ -7786,6 +7796,15 @@ components:
         cumulative_amount:
           $ref: '#/components/schemas/SignedAmount'
           description: Importo maturato a tutto questo SAL.
+        retention_percent:
+          type: string
+          description: Ritenuta di garanzia in percentuale, con due decimali (es. "5.00").
+        retention_amount:
+          $ref: '#/components/schemas/SignedAmount'
+          description: Ritenuta su questo SAL, amount × percentuale, arrotondata al centesimo.
+        net_amount:
+          $ref: '#/components/schemas/SignedAmount'
+          description: Importo netto di questo SAL, amount meno la ritenuta.
         approved_at:
           type: [string, 'null']
           format: date-time

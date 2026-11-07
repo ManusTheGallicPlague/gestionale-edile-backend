@@ -187,6 +187,94 @@ describe('progress statements', () => {
     expect((await s.browser.call('GET', s.url)).json<{ data: unknown[] }>().data).toHaveLength(1)
   })
 
+  it('computes the retention, carried over to the next statement', async () => {
+    const s = await scene()
+    // 40 × 8.50 + 0.5 × 23.33 = 351.67; 5% = 17.5835 → 17.58.
+    const first = await s.browser.call('POST', s.url, {
+      body: {
+        statement_date: '2026-10-31',
+        notes: null,
+        retention_percent: '5',
+        lines: [
+          { item_id: s.scavo, quantity: '40' },
+          { item_id: s.intonaco, quantity: '0.5' },
+        ],
+      },
+    })
+    expect(first.statusCode).toBe(201)
+    expect(first.json()).toMatchObject({
+      amount: '351.67',
+      retention_percent: '5.00',
+      retention_amount: '17.58',
+      net_amount: '334.09',
+    })
+    const one = first.json<Statement>()
+    // Absent on update: unchanged.
+    const kept = await s.browser.call('PUT', `${s.url}/${one.id}`, {
+      body: {
+        statement_date: '2026-10-31',
+        notes: null,
+        lines: [{ item_id: s.scavo, quantity: '1' }],
+      },
+      headers: { 'if-match': '"1"' },
+    })
+    expect(kept.statusCode).toBe(200)
+    // 8.50 × 5% = 0.425 → 0.43, half away from zero.
+    expect(kept.json()).toMatchObject({
+      amount: '8.50',
+      retention_percent: '5.00',
+      retention_amount: '0.43',
+      net_amount: '8.07',
+    })
+    const bad = await s.browser.call('PUT', `${s.url}/${one.id}`, {
+      body: { statement_date: '2026-10-31', notes: null, retention_percent: '100.5', lines: [] },
+      headers: { 'if-match': '"2"' },
+    })
+    expect(bad.statusCode).toBe(422)
+    expect(Object.keys(bad.json<{ errors: object }>().errors)).toEqual(['retention_percent'])
+    const number = await s.browser.call('PUT', `${s.url}/${one.id}`, {
+      body: { statement_date: '2026-10-31', notes: null, retention_percent: 5, lines: [] },
+      headers: { 'if-match': '"2"' },
+    })
+    expect(number.statusCode).toBe(422)
+    await s.browser.call('POST', `${s.url}/${one.id}/approve`, { headers: { 'if-match': '"2"' } })
+
+    // The next statement takes the percentage of the previous one; a correction is negative.
+    const second = await s.browser.call('POST', s.url, {
+      body: {
+        statement_date: '2026-11-30',
+        notes: null,
+        lines: [{ item_id: s.scavo, quantity: '-1' }],
+      },
+    })
+    expect(second.statusCode).toBe(201)
+    expect(second.json()).toMatchObject({
+      amount: '-8.50',
+      retention_percent: '5.00',
+      retention_amount: '-0.43',
+      net_amount: '-8.07',
+    })
+    const list = await s.browser.call('GET', s.url)
+    expect(
+      list.json<{ data: { retention_amount: string }[] }>().data.map((r) => r.retention_amount),
+    ).toEqual(['0.43', '-0.43'])
+
+    // A statement without retention, as the ones written before it existed.
+    const other = await scene()
+    const zero = await other.browser.call('POST', other.url, {
+      body: {
+        statement_date: '2026-10-31',
+        notes: null,
+        lines: [{ item_id: other.scavo, quantity: '2' }],
+      },
+    })
+    expect(zero.json()).toMatchObject({
+      retention_percent: '0.00',
+      retention_amount: '0.00',
+      net_amount: '17.00',
+    })
+  })
+
   it('keeps the estimate and the items of a statement', async () => {
     const s = await scene([...ALL, 'estimates.delete'])
     const statement = (

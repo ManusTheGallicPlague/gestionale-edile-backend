@@ -878,9 +878,9 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            where company_id = $1 and title = 'Ristrutturazione bagno'
          ), s as (
            insert into public.progress_statements (company_id, estimate_id, number,
-             statement_date, status, approved_at)
+             statement_date, status, approved_at, retention_percent)
            select $1, e.id, v.number, v.day::date, v.status,
-             case when v.status = 'approved' then now() end
+             case when v.status = 'approved' then now() end, 5
            from e, (values (1, '2026-10-31', 'approved'), (2, '2026-11-30', 'draft'))
              as v (number, day, status)
            returning id, estimate_id, number
