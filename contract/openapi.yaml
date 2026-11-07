@@ -325,6 +325,7 @@ paths:
                     description: Clienti aggiunti.
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '413':
           description: File più grande di 5 MB.
           content:
@@ -641,6 +642,7 @@ paths:
                     description: Fornitori aggiunti.
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
         '413':
           description: File più grande di 5 MB.
           content:
@@ -3496,6 +3498,57 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/employees/import:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    post:
+      operationId: importEmployees
+      summary: Importazione di dipendenti nuovi da un file CSV
+      description: |
+        Permesso: employees.create. Come importClients: stesso formato del file (al massimo
+        5000 dipendenti), solo dipendenti nuovi, tutti o nessuno, errori sotto `file` o
+        `row.<n>`; il file di exportEmployees si reimporta così com'è. Colonne per nome:
+        cognome e nome sono obbligatorie; le altre sono codice fiscale, mansione, telefono,
+        email, assunzione (30/11/2026 oppure 2026-11-30), costo orario (28,50 oppure 28.50),
+        attivo (sì o no, vuoto vale sì), note. Ogni riga si controlla come createEmployee;
+        un codice fiscale già presente nell'azienda o ripetuto nel file è un errore della riga.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+            example: "cognome;nome;mansione;costo orario\r\nRossi;Mario;Muratore;28,50\r\n"
+      responses:
+        '200':
+          description: Dipendenti importati
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [created]
+                properties:
+                  created:
+                    type: integer
+                    minimum: 1
+                    description: Dipendenti aggiunti.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: File più grande di 5 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Il corpo non è un file CSV (Content-Type text/csv).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/employees/export:

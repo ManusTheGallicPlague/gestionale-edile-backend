@@ -126,6 +126,14 @@ describe('client import', () => {
     }
   })
 
+  it('answers 404 for the company of someone else, as the contract says', async () => {
+    const a = await scene()
+    const b = await scene()
+    const cross = await b.browser.call('POST', `${a.base}/import`, csv('nome\nAlfa\n'))
+    expect(cross.statusCode).toBe(404)
+    expect(await clients(a.browser, a.base)).toEqual([])
+  })
+
   it('needs clients.create, the CSRF token and a CSV body', async () => {
     const viewer = await scene(['clients.view'])
     const denied = await viewer.browser.call('POST', `${viewer.base}/import`, csv('nome\nAlfa\n'))

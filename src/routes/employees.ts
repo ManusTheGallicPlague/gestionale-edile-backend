@@ -18,6 +18,10 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { csvScope } from '../http/files.js'
+import { ImportFailed } from '../csv-import.js'
+import { RowErrors } from '../clients/import.js'
+import { employeeRowMessages, parseEmployeesCsv } from '../employees/import.js'
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -271,6 +275,53 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
         data: rows.map(toContract),
         meta: { total: count.rows[0]?.total ?? 0, page: list.page, per_page: list.perPage },
       }
+    })
+  })
+
+  csvScope(app, config, (scope) => {
+    scope.post<{ Params: Params }>(`${base}/import`, async (request) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('employees.create')) throw forbidden()
+        const body = request.body
+        if (!Buffer.isBuffer(body)) {
+          throw new ApiError(415, 'Il corpo deve essere un file CSV (text/csv).')
+        }
+        let employees
+        try {
+          employees = parseEmployeesCsv(body, parseEmployeeInput)
+        } catch (error) {
+          if (error instanceof ImportFailed) throw new ValidationFailed(error.errors)
+          throw error
+        }
+        // One savepoint per row, so a duplicate tax code is reported on its row.
+        const errors = new RowErrors()
+        const placeholders = COLUMNS.map((_, i) => `$${i + 1}`).join(', ')
+        for (const { line, input } of employees) {
+          await client.query('savepoint import_row')
+          try {
+            await client.query(
+              `insert into public.employees (company_id, ${COLUMNS.join(', ')})
+               values (app.current_company_id(), ${placeholders})`,
+              COLUMNS.map((f) => input[f]),
+            )
+            await client.query('release savepoint import_row')
+          } catch (error) {
+            if (!isUniqueViolation(error)) throw error
+            await client.query('rollback to savepoint import_row')
+            errors.add(
+              line,
+              employeeRowMessages({
+                tax_code: ['Esiste già un dipendente con questo codice fiscale.'],
+              }),
+            )
+          }
+        }
+        if (!errors.empty) throw new ValidationFailed(errors.errors)
+        return { created: employees.length }
+      })
     })
   })
 
