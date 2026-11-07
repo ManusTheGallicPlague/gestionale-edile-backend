@@ -7700,7 +7700,8 @@ components:
             - type: 'null'
     SiteRevenue:
       type: object
-      required: [invoiced, margin, certified, certified_uninvoiced, retention_held]
+      required:
+        [invoiced, margin, collected, to_collect, certified, certified_uninvoiced, retention_held]
       properties:
         invoiced:
           description: Imponibile delle fatture emesse collegate al cantiere, pagate o no.
@@ -7710,6 +7711,16 @@ components:
           description: Fatturato meno il totale dei costi; negativo se i costi superano il fatturato.
           allOf:
             - $ref: '#/components/schemas/SignedAmount'
+        collected:
+          description: |
+            Incassato sulle fatture emesse del cantiere: il netto a pagare (amount_due, con
+            l'IVA) di quelle pagate più gli acconti registrati su quelle non ancora pagate.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        to_collect:
+          description: Da incassare sulle fatture emesse del cantiere (somma dei remaining_amount).
+          allOf:
+            - $ref: '#/components/schemas/Amount'
         certified:
           description: |
             Importo dei SAL approvati dei computi del cantiere, prima della ritenuta di garanzia;

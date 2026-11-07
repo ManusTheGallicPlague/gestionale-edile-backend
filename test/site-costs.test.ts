@@ -286,6 +286,8 @@ describe('site costs', () => {
       revenue: {
         invoiced: '0.00',
         margin: '0.00',
+        collected: '0.00',
+        to_collect: '0.00',
         certified: null,
         certified_uninvoiced: null,
         retention_held: null,
@@ -306,12 +308,19 @@ describe('site costs', () => {
               ($1, 'received', 'F-9', '2026-11-03', null, $3, $4, 70000, 15400, null)`,
       [s.company.id, client.rows[0]?.id, s.supplier, s.site, s.other],
     )
+    // A 100.00 advance on the unpaid invoice 1 (610.00 due).
+    await ctx.owner.query(
+      `insert into public.invoice_payments (company_id, invoice_id, payment_date, amount_cents)
+       select company_id, id, '2026-11-05', 10000 from public.invoices
+       where company_id = $1 and number in ('1', '3')`,
+      [s.company.id],
+    )
     await s.browser.call('POST', s.base, { body: input(s, { amount: '900' }) })
     const res = await s.browser.call('GET', summary)
     expect(res.statusCode).toBe(200)
     expect(res.json()).toMatchObject({
       total: '900.00',
-      revenue: { invoiced: '750.50', margin: '-149.50' },
+      revenue: { invoiced: '750.50', margin: '-149.50', collected: '350.50', to_collect: '510.00' },
     })
     const blind = await scene(ALL)
     const other = await blind.browser.call(

@@ -7,6 +7,7 @@ import { enterCompany } from '../company.js'
 import { amountToCents, centsToAmount } from '../money.js'
 import { UUID } from '../deadlines/input.js'
 import { isIsoDate } from '../suppliers/documents.js'
+import { DUE_CENTS, PAID_CENTS, REMAINING_CENTS } from './invoices.js'
 import {
   ApiError,
   ValidationFailed,
@@ -435,6 +436,8 @@ interface SummaryRow {
   other: string
   missing_rates: number
   invoiced: string
+  collected: string
+  to_collect: string
   certified: string
   certified_uninvoiced: string
   retention_held: string
@@ -479,8 +482,11 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
                coalesce(sum(amount_cents) filter (where category = 'other'), 0) as other
              from public.site_costs where site_id = $1
            ), revenue as (
-             select coalesce(sum(taxable_cents), 0) as cents
-             from public.invoices where site_id = $1 and direction = 'issued'
+             select coalesce(sum(i.taxable_cents), 0) as cents,
+               coalesce(sum(case when i.paid_on is not null then ${DUE_CENTS}
+                 else ${PAID_CENTS} end), 0) as collected,
+               coalesce(sum(${REMAINING_CENTS}), 0) as to_collect
+             from public.invoices i where i.site_id = $1 and i.direction = 'issued'
            ), certified as (
              select coalesce(sum(a.cents), 0) as cents,
                coalesce(sum(a.cents) filter (where not exists (
@@ -502,7 +508,8 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
              manual.materials::text as materials, manual.rentals::text as rentals,
              manual.subcontract::text as subcontract, manual.other::text as other,
              (labor.missing + machines.missing)::int as missing_rates,
-             revenue.cents::text as invoiced, certified.cents::bigint::text as certified,
+             revenue.cents::text as invoiced, revenue.collected::bigint::text as collected,
+             revenue.to_collect::bigint::text as to_collect, certified.cents::bigint::text as certified,
              certified.uninvoiced::bigint::text as certified_uninvoiced,
              certified.retention::bigint::text as retention_held
            from public.sites s, labor, machines, manual, revenue, certified
@@ -554,6 +561,8 @@ function summaryToContract(row: SummaryRow, withRevenue: boolean, withCertified:
       ? {
           invoiced: centsToAmount(invoiced.toString()),
           margin: centsToAmount((invoiced - total).toString()),
+          collected: centsToAmount(row.collected),
+          to_collect: centsToAmount(row.to_collect),
           certified: withCertified ? centsToAmount(row.certified) : null,
           certified_uninvoiced: withCertified ? centsToAmount(row.certified_uninvoiced) : null,
           retention_held: withCertified ? centsToAmount(row.retention_held) : null,
