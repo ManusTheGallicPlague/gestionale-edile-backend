@@ -2415,7 +2415,9 @@ paths:
         (senza costo orario valgono zero e si contano in missing_hourly_costs); poi i costi
         inseriti a mano per categoria. Importi senza IVA. Con invoices.view anche revenue: il
         fatturato del cantiere (imponibile delle fatture emesse collegate) e il margine
-        rispetto ai costi; senza quel permesso revenue è null.
+        rispetto ai costi; senza quel permesso revenue è null. Con anche estimates.view, in
+        revenue ci sono i SAL approvati dei computi del cantiere (certified) e quelli ancora
+        senza fattura (certified_uninvoiced).
       responses:
         '200':
           description: Il riepilogo
@@ -7522,7 +7524,7 @@ components:
             - type: 'null'
     SiteRevenue:
       type: object
-      required: [invoiced, margin]
+      required: [invoiced, margin, certified, certified_uninvoiced]
       properties:
         invoiced:
           description: Imponibile delle fatture emesse collegate al cantiere, pagate o no.
@@ -7532,6 +7534,20 @@ components:
           description: Fatturato meno il totale dei costi; negativo se i costi superano il fatturato.
           allOf:
             - $ref: '#/components/schemas/SignedAmount'
+        certified:
+          description: |
+            Importo dei SAL approvati dei computi del cantiere, prima della ritenuta di garanzia;
+            null senza estimates.view. Negativo solo con SAL di correzione.
+          oneOf:
+            - $ref: '#/components/schemas/SignedAmount'
+            - type: 'null'
+        certified_uninvoiced:
+          description: |
+            La parte di certified dei SAL approvati senza fattura collegata: maturato da
+            fatturare. Null senza estimates.view.
+          oneOf:
+            - $ref: '#/components/schemas/SignedAmount'
+            - type: 'null'
     HoursCost:
       type: object
       required: [hours, amount]

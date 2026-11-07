@@ -435,6 +435,8 @@ interface SummaryRow {
   other: string
   missing_rates: number
   invoiced: string
+  certified: string
+  certified_uninvoiced: string
 }
 
 /**
@@ -478,6 +480,18 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
            ), revenue as (
              select coalesce(sum(taxable_cents), 0) as cents
              from public.invoices where site_id = $1 and direction = 'issued'
+           ), certified as (
+             select coalesce(sum(a.cents), 0) as cents,
+               coalesce(sum(a.cents) filter (where not exists (
+                 select 1 from public.invoices i where i.progress_statement_id = p.id
+               )), 0) as uninvoiced
+             from public.progress_statements p
+             join public.estimates e on e.id = p.estimate_id and e.site_id = $1
+             cross join lateral (
+               select coalesce(sum(round(l.quantity * l.unit_price_cents)), 0) as cents
+               from public.progress_statement_lines l where l.statement_id = p.id
+             ) a
+             where p.status = 'approved'
            )
            select s.id, s.name, s.code, s.budget_cents::text as budget_cents,
              labor.hours::numeric(10, 2)::text as labor_hours, labor.cents::bigint::text as labor_cents,
@@ -486,21 +500,28 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
              manual.materials::text as materials, manual.rentals::text as rentals,
              manual.subcontract::text as subcontract, manual.other::text as other,
              (labor.missing + machines.missing)::int as missing_rates,
-             revenue.cents::text as invoiced
-           from public.sites s, labor, machines, manual, revenue
+             revenue.cents::text as invoiced, certified.cents::bigint::text as certified,
+             certified.uninvoiced::bigint::text as certified_uninvoiced
+           from public.sites s, labor, machines, manual, revenue, certified
            where s.id = $1`,
           [request.params.site],
         )
         const summary = rows[0]
-        return summary && { summary, revenue: permissions.has('invoices.view') }
+        return (
+          summary && {
+            summary,
+            revenue: permissions.has('invoices.view'),
+            certified: permissions.has('estimates.view'),
+          }
+        )
       })
       if (!row) throw notFound()
-      return reply.send(summaryToContract(row.summary, row.revenue))
+      return reply.send(summaryToContract(row.summary, row.revenue, row.certified))
     },
   )
 }
 
-function summaryToContract(row: SummaryRow, withRevenue: boolean) {
+function summaryToContract(row: SummaryRow, withRevenue: boolean, withCertified: boolean) {
   const parts = [
     row.labor_cents,
     row.vehicle_cents,
@@ -530,6 +551,8 @@ function summaryToContract(row: SummaryRow, withRevenue: boolean) {
       ? {
           invoiced: centsToAmount(invoiced.toString()),
           margin: centsToAmount((invoiced - total).toString()),
+          certified: withCertified ? centsToAmount(row.certified) : null,
+          certified_uninvoiced: withCertified ? centsToAmount(row.certified_uninvoiced) : null,
         }
       : null,
   }

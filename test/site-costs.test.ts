@@ -283,7 +283,7 @@ describe('site costs', () => {
     const empty = await s.browser.call('GET', summary)
     expect(empty.json()).toMatchObject({
       total: '0.00',
-      revenue: { invoiced: '0.00', margin: '0.00' },
+      revenue: { invoiced: '0.00', margin: '0.00', certified: null, certified_uninvoiced: null },
     })
     const client = await ctx.owner.query<{ id: string }>(
       "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Rossi') returning id",
@@ -313,5 +313,69 @@ describe('site costs', () => {
       `/api/companies/${blind.company.slug}/sites/${blind.site}/cost-summary`,
     )
     expect(other.json()).toMatchObject({ revenue: null })
+  })
+
+  it('shows approved progress statements and those not invoiced yet with estimates.view', async () => {
+    const s = await scene([...ALL, 'invoices.view', 'estimates.view'])
+    const summary = `/api/companies/${s.company.slug}/sites/${s.site}/cost-summary`
+    const q = (sql: string, params: unknown[]) =>
+      ctx.owner.query<{ id: string }>(sql, params).then((r) => r.rows[0]?.id ?? '')
+    const client = await q(
+      "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Rossi') returning id",
+      [s.company.id],
+    )
+    // Approved statements of this site's estimate: 100 (invoiced) and 30.25 (not yet);
+    // a draft and the statements of another site's estimate do not count.
+    const statement = async (site: string, status: string, number: number, qty: string) => {
+      const estimate = await q(
+        "insert into public.estimates (company_id, title, site_id) values ($1, 'C', $2) returning id",
+        [s.company.id, site],
+      )
+      const chapter = await q(
+        `insert into public.estimate_chapters (company_id, estimate_id, title, position)
+         values ($1, $2, 'Opere', 0) returning id`,
+        [s.company.id, estimate],
+      )
+      const item = await q(
+        `insert into public.estimate_items
+           (company_id, estimate_id, chapter_id, description, unit, unit_price_cents, position)
+         values ($1, $2, $3, 'Massetto', 'm²', 1000, 0) returning id`,
+        [s.company.id, estimate, chapter],
+      )
+      const id = await q(
+        `insert into public.progress_statements
+           (company_id, estimate_id, number, statement_date, status, approved_at)
+         values ($1, $2, $3, '2026-11-30', $4, case when $4 = 'approved' then now() end)
+         returning id`,
+        [s.company.id, estimate, number, status],
+      )
+      await ctx.owner.query(
+        `insert into public.progress_statement_lines
+           (company_id, estimate_id, statement_id, item_id, quantity, unit_price_cents)
+         values ($1, $2, $3, $4, $5, 1000)`,
+        [s.company.id, estimate, id, item, qty],
+      )
+      return id
+    }
+    const billed = await statement(s.site, 'approved', 1, '10')
+    await statement(s.site, 'approved', 1, '3.025')
+    await statement(s.site, 'draft', 1, '50')
+    await statement(s.other, 'approved', 1, '70')
+    await ctx.owner.query(
+      `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+         site_id, taxable_cents, vat_cents, progress_statement_id)
+       values ($1, 'issued', '1', '2026-11-30', $2, $3, 10000, 0, $4)`,
+      [s.company.id, client, s.site, billed],
+    )
+    const res = await s.browser.call('GET', summary)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      revenue: {
+        invoiced: '100.00',
+        margin: '100.00',
+        certified: '130.25',
+        certified_uninvoiced: '30.25',
+      },
+    })
   })
 })
