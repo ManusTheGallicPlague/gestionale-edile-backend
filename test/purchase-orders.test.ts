@@ -411,3 +411,83 @@ describe('purchase orders', () => {
     ).toBe(404)
   })
 })
+
+describe('purchase order copies', () => {
+  const romeToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Rome' })
+  type Full = Order & {
+    date: string
+    delivery_date: string | null
+    supplier_id: string
+    site_id: string | null
+    lines: { description: string; quantity: string; unit_price: string }[]
+  }
+
+  it('copies a received order to a draft of today with the next number and the same lines', async () => {
+    const s = await scene()
+    const created = await s.browser.call('POST', s.base, {
+      body: input(s, { notes: 'Scarico con gru' }),
+    })
+    const source = created.json<Full>()
+    const url = `${s.base}/${source.id}`
+    for (const [status, version] of [
+      ['sent', 1],
+      ['received', 2],
+    ] as const) {
+      const res = await s.browser.call('POST', `${url}/status`, {
+        body: { status },
+        headers: { 'If-Match': `"${version}"` },
+      })
+      expect(res.statusCode).toBe(200)
+    }
+    const before = await s.browser.call('GET', url)
+
+    const res = await s.browser.call('POST', `${url}/duplicate`)
+    expect(res.statusCode).toBe(201)
+    expect(res.headers.etag).toBe('"1"')
+    const copy = res.json<Full>()
+    const today = romeToday()
+    expect(copy).toMatchObject({
+      status: 'draft',
+      date: today,
+      delivery_date: null,
+      supplier_id: s.supplier,
+      site_id: s.site,
+      total: source.total,
+      sent_at: null,
+      received_at: null,
+    })
+    expect(copy.id).not.toBe(source.id)
+    expect(copy.number).toMatch(new RegExp(`^${today.slice(0, 4)}/\\d{3}$`))
+    expect(copy.number).not.toBe(source.number)
+    expect(copy.lines.map((l) => [l.description, l.quantity, l.unit_price])).toEqual(
+      source.lines.map((l) => [l.description, l.quantity, l.unit_price]),
+    )
+    // The source does not change.
+    expect((await s.browser.call('GET', url)).body).toBe(before.body)
+  })
+
+  it('refuses another company, missing permissions and requests without CSRF', async () => {
+    const s = await scene()
+    const source = (await s.browser.call('POST', s.base, { body: input(s) })).json<Order>()
+    const url = `${s.base}/${source.id}/duplicate`
+
+    const theirs = await scene()
+    expect(
+      (await theirs.browser.call('POST', `${theirs.base}/${source.id}/duplicate`)).statusCode,
+    ).toBe(404)
+    const reader = await scene(['purchases.view'])
+    expect(
+      (await reader.browser.call('POST', `${reader.base}/${source.id}/duplicate`)).statusCode,
+    ).toBe(403)
+    const blind = await scene(['purchases.create'])
+    expect(
+      (await blind.browser.call('POST', `${blind.base}/${source.id}/duplicate`)).statusCode,
+    ).toBe(404)
+    expect((await s.browser.call('POST', `${s.base}/not-an-id/duplicate`)).statusCode).toBe(404)
+    expect((await s.browser.call('POST', url, { csrf: false })).statusCode).toBe(403)
+    expect((await new Browser(ctx.app).call('POST', url)).statusCode).toBe(401)
+
+    const list = await s.browser.call('GET', s.base)
+    expect(list.json<{ data: unknown[] }>().data).toHaveLength(1)
+  })
+})

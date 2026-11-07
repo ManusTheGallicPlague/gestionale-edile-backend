@@ -284,6 +284,30 @@ function writeFailed(error: unknown): never {
   throw error
 }
 
+/** Inserts the head with the next number of the year of its date; the lines come apart. */
+async function insertOrder(client: PoolClient, input: Omit<OrderInput, 'lines'>): Promise<string> {
+  // One numbering per company and year: concurrent creations wait for each other.
+  await client.query(
+    `select pg_advisory_xact_lock(hashtext('purchase_orders:' || app.current_company_id()))`,
+  )
+  const { rows } = await client
+    .query<{ id: string }>(
+      `insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
+         site_id, order_date, delivery_date, notes)
+       select app.current_company_id(), extract(year from $3::date)::int,
+         greatest(coalesce(max(o.number_seq), 0),
+           coalesce((select k.last_number from public.purchase_order_counters k
+                     where k.year = extract(year from $3::date)::int), 0)) + 1,
+         $1, $2, $3, $4, $5
+       from public.purchase_orders o
+       where o.number_year = extract(year from $3::date)::int
+       returning id`,
+      [input.supplier_id, input.site_id, input.date, input.delivery_date, input.notes],
+    )
+    .catch(writeFailed)
+  return rows[0]?.id ?? ''
+}
+
 async function writeLines(client: PoolClient, id: string, lines: LineInput[]) {
   await client.query('delete from public.purchase_order_lines where order_id = $1', [id])
   if (lines.length === 0) return
@@ -557,27 +581,51 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
       if (!permissions.has('purchases.create')) throw forbidden()
       const input = parseOrderInput(request.body)
       await checkReferences(client, input)
-      // One numbering per company and year: concurrent creations wait for each other.
-      await client.query(
-        `select pg_advisory_xact_lock(hashtext('purchase_orders:' || app.current_company_id()))`,
-      )
-      const { rows } = await client
-        .query<{ id: string }>(
-          `insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
-             site_id, order_date, delivery_date, notes)
-           select app.current_company_id(), extract(year from $3::date)::int,
-             greatest(coalesce(max(o.number_seq), 0),
-               coalesce((select k.last_number from public.purchase_order_counters k
-                         where k.year = extract(year from $3::date)::int), 0)) + 1,
-             $1, $2, $3, $4, $5
-           from public.purchase_orders o
-           where o.number_year = extract(year from $3::date)::int
-           returning id`,
-          [input.supplier_id, input.site_id, input.date, input.delivery_date, input.notes],
-        )
-        .catch(writeFailed)
-      const id = rows[0]?.id ?? ''
+      const id = await insertOrder(client, input)
       await writeLines(client, id, input.lines)
+      return readOne(client, id)
+    })
+    if (!order) throw new Error('insert returned no row')
+    return send(reply, order, 201)
+  })
+
+  app.post<{ Params: Params }>(`${base}/:order/duplicate`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const order = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('purchases.view')) throw notFound()
+      if (!permissions.has('purchases.create')) throw forbidden()
+      const sourceId = request.params.order ?? ''
+      if (!UUID.test(sourceId)) throw notFound()
+      const { rows } = await client.query<{
+        supplier_id: string
+        site_id: string | null
+        notes: string | null
+        today: string
+      }>(
+        `select supplier_id, site_id, notes,
+           (now() at time zone 'Europe/Rome')::date::text as today
+         from public.purchase_orders where id = $1`,
+        [sourceId],
+      )
+      const source = rows[0]
+      if (!source) throw notFound()
+      // Today's date and number, no delivery date: the date of a new order is still to agree.
+      const id = await insertOrder(client, {
+        supplier_id: source.supplier_id,
+        site_id: source.site_id,
+        date: source.today,
+        delivery_date: null,
+        notes: source.notes,
+      })
+      await client.query(
+        `insert into public.purchase_order_lines
+           (company_id, order_id, position, description, unit, quantity, unit_price_cents)
+         select company_id, $2, position, description, unit, quantity, unit_price_cents
+         from public.purchase_order_lines where order_id = $1`,
+        [sourceId, id],
+      )
       return readOne(client, id)
     })
     if (!order) throw new Error('insert returned no row')

@@ -2373,6 +2373,34 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/purchase-orders/{order}/duplicate:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PurchaseOrderId'
+    post:
+      operationId: duplicatePurchaseOrder
+      summary: Copia di un ordine al fornitore, per riordinare
+      description: |
+        Permessi: purchases.view e purchases.create. Crea un ordine nuovo in bozza allo stesso
+        fornitore, per lo stesso cantiere, con le stesse note e una copia di tutte le righe, in
+        qualunque stato sia quello di partenza, che non cambia. La data è quella di oggi (ora
+        italiana), con il numero successivo del suo anno; la data di consegna resta vuota.
+        Senza permesso di vedere gli ordini risponde 404.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '201':
+          description: La copia in bozza
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PurchaseOrder' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/purchase-orders/{order}/status:
     parameters:
       - $ref: '#/components/parameters/Company'
