@@ -15,9 +15,9 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { VAT_RATES, isVatNature, type VatNature } from '../quotes/vat.js'
 
 const KINDS = ['item', 'text', 'section'] as const
-const VAT_RATES = [22, 10, 5, 4, 0] as const
 const QUANTITY = /^-?\d{1,11}(?:\.\d{1,3})?$/
 const PERCENT = /^(?:100(?:\.0{1,2})?|\d{1,2}(?:\.\d{1,2})?)$/
 
@@ -31,6 +31,7 @@ interface LineInput {
   unitPriceCents: string | null
   discount: string | null
   vatRate: number | null
+  vatNature: VatNature | null
 }
 
 export interface LineRow {
@@ -42,6 +43,7 @@ export interface LineRow {
   unit_price_cents: string | null
   discount_percent: string | null
   vat_rate: number | null
+  vat_nature: VatNature | null
   amount_cents: string | null
   position: number
   version: number
@@ -49,7 +51,7 @@ export interface LineRow {
 
 export const LINE_COLUMNS = `id, kind, description, unit, quantity::text as quantity,
   unit_price_cents::text as unit_price_cents, discount_percent::text as discount_percent,
-  vat_rate, position, version,
+  vat_rate, vat_nature, position, version,
   round(quantity * unit_price_cents * (100 - discount_percent) / 100)::text as amount_cents`
 
 export const lineToContract = (row: LineRow) => ({
@@ -61,6 +63,7 @@ export const lineToContract = (row: LineRow) => ({
   unit_price: row.unit_price_cents === null ? null : centsToAmount(row.unit_price_cents),
   discount_percent: row.discount_percent,
   vat_rate: row.vat_rate,
+  vat_nature: row.vat_nature,
   amount: row.amount_cents === null ? null : centsToAmount(row.amount_cents),
   position: row.position,
   version: `"${row.version}"`,
@@ -112,6 +115,7 @@ function parseLine(body: unknown): LineInput {
     unitPriceCents: null,
     discount: null,
     vatRate: null,
+    vatNature: null,
   }
   if (kind === 'item') {
     const str = (field: string) => (typeof raw[field] === 'string' ? raw[field].trim() : null)
@@ -132,15 +136,29 @@ function parseLine(body: unknown): LineInput {
     }
     const vat = VAT_RATES.find((r) => r === raw.vat_rate)
     if (vat === undefined) add('vat_rate', 'Aliquota IVA non valida: 22, 10, 5, 4 o 0.')
+    const nature = raw.vat_nature ?? null
+    if (nature !== null && !isVatNature(nature)) {
+      add('vat_nature', 'Natura IVA non valida: un codice come N6.7.')
+    } else if (nature !== null && vat !== undefined && vat !== 0) {
+      add('vat_nature', "La natura IVA si indica solo con l'aliquota 0.")
+    }
     Object.assign(input, {
       unit,
       quantity,
       unitPriceCents: cents,
       discount,
       vatRate: vat ?? null,
+      vatNature: isVatNature(nature) ? nature : null,
     })
   } else if (kind) {
-    for (const field of ['unit', 'quantity', 'unit_price', 'discount_percent', 'vat_rate']) {
+    for (const field of [
+      'unit',
+      'quantity',
+      'unit_price',
+      'discount_percent',
+      'vat_rate',
+      'vat_nature',
+    ]) {
       if (raw[field] !== null && raw[field] !== undefined) {
         add(field, 'Solo le righe con prezzo hanno questo campo: invia null.')
       }
@@ -202,6 +220,7 @@ const values = (input: LineInput) => [
   input.unitPriceCents,
   input.discount,
   input.vatRate,
+  input.vatNature,
 ]
 
 export function quoteLineRoutes(app: FastifyInstance, config: Config, db: Db): void {
@@ -227,8 +246,8 @@ export function quoteLineRoutes(app: FastifyInstance, config: Config, db: Db): v
       const input = parseLine(request.body)
       const { rows } = await client.query<{ id: string }>(
         `insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
-           unit_price_cents, discount_percent, vat_rate, position)
-         values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8,
+           unit_price_cents, discount_percent, vat_rate, vat_nature, position)
+         values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9,
            (select coalesce(max(position) + 1, 0) from public.quote_lines where quote_id = $1))
          returning id`,
         [quoteId, ...values(input)],
@@ -252,8 +271,9 @@ export function quoteLineRoutes(app: FastifyInstance, config: Config, db: Db): v
       const { rowCount } = await client.query(
         `update public.quote_lines
          set kind = $1, description = $2, unit = $3, quantity = $4, unit_price_cents = $5,
-             discount_percent = $6, vat_rate = $7, version = version + 1, updated_at = now()
-         where id = $8 and quote_id = $9 and version = $10`,
+             discount_percent = $6, vat_rate = $7, vat_nature = $8, version = version + 1,
+             updated_at = now()
+         where id = $9 and quote_id = $10 and version = $11`,
         [...values(input), id, quoteId, version],
       )
       if (!rowCount) return missingOrStale(client, quoteId, id)

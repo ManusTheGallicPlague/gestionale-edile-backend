@@ -1,5 +1,6 @@
 import type { PdfImage } from '../pdf/image.js'
 import { A4, PdfDocument, textWidth, wrap, type TextStyle } from '../pdf/pdf.js'
+import { VAT_NATURES, isVatNature } from './vat.js'
 
 export interface QuotePdfData {
   logo?: PdfImage | undefined
@@ -42,11 +43,12 @@ export interface QuotePdfData {
     unit_price: string | null
     discount_percent: string | null
     vat_rate: number | null
+    vat_nature: string | null
     amount: string | null
   }[]
   totals: {
     taxable: string
-    vat: { rate: number; taxable: string; vat: string }[]
+    vat: { rate: number; nature: string | null; taxable: string; vat: string }[]
     total: string
   }
 }
@@ -219,7 +221,7 @@ export function quotePdf(data: QuotePdfData): Buffer {
       pdf.textRight(COLUMNS.price, top, italianAmount(line.unit_price ?? '0.00'), BODY)
       const discount = italianQuantity(line.discount_percent ?? '0')
       pdf.textRight(COLUMNS.discount, top, discount === '0' ? '' : discount, BODY)
-      pdf.textRight(COLUMNS.vat, top, `${line.vat_rate ?? 0}%`, BODY)
+      pdf.textRight(COLUMNS.vat, top, line.vat_nature ?? `${line.vat_rate ?? 0}%`, BODY)
       pdf.textRight(COLUMNS.amount, top, italianAmount(line.amount ?? '0.00'), BODY)
     }
   }
@@ -236,10 +238,18 @@ export function quotePdf(data: QuotePdfData): Buffer {
   }
   total('Imponibile', data.totals.taxable, BODY)
   for (const vat of data.totals.vat) {
-    total(`IVA ${vat.rate}% su € ${italianAmount(vat.taxable)}`, vat.vat, BODY)
+    const rate = vat.nature ? `${vat.rate}% ${vat.nature}` : `${vat.rate}%`
+    total(`IVA ${rate} su € ${italianAmount(vat.taxable)}`, vat.vat, BODY)
   }
   total('Totale', data.totals.total, { size: 11, bold: true })
   y -= LEADING
+
+  // The wording of each nature, as the law wants it written on the document.
+  for (const vat of data.totals.vat) {
+    if (vat.nature && isVatNature(vat.nature)) {
+      paragraph(`${vat.nature}: ${VAT_NATURES[vat.nature]}.`, BODY)
+    }
+  }
 
   const validity = data.valid_until
     ? `Validità dell'offerta: ${data.validity_days} giorni, fino al ${italianDate(data.valid_until)}.`

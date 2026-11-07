@@ -19,6 +19,7 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 import { quotePdf } from '../quotes/pdf.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
+import { VAT_RATES, isVatNature, type VatNature } from '../quotes/vat.js'
 import { LINE_COLUMNS, lineToContract, type LineRow } from './quote-lines.js'
 
 const STATUSES = ['draft', 'sent', 'accepted', 'rejected', 'expired'] as const
@@ -47,7 +48,7 @@ interface QuoteRow extends QuoteInput {
   issue_date: string | null
   valid_until: string | null
   sent_at: Date | null
-  vat_breakdown: { rate: number; taxable: string; vat: string }[]
+  vat_breakdown: { rate: number; nature: VatNature | null; taxable: string; vat: string }[]
   version: number
   created_at: Date
   updated_at: Date
@@ -62,15 +63,17 @@ const SELECT = `select q.id, q.client_id, q.subject, q.validity_days, q.notes, q
     (q.issue_date + q.validity_days)::text as valid_until, q.sent_at, q.version,
     q.created_at, q.updated_at, c.name as client_name,
     (select coalesce(jsonb_agg(jsonb_build_object(
-        'rate', r.vat_rate, 'taxable', r.taxable::text, 'vat', r.vat::text)
-        order by r.vat_rate desc), '[]'::jsonb)
+        'rate', r.vat_rate, 'nature', r.vat_nature, 'taxable', r.taxable::text,
+        'vat', r.vat::text)
+        order by r.vat_rate desc, r.vat_nature asc nulls first), '[]'::jsonb)
      from (
-       select vat_rate, sum(amount) as taxable, round(sum(amount) * vat_rate / 100) as vat
+       select vat_rate, vat_nature, sum(amount) as taxable,
+         round(sum(amount) * vat_rate / 100) as vat
        from (
-         select l.vat_rate,
+         select l.vat_rate, l.vat_nature,
            round(l.quantity * l.unit_price_cents * (100 - l.discount_percent) / 100) as amount
          from public.quote_lines l where l.quote_id = q.id and l.kind = 'item'
-       ) lines group by vat_rate
+       ) lines group by vat_rate, vat_nature
      ) r) as vat_breakdown
   from public.quotes q
   join public.clients c on c.id = q.client_id
@@ -99,6 +102,7 @@ function totals(breakdown: QuoteRow['vat_breakdown']) {
     taxable: centsToAmount(taxable.toString()),
     vat: breakdown.map((r) => ({
       rate: r.rate,
+      nature: r.nature,
       taxable: centsToAmount(r.taxable),
       vat: centsToAmount(r.vat),
     })),
@@ -605,9 +609,9 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
       const revisionId = rows[0]?.id ?? ''
       await client.query(
         `insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
-           unit_price_cents, discount_percent, vat_rate, position)
+           unit_price_cents, discount_percent, vat_rate, vat_nature, position)
          select company_id, $2, kind, description, unit, quantity, unit_price_cents,
-           discount_percent, vat_rate, position
+           discount_percent, vat_rate, vat_nature, position
          from public.quote_lines where quote_id = $1`,
         [id, revisionId],
       )
@@ -633,9 +637,21 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
         ])
         if (!found.rowCount) throw notFound()
         const input = parseInput(request.body)
-        const rate = VAT_RATES.find((r) => r === (request.body as Record<string, unknown>).vat_rate)
+        const body = request.body as Record<string, unknown>
+        const rate = VAT_RATES.find((r) => r === body.vat_rate)
         if (rate === undefined) {
           throw new ValidationFailed({ vat_rate: ['Aliquota IVA non valida: 22, 10, 5, 4 o 0.'] })
+        }
+        const nature = body.vat_nature ?? null
+        if (nature !== null && !isVatNature(nature)) {
+          throw new ValidationFailed({
+            vat_nature: ['Natura IVA non valida: un codice come N6.7.'],
+          })
+        }
+        if (nature !== null && rate !== 0) {
+          throw new ValidationFailed({
+            vat_nature: ["La natura IVA si indica solo con l'aliquota 0."],
+          })
         }
         const { rows } = await client
           .query<{ id: string }>(
@@ -646,7 +662,7 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
           )
           .catch(clientNotFound)
         const quoteId = rows[0]?.id ?? ''
-        await linesFromEstimate(client, estimateId, quoteId, rate)
+        await linesFromEstimate(client, estimateId, quoteId, rate, nature)
         return readOne(client, quoteId)
       })
       if (!row) throw new Error('insert returned no row')
@@ -654,8 +670,6 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
     },
   )
 }
-
-const VAT_RATES = [22, 10, 5, 4, 0] as const
 
 /**
  * A revision takes the number of the quote it comes from and the next revision of that
@@ -696,6 +710,7 @@ async function linesFromEstimate(
   estimateId: string,
   quoteId: string,
   vatRate: number,
+  vatNature: VatNature | null,
 ) {
   await client.query(
     `with recursive tree as (
@@ -717,11 +732,12 @@ async function linesFromEstimate(
        join public.estimate_item_totals tt on tt.item_id = i.id
      )
      insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
-       unit_price_cents, discount_percent, vat_rate, position)
+       unit_price_cents, discount_percent, vat_rate, vat_nature, position)
      select app.current_company_id(), $2, kind, left(description, 5000), unit, quantity, cents,
        case when kind = 'item' then 0 end, case when kind = 'item' then $3::smallint end,
+       case when kind = 'item' then $4::text end,
        (row_number() over (order by path, kind_order, pos, id) - 1)::int
      from lines`,
-    [estimateId, quoteId, vatRate],
+    [estimateId, quoteId, vatRate, vatNature],
   )
 }

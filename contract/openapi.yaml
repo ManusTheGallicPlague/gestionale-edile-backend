@@ -8378,11 +8378,42 @@ components:
       type: integer
       description: Aliquota IVA in percentuale.
       enum: [22, 10, 5, 4, 0]
+    VatNature:
+      type: string
+      description: |
+        Natura di un'operazione ad aliquota 0, con i codici della fattura elettronica. Per
+        l'edilizia: N6.3 (subappalto) e N6.7 (prestazioni del comparto edile), inversione
+        contabile dell'art. 17, c. 6, DPR 633/72.
+      enum:
+        [
+          N1,
+          N2.1,
+          N2.2,
+          N3.1,
+          N3.2,
+          N3.3,
+          N3.4,
+          N3.5,
+          N3.6,
+          N4,
+          N5,
+          N6.1,
+          N6.2,
+          N6.3,
+          N6.4,
+          N6.5,
+          N6.6,
+          N6.7,
+          N6.8,
+          N6.9,
+          N7,
+        ]
     QuoteLineInput:
       type: object
       description: |
         Per le righe item servono unit, quantity, unit_price, discount_percent e vat_rate; per
-        text e section vanno inviati null. I campi si inviano sempre tutti.
+        text e section vanno inviati null. I campi si inviano sempre tutti, tranne vat_nature:
+        facoltativa, solo per le righe item con aliquota 0 (assente vuol dire null).
       required: [kind, description, unit, quantity, unit_price, discount_percent, vat_rate]
       properties:
         kind: { $ref: '#/components/schemas/QuoteLineKind' }
@@ -8412,11 +8443,16 @@ components:
           oneOf:
             - $ref: '#/components/schemas/VatRate'
             - type: 'null'
+        vat_nature:
+          description: Natura IVA della riga con aliquota 0 (es. N6.7, inversione contabile).
+          oneOf:
+            - $ref: '#/components/schemas/VatNature'
+            - type: 'null'
     QuoteLine:
       allOf:
         - $ref: '#/components/schemas/QuoteLineInput'
         - type: object
-          required: [id, amount, position, version]
+          required: [id, vat_nature, amount, position, version]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             amount:
@@ -8450,12 +8486,18 @@ components:
         taxable: { $ref: '#/components/schemas/SignedAmount' }
         vat:
           type: array
-          description: Una voce per aliquota presente nelle righe, dalla più alta.
+          description: |
+            Una voce per aliquota e natura presenti nelle righe, dall'aliquota più alta; a
+            parità di aliquota prima quella senza natura, poi le nature in ordine di codice.
           items:
             type: object
-            required: [rate, taxable, vat]
+            required: [rate, nature, taxable, vat]
             properties:
               rate: { $ref: '#/components/schemas/VatRate' }
+              nature:
+                oneOf:
+                  - $ref: '#/components/schemas/VatNature'
+                  - type: 'null'
               taxable: { $ref: '#/components/schemas/SignedAmount' }
               vat: { $ref: '#/components/schemas/SignedAmount' }
         vat_total: { $ref: '#/components/schemas/SignedAmount' }
@@ -8467,3 +8509,8 @@ components:
           required: [vat_rate]
           properties:
             vat_rate: { $ref: '#/components/schemas/VatRate' }
+            vat_nature:
+              description: Facoltativa, solo con vat_rate 0; vale per tutte le voci.
+              oneOf:
+                - $ref: '#/components/schemas/VatNature'
+                - type: 'null'

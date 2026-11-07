@@ -189,6 +189,84 @@ describe('quote lines', () => {
     })
   })
 
+  it('keeps the VAT nature of zero-rated lines, apart in the totals', async () => {
+    const { browser, base, quoteUrl } = await scene()
+    // Absent means null, as for the lines written before natures existed.
+    const plain = await browser.call('POST', base, { body: item() })
+    expect(plain.json()).toMatchObject({ vat_nature: null })
+    const reverse = await browser.call('POST', base, {
+      body: item({ vat_rate: 0, vat_nature: 'N6.7', quantity: '1', unit_price: '1000.00' }),
+    })
+    expect(reverse.statusCode).toBe(201)
+    expect(reverse.json()).toMatchObject({ vat_rate: 0, vat_nature: 'N6.7', amount: '1000.00' })
+    await browser.call('POST', base, {
+      body: item({ vat_rate: 0, vat_nature: 'N6.3', quantity: '1', unit_price: '50.00' }),
+    })
+    await browser.call('POST', base, {
+      body: item({ vat_rate: 0, vat_nature: null, quantity: '1', unit_price: '5.00' }),
+    })
+    const res = await browser.call('GET', quoteUrl)
+    expect(res.json<{ totals: object }>().totals).toEqual({
+      taxable: '3272.20',
+      vat: [
+        { rate: 10, nature: null, taxable: '2217.20', vat: '221.72' },
+        { rate: 0, nature: null, taxable: '5.00', vat: '0.00' },
+        { rate: 0, nature: 'N6.3', taxable: '50.00', vat: '0.00' },
+        { rate: 0, nature: 'N6.7', taxable: '1000.00', vat: '0.00' },
+      ],
+      vat_total: '221.72',
+      total: '3493.92',
+    })
+
+    // Changing the rate needs the nature dropped; it can be changed with PUT.
+    const id = reverse.json<Line>().id
+    const put = (body: object) =>
+      browser.call('PUT', `${base}/${id}`, { body, headers: { 'if-match': '"1"' } })
+    const withRate = await put(item({ vat_rate: 22, vat_nature: 'N6.7' }))
+    expect(withRate.statusCode).toBe(422)
+    expect(Object.keys(withRate.json<{ errors: object }>().errors)).toEqual(['vat_nature'])
+    const unknown = await put(item({ vat_rate: 0, vat_nature: 'N6' }))
+    expect(unknown.statusCode).toBe(422)
+    expect(Object.keys(unknown.json<{ errors: object }>().errors)).toEqual(['vat_nature'])
+    const onText = await browser.call('POST', base, {
+      body: { ...text('text', 'Nota'), vat_nature: 'N6.7' },
+    })
+    expect(onText.statusCode).toBe(422)
+    expect(Object.keys(onText.json<{ errors: object }>().errors)).toEqual(['vat_nature'])
+    const changed = await put(item({ vat_rate: 0, vat_nature: 'N4' }))
+    expect(changed.statusCode).toBe(200)
+    expect(changed.json()).toMatchObject({ vat_nature: 'N4' })
+    const cleared = await browser.call('PUT', `${base}/${id}`, {
+      body: item({ vat_rate: 22 }),
+      headers: { 'if-match': '"2"' },
+    })
+    expect(cleared.json()).toMatchObject({ vat_rate: 22, vat_nature: null })
+  })
+
+  it('the database refuses a nature on a line with VAT', async () => {
+    const { company, quoteId } = await scene()
+    await expect(
+      ctx.owner.query(
+        `insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
+           unit_price_cents, discount_percent, vat_rate, vat_nature, position)
+         values ($1, $2, 'item', 'x', 'm', 1, 100, 0, 22, 'N6.7', 0)`,
+        [company.id, quoteId],
+      ),
+    ).rejects.toThrow(/quote_lines_vat_nature_zero_rate/)
+  })
+
+  it('a revision keeps the VAT nature of the lines', async () => {
+    const { browser, base, quoteUrl } = await scene()
+    await browser.call('POST', base, { body: item({ vat_rate: 0, vat_nature: 'N6.7' }) })
+    const sent = await browser.call('POST', `${quoteUrl}/send`, { headers: { 'if-match': '"1"' } })
+    expect(sent.statusCode).toBe(200)
+    const revision = await browser.call('POST', `${quoteUrl}/revisions`)
+    expect(revision.statusCode).toBe(201)
+    expect(revision.json()).toMatchObject({
+      totals: { vat: [{ rate: 0, nature: 'N6.7', taxable: '2217.20', vat: '0.00' }] },
+    })
+  })
+
   describe('from an estimate', () => {
     async function estimateScene(permissions: Permission[] = [...ALL, 'estimates.view']) {
       const sc = await scene(permissions)
@@ -281,6 +359,44 @@ describe('quote lines', () => {
         vat_rate: 10,
         amount: '133.20',
       })
+    })
+
+    it('gives every item the VAT nature of a reverse charge', async () => {
+      const { browser, company, url, body } = await estimateScene()
+      const res = await browser.call('POST', url, {
+        body: { ...body, vat_rate: 0, vat_nature: 'N6.7' },
+      })
+      expect(res.statusCode).toBe(201)
+      expect(res.json()).toMatchObject({
+        totals: {
+          taxable: '133.20',
+          vat: [{ rate: 0, nature: 'N6.7', vat: '0.00' }],
+          total: '133.20',
+        },
+      })
+      const lines = (
+        await browser.call(
+          'GET',
+          `/api/companies/${company.slug}/quotes/${res.json<{ id: string }>().id}/lines`,
+        )
+      ).json<{ data: { kind: string; vat_nature: string | null }[] }>().data
+      expect(lines.map((l) => [l.kind, l.vat_nature])).toEqual([
+        ['section', null],
+        ['item', 'N6.7'],
+        ['section', null],
+        ['item', 'N6.7'],
+        ['section', null],
+        ['item', 'N6.7'],
+      ])
+      const withVat = await browser.call('POST', url, {
+        body: { ...body, vat_rate: 10, vat_nature: 'N6.7' },
+      })
+      expect(withVat.statusCode).toBe(422)
+      expect(Object.keys(withVat.json<{ errors: object }>().errors)).toEqual(['vat_nature'])
+      const unknown = await browser.call('POST', url, {
+        body: { ...body, vat_rate: 0, vat_nature: 'N9' },
+      })
+      expect(unknown.statusCode).toBe(422)
     })
 
     it('refuses a bad VAT rate and another company’s estimate; checks permissions', async () => {

@@ -511,6 +511,16 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where q.company_id = $1`,
         [companyId],
       )
+      // The façade is done for a general contractor: reverse charge of the building trade.
+      await client.query(
+        `insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
+           unit_price_cents, discount_percent, vat_rate, vat_nature, position)
+         select company_id, id, 'item', 'Posa di cappotto termico in EPS da 10 cm', 'm²', 340,
+           4800, 0, 0, 'N6.7', 4
+         from public.quotes
+         where company_id = $1 and subject = 'Cappotto termico facciata nord'`,
+        [companyId],
+      )
       await client.query('delete from public.vehicles where company_id = $1', [companyId])
       await client.query(
         `insert into public.vehicles (company_id, name, kind, plate, hourly_cost_cents)

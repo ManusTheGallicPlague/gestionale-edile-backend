@@ -131,6 +131,17 @@ describe('quote PDF', () => {
     expect(text).toContain('pagina 1 di 1)')
   })
 
+  it('prints the VAT nature on the line, in the totals and in words', async () => {
+    const { browser, base, quote, addLine } = await scene()
+    await addLine(item({ vat_rate: 0, vat_nature: 'N6.7' }))
+    const res = await browser.call('GET', `${base}/${quote.id}/pdf`)
+    expect(res.statusCode).toBe(200)
+    const text = readPdf(res.rawPayload)
+    expect(text).toContain('(N6.7)')
+    expect(text).toContain('(IVA 0% N6.7 su \x80 54.022,50)')
+    expect(text).toContain('(N6.7: Inversione contabile, prestazioni comparto edile')
+  })
+
   it('prints a draft without number, over more pages', async () => {
     const { browser, base, quote, addLine } = await scene()
     for (let i = 0; i < 70; i++) {
