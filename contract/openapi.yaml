@@ -2886,6 +2886,38 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/estimates/{estimate}/progress-statements/{statement}/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+      - $ref: '#/components/parameters/ProgressStatementId'
+    get:
+      operationId: getProgressStatementPdf
+      summary: PDF del SAL
+      description: |
+        Permesso: estimates.view. Il SAL in A4, pronto da stampare e firmare: intestazione
+        dell'azienda, computo con committente, cantiere e luogo dei lavori, voci con prezzo,
+        quantità precedenti, di questo SAL e progressive, importo di questo SAL, totali
+        (lavori a tutto il SAL, SAL precedenti, importo del SAL, ritenuta di garanzia e netto
+        se la ritenuta non è zero), note e spazio per le firme del direttore dei lavori e
+        dell'impresa. Una bozza esce con la dicitura «bozza». Il file si chiama sal-1.pdf.
+        Senza permesso risponde 404, non 403.
+      responses:
+        '200':
+          description: Il PDF
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/estimates/{estimate}/progress-statements/{statement}/approve:
     parameters:
       - $ref: '#/components/parameters/Company'

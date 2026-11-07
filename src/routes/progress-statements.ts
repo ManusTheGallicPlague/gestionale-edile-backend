@@ -16,6 +16,9 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { statementPdf } from '../progress/pdf.js'
+import { readLogoForPdf } from './logo.js'
+import { readProfile } from './settings.js'
 
 const MAX_LINES = 2000
 /** numeric(14,3): at most 11 digits before the point. */
@@ -334,6 +337,56 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
       },
     )
     return send(reply, result)
+  })
+
+  app.get<{ Params: Params }>(`${base}/:statement/pdf`, async (request, reply) => {
+    const session = requireSession(request)
+    const pdf = await inEstimate(
+      request,
+      session.user.id,
+      'estimates.view',
+      async (client, estimateId) => {
+        const row = await readStatement(client, estimateId, request.params.statement)
+        if (!row) throw notFound()
+        const statement = await fullStatement(client, row)
+        const { rows } = await client.query<{
+          title: string
+          client: string | null
+          site: string | null
+          address: string | null
+        }>(
+          `select e.title, c.name as client, s.name as site, e.site_address as address
+           from public.estimates e
+           left join public.clients c on c.id = e.client_id
+           left join public.sites s on s.id = e.site_id
+           where e.id = $1`,
+          [estimateId],
+        )
+        const estimate = rows[0]
+        if (!estimate) throw notFound()
+        const profile = await readProfile(client)
+        return {
+          number: row.number,
+          buffer: statementPdf({
+            logo: await readLogoForPdf(client),
+            company: {
+              ...profile,
+              share_capital:
+                profile.share_capital_cents === null
+                  ? null
+                  : centsToAmount(profile.share_capital_cents),
+            },
+            estimate,
+            ...statement,
+          }),
+        }
+      },
+    )
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="sal-${pdf.number}.pdf"`)
+      .header('Cache-Control', 'private, no-store')
+      .send(pdf.buffer)
   })
 
   app.put<{ Params: Params }>(`${base}/:statement`, async (request, reply) => {

@@ -275,6 +275,58 @@ describe('progress statements', () => {
     })
   })
 
+  it('prints the statement as a PDF, with retention and signatures', async () => {
+    const s = await scene()
+    await ctx.owner.query(
+      "update public.estimates set site_address = 'Via Roma 1, Asti' where id = $1",
+      [s.estimate],
+    )
+    const res = await s.browser.call('POST', s.url, {
+      body: {
+        statement_date: '2026-10-31',
+        notes: 'Misure prese in contraddittorio.',
+        retention_percent: '5',
+        lines: [
+          { item_id: s.scavo, quantity: '40' },
+          { item_id: s.intonaco, quantity: '0.5' },
+        ],
+      },
+    })
+    const id = res.json<Statement>().id
+    const pdf = await s.browser.call('GET', `${s.url}/${id}/pdf`)
+    expect(pdf.statusCode).toBe(200)
+    expect(pdf.headers['content-type']).toBe('application/pdf')
+    expect(pdf.headers['content-disposition']).toBe('attachment; filename="sal-1.pdf"')
+    const text = pdf.rawPayload.toString('latin1')
+    expect(text.startsWith('%PDF-1.4\n')).toBe(true)
+    expect(text).toContain('(Stato di avanzamento lavori n. 1 \\(bozza, non ancora approvato\\))')
+    expect(text).toContain('(Lavori eseguiti a tutto il 31/10/2026)')
+    expect(text).toContain('(Computo: Villa)')
+    expect(text).toContain('(Luogo dei lavori: Via Roma 1, Asti)')
+    expect(text).toContain('(A.01 Scavo)')
+    expect(text).toContain('(m\xb3)')
+    expect(text).toContain('(0,5)')
+    expect(text).toContain('(\x80 351,67)')
+    expect(text).toContain('(Ritenuta di garanzia 5%)')
+    expect(text).toContain('(\x80 17,58)')
+    expect(text).toContain('(\x80 334,09)')
+    expect(text).toContain('(Il direttore dei lavori)')
+    expect(text).toContain('(SAL n. 1 \x96 pagina 1 di 1)')
+
+    // Another company's statement, a statement under another estimate, no permission: 404.
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', `${theirs.url}/${id}/pdf`)).statusCode).toBe(404)
+    const other = await estimateOf(s.company.id)
+    const wrong = `/api/companies/${s.company.slug}/estimates/${other.estimate}/progress-statements/${id}/pdf`
+    expect((await s.browser.call('GET', wrong)).statusCode).toBe(404)
+    const blind = await fx.companyWithUser(['quotes.view'])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(blind.user.email)
+    await fx.member(blind.user.id, s.company.id, await fx.role(s.company.id, 'Ospite', []))
+    const url = `/api/companies/${s.company.slug}/estimates/${s.estimate}/progress-statements/${id}/pdf`
+    expect((await browser.call('GET', url)).statusCode).toBe(404)
+  })
+
   it('keeps the estimate and the items of a statement', async () => {
     const s = await scene([...ALL, 'estimates.delete'])
     const statement = (

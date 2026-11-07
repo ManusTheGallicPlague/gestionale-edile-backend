@@ -90,6 +90,59 @@ export function italianQuantity(value: string): string {
 
 const italianDate = (date: string) => date.split('-').reverse().join('/')
 
+/**
+ * Logo, name and details of the company at the top left, from `top` down. Returns the line
+ * under the logo (where the name starts) and the line under the details.
+ */
+export function companyHeader(
+  pdf: PdfDocument,
+  logo: PdfImage | undefined,
+  co: QuotePdfData['company'],
+  top: number,
+): { top: number; bottom: number } {
+  let y = top
+  if (logo) {
+    // At most 150 × 50 points, keeping the proportions.
+    const scale = Math.min(150 / logo.width, 50 / logo.height)
+    const height = logo.height * scale
+    pdf.image(logo, MARGIN, y - height, logo.width * scale, height)
+    y -= height + 8
+  }
+  pdf.text(MARGIN, y - 14, co.legal_name, { size: 14, bold: true })
+  const small: TextStyle = { size: 8 }
+  const companyLines = [
+    [
+      co.street,
+      [co.postal_code, co.city, co.province ? `(${co.province})` : null].filter(Boolean).join(' '),
+    ]
+      .filter(Boolean)
+      .join(' – '),
+    [
+      co.vat_number ? `P. IVA ${co.vat_number}` : null,
+      co.tax_code && co.tax_code !== co.vat_number ? `C.F. ${co.tax_code}` : null,
+    ]
+      .filter(Boolean)
+      .join(' – '),
+    [
+      co.rea ? `REA ${co.rea}` : null,
+      co.share_capital ? `Cap. soc. € ${italianAmount(co.share_capital)} i.v.` : null,
+    ]
+      .filter(Boolean)
+      .join(' – '),
+    [co.phone ? `Tel. ${co.phone}` : null, co.email, co.pec ? `PEC ${co.pec}` : null]
+      .filter(Boolean)
+      .join(' – '),
+  ].filter((line) => line !== '')
+  let bottom = y - 26
+  for (const text of companyLines) {
+    for (const line of wrap(text, 280, small)) {
+      pdf.text(MARGIN, bottom, line, small)
+      bottom -= 10
+    }
+  }
+  return { top: y, bottom }
+}
+
 export function quotePdf(data: QuotePdfData): Buffer {
   const pdf = new PdfDocument()
   let y = 0
@@ -125,46 +178,9 @@ export function quotePdf(data: QuotePdfData): Buffer {
 
   newPage()
   // Header: who sends, the quote, who receives.
-  const co = data.company
-  if (data.logo) {
-    // At most 150 × 50 points, keeping the proportions.
-    const scale = Math.min(150 / data.logo.width, 50 / data.logo.height)
-    const height = data.logo.height * scale
-    pdf.image(data.logo, MARGIN, y - height, data.logo.width * scale, height)
-    y -= height + 8
-  }
-  pdf.text(MARGIN, y - 14, co.legal_name, { size: 14, bold: true })
-  const small: TextStyle = { size: 8 }
-  const companyLines = [
-    [
-      co.street,
-      [co.postal_code, co.city, co.province ? `(${co.province})` : null].filter(Boolean).join(' '),
-    ]
-      .filter(Boolean)
-      .join(' – '),
-    [
-      co.vat_number ? `P. IVA ${co.vat_number}` : null,
-      co.tax_code && co.tax_code !== co.vat_number ? `C.F. ${co.tax_code}` : null,
-    ]
-      .filter(Boolean)
-      .join(' – '),
-    [
-      co.rea ? `REA ${co.rea}` : null,
-      co.share_capital ? `Cap. soc. € ${italianAmount(co.share_capital)} i.v.` : null,
-    ]
-      .filter(Boolean)
-      .join(' – '),
-    [co.phone ? `Tel. ${co.phone}` : null, co.email, co.pec ? `PEC ${co.pec}` : null]
-      .filter(Boolean)
-      .join(' – '),
-  ].filter((line) => line !== '')
-  let companyY = y - 26
-  for (const text of companyLines) {
-    for (const line of wrap(text, 280, small)) {
-      pdf.text(MARGIN, companyY, line, small)
-      companyY -= 10
-    }
-  }
+  const header = companyHeader(pdf, data.logo, data.company, y)
+  y = header.top
+  const companyY = header.bottom
   const title = data.number
     ? `Preventivo n. ${data.number} del ${italianDate(data.issue_date ?? '')}`
     : 'Preventivo (bozza, non ancora inviato)'
@@ -264,9 +280,9 @@ export function quotePdf(data: QuotePdfData): Buffer {
     paragraph(label, BOLD)
     paragraph(text, BODY)
   }
-  if (co.iban) {
+  if (data.company.iban) {
     y -= 6
-    paragraph(`Pagamento su IBAN ${co.iban}`, BODY)
+    paragraph(`Pagamento su IBAN ${data.company.iban}`, BODY)
   }
   y -= 24
   if (y - 3 * LEADING < BOTTOM) newPage()
