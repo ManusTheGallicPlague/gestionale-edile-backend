@@ -15,12 +15,8 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
-import {
-  ImportFailed,
-  MAX_IMPORT_BYTES,
-  MAX_IMPORT_ROWS,
-  parsePriceListCsv,
-} from '../price-lists/import.js'
+import { ImportFailed, MAX_IMPORT_ROWS, parsePriceListCsv } from '../price-lists/import.js'
+import { csvScope } from '../http/files.js'
 import { italianAmount, toCsv } from '../csv.js'
 
 interface ListRow {
@@ -491,25 +487,8 @@ export function priceListRoutes(app: FastifyInstance, config: Config, db: Db): v
     return reply.code(204).send()
   })
 
-  // CSV import: its own scope, so only this route reads text/csv bodies, up to 5 MB.
-  app.register((scope, _options, done) => {
-    scope.addHook('preParsing', (request, _reply, payload, next) => {
-      try {
-        requireSession(request)
-        checkCsrf(config, request)
-      } catch (error) {
-        next(error as Error)
-        return
-      }
-      next(null, payload)
-    })
-    scope.addContentTypeParser(
-      'text/csv',
-      { parseAs: 'buffer', bodyLimit: MAX_IMPORT_BYTES },
-      (_request, body, next) => {
-        next(null, body)
-      },
-    )
+  // CSV import: its own scope, so only this route reads text/csv bodies.
+  csvScope(app, config, (scope) => {
     scope.post<{ Params: Params }>(`${base}/:list/import`, async (request) => {
       const session = requireSession(request)
       checkCsrf(config, request)
@@ -554,6 +533,5 @@ export function priceListRoutes(app: FastifyInstance, config: Config, db: Db): v
         return { created, updated, unchanged: parsed.length - rows.length }
       })
     })
-    done()
   })
 }

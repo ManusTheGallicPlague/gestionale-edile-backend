@@ -66,3 +66,39 @@ export function uploadScope(
     done()
   })
 }
+
+/** Largest CSV file an import accepts. */
+export const MAX_CSV_BYTES = 5 * 1024 * 1024
+
+/**
+ * A scope whose routes take a CSV file (text/csv) as body, as a Buffer, up to 5 MB; other
+ * JSON bodies still parse, so the route answers 415 when the body is not a Buffer.
+ * Session and CSRF are checked before the body is read.
+ */
+export function csvScope(
+  app: FastifyInstance,
+  config: Config,
+  routes: (scope: FastifyInstance) => void,
+): void {
+  app.register((scope, _options, done) => {
+    scope.addHook('preParsing', (request, _reply, payload, next) => {
+      try {
+        requireSession(request)
+        checkCsrf(config, request)
+      } catch (error) {
+        next(error as Error)
+        return
+      }
+      next(null, payload)
+    })
+    scope.addContentTypeParser(
+      'text/csv',
+      { parseAs: 'buffer', bodyLimit: MAX_CSV_BYTES },
+      (_request, body, next) => {
+        next(null, body)
+      },
+    )
+    routes(scope)
+    done()
+  })
+}

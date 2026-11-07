@@ -206,8 +206,8 @@ describe('price list import', () => {
       body: res.rawPayload,
       headers: { 'content-type': 'text/csv' },
     })
-    // The formula guard adds an apostrophe: that one description comes back changed.
-    expect(again.json()).toEqual({ created: 0, updated: 1, unchanged: 1 })
+    // The apostrophe of the formula guard is dropped again on import.
+    expect(again.json()).toEqual({ created: 0, updated: 0, unchanged: 2 })
 
     const other = await scene()
     const foreign = await other.browser.call(

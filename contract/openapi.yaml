@@ -278,6 +278,65 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/clients/import:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    post:
+      operationId: importClients
+      summary: Importazione di clienti nuovi da un file CSV
+      description: |
+        Permesso: clients.create. Per chi arriva da un altro programma. Il file è come quello
+        di importPriceListItems (UTF-8, al massimo 5 MB, separatore riconosciuto dalla prima
+        riga) e ha al massimo 5000 clienti; il file di exportClients si reimporta così com'è
+        (l'apostrofo davanti alle celle che sembrano formule si toglie). Colonne per nome,
+        in qualsiasi ordine: nome (ragione sociale, denominazione) è obbligatoria; le altre
+        sono tipo (impresa, azienda, privato, persona, ente pubblico, PA; vuoto vale
+        impresa), partita IVA, codice fiscale, email, PEC, telefono, codice destinatario
+        (codice SDI), indirizzo, CAP, città (comune), provincia, paese (vuoto vale IT), note.
+        Anche i nomi dei campi di ClientInput vanno bene. Ogni riga si controlla come
+        createClient, anche le partite IVA e i codici fiscali già presenti o ripetuti nel
+        file.
+
+        Si aggiungono solo clienti nuovi, tutti o nessuno: se anche una riga è sbagliata non
+        cambia niente e la risposta è 422 con gli errori sotto `file` o sotto `row.<n>` (n è
+        la riga del file, la prima è l'intestazione; al massimo 50 righe), ogni messaggio
+        preceduto dal nome della colonna.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+            example: "nome;partita iva;città\r\nEdil Esempio S.r.l.;01234567897;Bergamo\r\n"
+      responses:
+        '200':
+          description: Clienti importati
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [created]
+                properties:
+                  created:
+                    type: integer
+                    minimum: 1
+                    description: Clienti aggiunti.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '413':
+          description: File più grande di 5 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Il corpo non è un file CSV (Content-Type text/csv).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/clients/export:
     parameters:
       - $ref: '#/components/parameters/Company'

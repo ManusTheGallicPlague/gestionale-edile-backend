@@ -1,8 +1,7 @@
 import { amountToCents } from '../money.js'
 import type { FieldErrors } from '../http/errors.js'
+import { ImportFailed, normalizeHeader, readCsv } from '../csv-import.js'
 
-/** Largest CSV file accepted by the import: a regional price list fits comfortably. */
-export const MAX_IMPORT_BYTES = 5 * 1024 * 1024
 /** Most data rows in one file. */
 export const MAX_IMPORT_ROWS = 20000
 /** Most row errors reported: beyond this the user fixes the file and tries again. */
@@ -46,83 +45,6 @@ const LIMITS: Record<Exclude<Column, 'unit_price_cents'>, number> = {
   unit: 20,
 }
 
-const normalizeHeader = (name: string) =>
-  name
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '')
-
-/** The separator is the most frequent of ; tab , in the first line (ties go in that order). */
-function detectSeparator(text: string): string {
-  const end = text.search(/\r?\n/)
-  const first = end === -1 ? text : text.slice(0, end)
-  let best = ';'
-  let bestCount = -1
-  for (const candidate of [';', '\t', ',']) {
-    const count = first.split(candidate).length - 1
-    if (count > bestCount) {
-      best = candidate
-      bestCount = count
-    }
-  }
-  return best
-}
-
-interface CsvRecord {
-  line: number
-  fields: string[]
-}
-
-/** RFC 4180 records: quoted fields may hold separators, doubled quotes and line breaks. */
-function* records(text: string, separator: string): Generator<CsvRecord> {
-  let line = 1
-  let i = 0
-  while (i < text.length) {
-    const start = line
-    const fields: string[] = []
-    let field = ''
-    let quoted = false
-    let ended = false
-    while (i < text.length) {
-      const c = text[i] as string
-      if (quoted) {
-        if (c === '"') {
-          if (text[i + 1] === '"') {
-            field += '"'
-            i += 2
-            continue
-          }
-          quoted = false
-        } else {
-          if (c === '\n') line++
-          field += c
-        }
-        i++
-      } else if (c === '"' && field.trim() === '') {
-        quoted = true
-        field = ''
-        i++
-      } else if (c === separator) {
-        fields.push(field)
-        field = ''
-        i++
-      } else if (c === '\r' || c === '\n') {
-        i += c === '\r' && text[i + 1] === '\n' ? 2 : 1
-        line++
-        ended = true
-        break
-      } else {
-        field += c
-        i++
-      }
-    }
-    fields.push(field)
-    yield { line: start, fields }
-    if (!ended) break
-  }
-}
-
 /** 1.234,50 or 1234,5 (Italian) or 1234.50; an optional € sign; never negative. */
 export function parsePrice(value: string): string | null {
   const text = value.replace(/€/g, '').replace(/\s/g, '')
@@ -136,29 +58,13 @@ export function parsePrice(value: string): string | null {
   return amountToCents(plain)
 }
 
-export class ImportFailed extends Error {
-  constructor(readonly errors: FieldErrors) {
-    super('Il file non è valido.')
-  }
-}
+export { ImportFailed }
 
 /** Reads the CSV file of a price list; throws ImportFailed listing what is wrong. */
 export function parsePriceListCsv(body: Buffer): ImportedItem[] {
-  let text: string
-  try {
-    text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(body)
-  } catch {
-    throw new ImportFailed({
-      file: ['Il file non è in UTF-8: salvalo come «CSV UTF-8» dal foglio di calcolo.'],
-    })
-  }
-  if (text.trim() === '') throw new ImportFailed({ file: ['Il file è vuoto.'] })
-
-  const separator = detectSeparator(text)
-  const iterator = records(text, separator)
-  const header = iterator.next().value as CsvRecord
+  const { header, rows } = readCsv(body)
   const positions = new Map<Column, number>()
-  header.fields.forEach((name, index) => {
+  header.forEach((name, index) => {
     const column = HEADERS[normalizeHeader(name)]
     if (column && !positions.has(column)) positions.set(column, index)
   })
@@ -185,7 +91,7 @@ export function parsePriceListCsv(body: Buffer): ImportedItem[] {
     errors[key].push(message)
   }
 
-  for (const record of iterator) {
+  for (const record of rows) {
     if (record.fields.every((f) => f.trim() === '')) continue
     if (items.length >= MAX_IMPORT_ROWS) {
       throw new ImportFailed({ file: [`Al massimo ${MAX_IMPORT_ROWS} righe per file.`] })
