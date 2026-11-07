@@ -180,11 +180,17 @@ describe('numbering', () => {
     ])
     const url = `/api/companies/${company.slug}/settings/numbering`
     const start = await browser.call('GET', url)
-    expect(start.json()).toEqual({ quotes: { year, next_number: 1, next: `${year}/001` } })
+    expect(start.json()).toEqual({
+      quotes: { year, next_number: 1, next: `${year}/001` },
+      purchase_orders: { year, next_number: 1, next: `${year}/001` },
+    })
     const set = (body: object) => browser.call('PUT', `${url}/quotes`, { body })
     const moved = await set({ year, next_number: 46 })
     expect(moved.statusCode).toBe(200)
-    expect(moved.json()).toEqual({ quotes: { year, next_number: 46, next: `${year}/046` } })
+    expect(moved.json()).toEqual({
+      quotes: { year, next_number: 46, next: `${year}/046` },
+      purchase_orders: { year, next_number: 1, next: `${year}/001` },
+    })
 
     const client = await ctx.owner.query<{ id: string }>(
       "insert into public.clients (company_id, kind, name, vat_number) values ($1, 'company', 'Cliente', $2) returning id",
@@ -229,6 +235,71 @@ describe('numbering', () => {
     }
   })
 
+  it('sets the next purchase order number, never down to a number already used', async () => {
+    const { browser, company } = await scene([
+      'settings.view',
+      'settings.update',
+      'purchases.view',
+      'purchases.create',
+    ])
+    const url = `/api/companies/${company.slug}/settings/numbering`
+    const set = (body: object) => browser.call('PUT', `${url}/purchase-orders`, { body })
+    const supplier = await ctx.owner.query<{ id: string }>(
+      "insert into public.suppliers (company_id, name) values ($1, 'Fornitore') returning id",
+      [company.id],
+    )
+    const orders = `/api/companies/${company.slug}/purchase-orders`
+    const order = (date: string) =>
+      browser.call('POST', orders, {
+        body: {
+          supplier_id: supplier.rows[0]?.id,
+          site_id: null,
+          date,
+          delivery_date: null,
+          notes: null,
+          lines: [{ description: 'Sabbia', unit: 'm³', quantity: '2', unit_price: '30' }],
+        },
+      })
+    const first = await order(`${year}-03-01`)
+    expect(first.json()).toMatchObject({ number: `${year}/001` })
+
+    const moved = await set({ year, next_number: 120 })
+    expect(moved.statusCode).toBe(200)
+    expect(moved.json()).toEqual({
+      quotes: { year, next_number: 1, next: `${year}/001` },
+      purchase_orders: { year, next_number: 120, next: `${year}/120` },
+    })
+    expect((await order(`${year}-03-02`)).json()).toMatchObject({ number: `${year}/120` })
+    expect((await order(`${year}-03-03`)).json()).toMatchObject({ number: `${year}/121` })
+
+    const used = await set({ year, next_number: 121 })
+    expect(used.statusCode).toBe(409)
+    expect(used.json()).toMatchObject({ code: 'number_in_use' })
+    expect((await set({ year, next_number: 1 })).statusCode).toBe(409)
+    // Lowering back to just after the highest number used is fine.
+    expect((await set({ year, next_number: 300 })).statusCode).toBe(200)
+    expect((await set({ year, next_number: 122 })).json()).toMatchObject({
+      purchase_orders: { next_number: 122 },
+    })
+    // Next year starts from its own floor; the quotes are untouched.
+    expect((await set({ year: year + 1, next_number: 7 })).json()).toMatchObject({
+      purchase_orders: { year: year + 1, next: `${year + 1}/007` },
+    })
+    expect((await order(`${year + 1}-01-10`)).json()).toMatchObject({ number: `${year + 1}/007` })
+    expect((await browser.call('GET', url)).json()).toEqual({
+      quotes: { year, next_number: 1, next: `${year}/001` },
+      purchase_orders: { year, next_number: 122, next: `${year}/122` },
+    })
+    for (const body of [
+      { year: year - 2, next_number: 1 },
+      { year, next_number: 1_000_000 },
+      { year, next_number: 2.5 },
+      { next_number: 5 },
+    ]) {
+      expect((await set(body)).statusCode).toBe(422)
+    }
+  })
+
   it('needs settings permissions and stays within the company', async () => {
     const viewer = await scene(['settings.view'])
     const url = `/api/companies/${viewer.company.slug}/settings/numbering`
@@ -242,13 +313,28 @@ describe('numbering', () => {
       (await none.browser.call('GET', `/api/companies/${none.company.slug}/settings/numbering`))
         .statusCode,
     ).toBe(403)
+    expect(
+      (
+        await viewer.browser.call('PUT', `${url}/purchase-orders`, {
+          body: { year, next_number: 9 },
+        })
+      ).statusCode,
+    ).toBe(403)
     const other = await scene()
     expect(
       (await other.browser.call('PUT', `${url}/quotes`, { body: { year, next_number: 9 } }))
         .statusCode,
     ).toBe(404)
+    expect(
+      (
+        await other.browser.call('PUT', `${url}/purchase-orders`, {
+          body: { year, next_number: 9 },
+        })
+      ).statusCode,
+    ).toBe(404)
     expect((await viewer.browser.call('GET', url)).json()).toMatchObject({
       quotes: { next_number: 1 },
+      purchase_orders: { next_number: 1 },
     })
   })
 })

@@ -493,9 +493,12 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
           `insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
              site_id, order_date, delivery_date, notes)
            select app.current_company_id(), extract(year from $3::date)::int,
-             coalesce(max(number_seq), 0) + 1, $1, $2, $3, $4, $5
-           from public.purchase_orders
-           where number_year = extract(year from $3::date)::int
+             greatest(coalesce(max(o.number_seq), 0),
+               coalesce((select k.last_number from public.purchase_order_counters k
+                         where k.year = extract(year from $3::date)::int), 0)) + 1,
+             $1, $2, $3, $4, $5
+           from public.purchase_orders o
+           where o.number_year = extract(year from $3::date)::int
            returning id`,
           [input.supplier_id, input.site_id, input.date, input.delivery_date, input.notes],
         )

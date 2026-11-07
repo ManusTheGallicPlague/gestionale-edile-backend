@@ -690,6 +690,42 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('purchase order counters: cannot read, write or move across companies', async () => {
+    await owner.query(
+      'insert into public.purchase_order_counters (company_id, year, last_number) values ($1, 2026, 40)',
+      [companyB.id],
+    )
+    const seen = await as(alice.id, companyA.id, async (c) => {
+      const k = await c.query(
+        'select * from public.purchase_order_counters where company_id = $1',
+        [companyB.id],
+      )
+      return k.rowCount ?? 0
+    })
+    expect(seen).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          'insert into public.purchase_order_counters (company_id, year, last_number) values ($1, 2027, 0)',
+          [companyB.id],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const k = await c.query('update public.purchase_order_counters set last_number = 0')
+      return k.rowCount ?? 0
+    })
+    expect(changed).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query('delete from public.purchase_order_counters where company_id = $1', [companyB.id]),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    await expect(auth.query('select * from public.purchase_order_counters')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('invoices: cannot read, write or attach across companies, nor link a deadline', async () => {
     const one = async (sql: string, companyId: string) =>
       (await owner.query<{ id: string }>(sql, [companyId])).rows[0]?.id
