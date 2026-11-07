@@ -36,7 +36,8 @@ type Scene = Awaited<ReturnType<typeof scene>>
 
 /** Dates around today in Italy: today, yesterday, and the 15th of the month n from now. */
 async function calendar() {
-  const { rows } = await ctx.owner.query<Record<string, string>>(
+  type Key = 'today' | 'yesterday' | 'm0' | 'm1' | 'm2' | 'd1' | 'd2' | 'd3' | 'end0' | 'long_ago'
+  const { rows } = await ctx.owner.query<Record<Key, string>>(
     `select t.d::text as today, (t.d - 1)::text as yesterday,
        to_char(t.d, 'YYYY-MM') as m0,
        to_char(date_trunc('month', t.d) + interval '1 month', 'YYYY-MM') as m1,
@@ -147,6 +148,38 @@ describe('cash flow forecast', () => {
       expect(r.statusCode).toBe(422)
       expect(r.json()).toMatchObject({ errors: { months: [expect.any(String)] } })
     }
+  })
+
+  it('exports the forecast as CSV, with negative amounts as numbers', async () => {
+    const s = await scene()
+    const c = await calendar()
+    await invoice(s, { taxable_amount: '100', vat_amount: '0', due_date: c.yesterday })
+    await invoice(s, { ...received(s), taxable_amount: '1234.5', vat_amount: '0', due_date: c.d1 })
+    await invoice(s, { taxable_amount: '7', vat_amount: '0', due_date: c.d3 })
+    await invoice(s, { taxable_amount: '3', vat_amount: '0' })
+    const res = await s.browser.call('GET', `${s.base}/cash-flow/export?months=2`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="previsione-cassa.csv"')
+    const label = (m: string) => m.split('-').reverse().join('/')
+    expect(res.body).toBe(
+      '\uFEFFPeriodo;Da incassare;Da pagare;Differenza;Saldo progressivo\r\n' +
+        `Scaduto al ${c.today.split('-').reverse().join('/')};100,00;0,00;100,00;100,00\r\n` +
+        `${label(c.m0)};0,00;0,00;0,00;100,00\r\n` +
+        `${label(c.m1)};0,00;1234,50;-1234,50;-1134,50\r\n` +
+        'Oltre;7,00;0,00;7,00;\r\n' +
+        'Senza scadenza;3,00;0,00;3,00;\r\n' +
+        'Totale;110,00;1234,50;-1124,50;\r\n',
+    )
+    expect((await s.browser.call('GET', `${s.base}/cash-flow/export?months=99`)).statusCode).toBe(
+      422,
+    )
+    const noView = await scene(['clients.view'])
+    expect((await noView.browser.call('GET', `${noView.base}/cash-flow/export`)).statusCode).toBe(
+      403,
+    )
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', `${s.base}/cash-flow/export`)).statusCode).toBe(404)
   })
 
   it('sees only the invoices of its own company', async () => {

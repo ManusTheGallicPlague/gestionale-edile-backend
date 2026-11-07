@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify'
+import type { PoolClient } from 'pg'
 import type { Db } from '../db.js'
 import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
+import { italianDate, toCsv, type Cell } from '../csv.js'
 import { ValidationFailed, forbidden } from '../http/errors.js'
 import { requireSession } from '../http/request-context.js'
 import { REMAINING_CENTS } from './invoices.js'
@@ -40,6 +42,80 @@ function amounts(incoming: bigint, outgoing: bigint): Amounts {
   }
 }
 
+/** The forecast of getCashFlowForecast, in the shape of CashFlowForecast. */
+async function readForecast(client: PoolClient, months: number) {
+  // Bucket of each open invoice: 'overdue', 'undated', 'later' or the month YYYY-MM.
+  const { rows } = await client.query<BucketRow>(
+    `with today as (select (now() at time zone 'Europe/Rome')::date as d),
+       open as (
+         select i.direction, i.due_date, (${REMAINING_CENTS}) as remaining
+         from public.invoices i
+         where i.paid_on is null
+       ), bucketed as (
+         select o.direction, o.remaining, case
+             when o.due_date is null then 'undated'
+             when o.due_date < t.d then 'overdue'
+             when o.due_date >= date_trunc('month', t.d) + make_interval(months => $1)
+               then 'later'
+             else to_char(o.due_date, 'YYYY-MM')
+           end as bucket
+         from open o cross join today t
+         where o.remaining > 0
+       )
+       select bucket,
+         coalesce(sum(remaining) filter (where direction = 'issued'), 0)::text as incoming,
+         coalesce(sum(remaining) filter (where direction = 'received'), 0)::text as outgoing
+       from bucketed group by bucket
+       union all
+       -- The months of the forecast and today, even with nothing due.
+       select 'month:' || to_char(m, 'YYYY-MM'), '0', '0'
+       from today t, generate_series(date_trunc('month', t.d),
+         date_trunc('month', t.d) + make_interval(months => $1 - 1), interval '1 month') m
+       union all
+       select 'today:' || t.d::text, '0', '0' from today t`,
+    [months],
+  )
+  const sums = new Map<string, { incoming: bigint; outgoing: bigint }>()
+  const monthKeys: string[] = []
+  let today = ''
+  for (const r of rows) {
+    if (r.bucket.startsWith('month:')) monthKeys.push(r.bucket.slice(6))
+    else if (r.bucket.startsWith('today:')) today = r.bucket.slice(6)
+    else sums.set(r.bucket, { incoming: BigInt(r.incoming), outgoing: BigInt(r.outgoing) })
+  }
+  monthKeys.sort()
+  const of = (key: string) => sums.get(key) ?? { incoming: 0n, outgoing: 0n }
+  const overdue = of('overdue')
+  let balance = overdue.incoming - overdue.outgoing
+  let totalIn = 0n
+  let totalOut = 0n
+  for (const v of sums.values()) {
+    totalIn += v.incoming
+    totalOut += v.outgoing
+  }
+  const later = of('later')
+  const undated = of('undated')
+  return {
+    today,
+    overdue: amounts(overdue.incoming, overdue.outgoing),
+    months: monthKeys.map((month) => {
+      const v = of(month)
+      balance += v.incoming - v.outgoing
+      return {
+        month,
+        ...amounts(v.incoming, v.outgoing),
+        balance: centsToAmount(balance.toString()),
+      }
+    }),
+    later: amounts(later.incoming, later.outgoing),
+    undated: amounts(undated.incoming, undated.outgoing),
+    total: amounts(totalIn, totalOut),
+  }
+}
+
+/** Amount of the contract → cell of an Italian spreadsheet. */
+const cellAmount = (amount: string) => amount.replace('.', ',')
+
 /** Expected receipts and payments from the open invoices, month by month. */
 export function cashFlowRoutes(app: FastifyInstance, db: Db): void {
   app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
@@ -50,74 +126,42 @@ export function cashFlowRoutes(app: FastifyInstance, db: Db): void {
       return withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('invoices.view')) throw forbidden()
-        // Bucket of each open invoice: 'overdue', 'undated', 'later' or the month YYYY-MM.
-        const { rows } = await client.query<BucketRow>(
-          `with today as (select (now() at time zone 'Europe/Rome')::date as d),
-           open as (
-             select i.direction, i.due_date, (${REMAINING_CENTS}) as remaining
-             from public.invoices i
-             where i.paid_on is null
-           ), bucketed as (
-             select o.direction, o.remaining, case
-                 when o.due_date is null then 'undated'
-                 when o.due_date < t.d then 'overdue'
-                 when o.due_date >= date_trunc('month', t.d) + make_interval(months => $1)
-                   then 'later'
-                 else to_char(o.due_date, 'YYYY-MM')
-               end as bucket
-             from open o cross join today t
-             where o.remaining > 0
-           )
-           select bucket,
-             coalesce(sum(remaining) filter (where direction = 'issued'), 0)::text as incoming,
-             coalesce(sum(remaining) filter (where direction = 'received'), 0)::text as outgoing
-           from bucketed group by bucket
-           union all
-           -- The months of the forecast and today, even with nothing due.
-           select 'month:' || to_char(m, 'YYYY-MM'), '0', '0'
-           from today t, generate_series(date_trunc('month', t.d),
-             date_trunc('month', t.d) + make_interval(months => $1 - 1), interval '1 month') m
-           union all
-           select 'today:' || t.d::text, '0', '0' from today t`,
-          [months],
-        )
-        const sums = new Map<string, { incoming: bigint; outgoing: bigint }>()
-        const monthKeys: string[] = []
-        let today = ''
-        for (const r of rows) {
-          if (r.bucket.startsWith('month:')) monthKeys.push(r.bucket.slice(6))
-          else if (r.bucket.startsWith('today:')) today = r.bucket.slice(6)
-          else sums.set(r.bucket, { incoming: BigInt(r.incoming), outgoing: BigInt(r.outgoing) })
-        }
-        monthKeys.sort()
-        const of = (key: string) => sums.get(key) ?? { incoming: 0n, outgoing: 0n }
-        const overdue = of('overdue')
-        let balance = overdue.incoming - overdue.outgoing
-        let totalIn = 0n
-        let totalOut = 0n
-        for (const v of sums.values()) {
-          totalIn += v.incoming
-          totalOut += v.outgoing
-        }
-        const later = of('later')
-        const undated = of('undated')
-        return {
-          today,
-          overdue: amounts(overdue.incoming, overdue.outgoing),
-          months: monthKeys.map((month) => {
-            const v = of(month)
-            balance += v.incoming - v.outgoing
-            return {
-              month,
-              ...amounts(v.incoming, v.outgoing),
-              balance: centsToAmount(balance.toString()),
-            }
-          }),
-          later: amounts(later.incoming, later.outgoing),
-          undated: amounts(undated.incoming, undated.outgoing),
-          total: amounts(totalIn, totalOut),
-        }
+        return readForecast(client, months)
       })
+    },
+  )
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/cash-flow/export',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const months = readMonths(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('invoices.view')) throw forbidden()
+        const f = await readForecast(client, months)
+        const line = (label: string, a: Amounts, balance: string | null): Cell[] => [
+          label,
+          cellAmount(a.incoming),
+          cellAmount(a.outgoing),
+          cellAmount(a.net),
+          balance === null ? null : cellAmount(balance),
+        ]
+        return toCsv(
+          ['Periodo', 'Da incassare', 'Da pagare', 'Differenza', 'Saldo progressivo'],
+          [
+            line(`Scaduto al ${italianDate(f.today)}`, f.overdue, f.overdue.net),
+            ...f.months.map((m) => line(m.month.split('-').reverse().join('/'), m, m.balance)),
+            line('Oltre', f.later, null),
+            line('Senza scadenza', f.undated, null),
+            line('Totale', f.total, null),
+          ],
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="previsione-cassa.csv"')
+        .send(csv)
     },
   )
 }

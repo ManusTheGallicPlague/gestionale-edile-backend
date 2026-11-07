@@ -3297,6 +3297,44 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/cash-flow/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportCashFlowForecast
+      summary: Previsione di cassa in CSV
+      description: |
+        Permesso e parametro come getCashFlowForecast, nel formato delle altre esportazioni:
+        importi con la virgola decimale (1234,50), negativi con il meno. Una riga per lo
+        scaduto (Scaduto al 07/11/2026), una per mese (11/2026), poi Oltre, Senza scadenza e
+        Totale; il saldo progressivo c'è solo nelle righe dello scaduto e dei mesi. Il file si
+        chiama previsione-cassa.csv.
+      parameters:
+        - name: months
+          in: query
+          description: Quanti mesi, quello in corso compreso.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 24
+            default: 6
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/dashboard:
     parameters:
       - $ref: '#/components/parameters/Company'
