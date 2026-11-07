@@ -3729,6 +3729,57 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/vehicles/import:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    post:
+      operationId: importVehicles
+      summary: Importazione di mezzi nuovi da un file CSV
+      description: |
+        Permesso: vehicles.create. Come importClients: stesso formato del file (al massimo
+        5000 mezzi), solo mezzi nuovi, tutti o nessuno, errori sotto `file` o `row.<n>`; il
+        file di exportVehicles si reimporta così com'è. Colonne per nome: nome è
+        obbligatoria; le altre sono tipo (Automezzo, Macchina operatrice o Attrezzatura,
+        vuoto vale Automezzo), targa, marca e modello, costo orario (45,00 oppure 45.00),
+        in uso (sì o no, vuoto vale sì), note. Ogni riga si controlla come createVehicle;
+        una targa già presente nell'azienda o ripetuta nel file è un errore della riga.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+            example: "nome;tipo;targa;costo orario\r\nFurgone;Automezzo;AB123CD;12,00\r\n"
+      responses:
+        '200':
+          description: Mezzi importati
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [created]
+                properties:
+                  created:
+                    type: integer
+                    minimum: 1
+                    description: Mezzi aggiunti.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: File più grande di 5 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Il corpo non è un file CSV (Content-Type text/csv).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/vehicles/export:
     parameters:
       - $ref: '#/components/parameters/Company'

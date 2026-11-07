@@ -16,6 +16,10 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { csvScope } from '../http/files.js'
+import { ImportFailed } from '../csv-import.js'
+import { RowErrors } from '../clients/import.js'
+import { parseVehiclesCsv, vehicleRowMessages } from '../vehicles/import.js'
 
 export const VEHICLE_KINDS = ['vehicle', 'machine', 'equipment'] as const
 type Kind = (typeof VEHICLE_KINDS)[number]
@@ -238,6 +242,51 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
         data: rows.map(toContract),
         meta: { total: count.rows[0]?.total ?? 0, page: list.page, per_page: list.perPage },
       }
+    })
+  })
+
+  csvScope(app, config, (scope) => {
+    scope.post<{ Params: Params }>(`${base}/import`, async (request) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('vehicles.create')) throw forbidden()
+        const body = request.body
+        if (!Buffer.isBuffer(body)) {
+          throw new ApiError(415, 'Il corpo deve essere un file CSV (text/csv).')
+        }
+        let vehicles
+        try {
+          vehicles = parseVehiclesCsv(body, parseVehicleInput)
+        } catch (error) {
+          if (error instanceof ImportFailed) throw new ValidationFailed(error.errors)
+          throw error
+        }
+        // One savepoint per row, so a duplicate plate is reported on its row.
+        const errors = new RowErrors()
+        const placeholders = COLUMNS.map((_, i) => `$${i + 1}`).join(', ')
+        for (const { line, input } of vehicles) {
+          await client.query('savepoint import_row')
+          try {
+            await client.query(
+              `insert into public.vehicles (company_id, ${COLUMNS.join(', ')})
+               values (app.current_company_id(), ${placeholders})`,
+              COLUMNS.map((f) => input[f]),
+            )
+            await client.query('release savepoint import_row')
+          } catch (error) {
+            if (!isUniqueViolation(error)) throw error
+            await client.query('rollback to savepoint import_row')
+            errors.add(
+              line,
+              vehicleRowMessages({ plate: ['Esiste già un mezzo con questa targa.'] }),
+            )
+          }
+        }
+        if (!errors.empty) throw new ValidationFailed(errors.errors)
+        return { created: vehicles.length }
+      })
     })
   })
 

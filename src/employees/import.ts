@@ -1,4 +1,4 @@
-import { ImportFailed, normalizeHeader, readCsv } from '../csv-import.js'
+import { ImportFailed, normalizeHeader, readCsv, readYesNo } from '../csv-import.js'
 import { RowErrors } from '../clients/import.js'
 import { parsePrice } from '../price-lists/import.js'
 import { centsToAmount } from '../money.js'
@@ -63,9 +63,6 @@ const FIELD_NAMES: Record<Field, string> = {
   active: 'attivo',
   notes: 'note',
 }
-
-const YES = new Set(['', 'si', 'sì', 'yes', 'true', 'x', '1'])
-const NO = new Set(['no', 'false', '0'])
 
 /** "codice fiscale: message" for each field error of parseEmployeeInput. */
 export function employeeRowMessages(errors: FieldErrors): string[] {
@@ -141,10 +138,9 @@ export function parseEmployeesCsv<T>(
       if (cents === null) problems.push('costo orario: importo non valido (es. 28,50).')
       else input.hourly_cost = centsToAmount(cents)
     }
-    const flag = cell('active').toLowerCase()
-    if (YES.has(flag)) input.active = true
-    else if (NO.has(flag)) input.active = false
-    else problems.push('attivo: sì oppure no.')
+    const active = readYesNo(cell('active'), true)
+    if (active === null) problems.push('attivo: sì oppure no.')
+    else input.active = active
 
     if (problems.length > 0) {
       errors.add(record.line, problems)

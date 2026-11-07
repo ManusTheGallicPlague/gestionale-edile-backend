@@ -116,3 +116,15 @@ export function readCsv(body: Buffer): CsvRows {
   }
   return { header, rows }
 }
+
+const YES = new Set(['si', 'sì', 'yes', 'true', 'x', '1'])
+const NO = new Set(['no', 'false', '0'])
+
+/** Sì/No of a CSV cell (also yes, true, x, 1 and no, false, 0); `empty` when blank; else null. */
+export function readYesNo(value: string, empty: boolean): boolean | null {
+  const text = value.trim().toLowerCase()
+  if (text === '') return empty
+  if (YES.has(text)) return true
+  if (NO.has(text)) return false
+  return null
+}
