@@ -703,13 +703,17 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          ) as m (code, day, kind, quantity) on m.code = i.code`,
         [companyId],
       )
-      // A document and a photo on the first site, so the archive is not empty.
+      // A document and a photo on the first site, so the archive is not empty; the photo
+      // belongs to the latest daily report of the site.
       for (const file of DEV_FILES) {
         await client.query(
           `with d as (
-             insert into public.site_documents (company_id, site_id, kind, title, file_name,
-               content_type, size_bytes)
-             select $1, s.id, $2, $3, $4, $5, $6 from public.sites s
+             insert into public.site_documents (company_id, site_id, daily_report_id, kind, title,
+               file_name, content_type, size_bytes)
+             select $1, s.id, case when $2 = 'photo' then (
+                 select r.id from public.daily_reports r where r.site_id = s.id
+                 order by r.report_date desc limit 1) end,
+               $2, $3, $4, $5, $6 from public.sites s
              where s.company_id = $1 and s.code = '2026-01'
              returning id
            )

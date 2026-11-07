@@ -71,6 +71,7 @@ export function contentDisposition(fileName: string): string {
 interface DocumentRow {
   id: string
   site_id: string
+  daily_report_id: string | null
   kind: Kind
   title: string
   file_name: string
@@ -84,7 +85,7 @@ interface DocumentRow {
   updated_at: Date
 }
 
-const SELECT = `select d.id, d.site_id, d.kind, d.title, d.file_name, d.content_type,
+const SELECT = `select d.id, d.site_id, d.daily_report_id, d.kind, d.title, d.file_name, d.content_type,
     d.size_bytes, d.notes, d.uploaded_by, u.name as uploaded_by_name, d.version,
     d.created_at, d.updated_at
   from public.site_documents d
@@ -94,6 +95,7 @@ function toContract(row: DocumentRow) {
   return {
     id: row.id,
     site_id: row.site_id,
+    daily_report_id: row.daily_report_id,
     kind: row.kind,
     title: row.title,
     file_name: row.file_name,
@@ -143,14 +145,23 @@ function readList(query: Record<string, unknown>) {
   const kindValue = single(query, 'filter[kind]', errors)
   const kind = KINDS.find((k) => k === kindValue)
   if (kindValue !== undefined && !kind) errors['filter[kind]'] = ['Tipo non valido.']
+  const report = single(query, 'filter[daily_report]', errors)
+  if (report !== undefined && !UUID.test(report)) {
+    errors['filter[daily_report]'] = ['Rapportino non valido.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, kind }
+  return { page, perPage, kind, report }
 }
 
 function readUpload(query: Record<string, unknown>) {
   const errors: FieldErrors = {}
   const fileValue = single(query, 'file_name', errors)
   const titleValue = single(query, 'title', errors)
+  const reportValue = single(query, 'daily_report_id', errors)
+  const daily_report_id = reportValue === undefined ? null : reportValue.trim()
+  if (daily_report_id !== null && !UUID.test(daily_report_id)) {
+    errors.daily_report_id = ['Rapportino non trovato in questo cantiere.']
+  }
   let file_name: string | null = null
   if (fileValue === undefined) {
     errors.file_name ??= ['Indica il nome del file.']
@@ -165,7 +176,7 @@ function readUpload(query: Record<string, unknown>) {
     if (title && title.length > 200) errors.title = ['Al massimo 200 caratteri.']
   }
   if (Object.keys(errors).length > 0 || !file_name) throw new ValidationFailed(errors)
-  return { file_name, title: title ?? file_name }
+  return { file_name, title: title ?? file_name, daily_report_id }
 }
 
 function parseUpdate(body: unknown) {
@@ -229,7 +240,11 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
       let where = 'd.site_id = $1'
       if (list.kind) {
         values.push(list.kind)
-        where += ' and d.kind = $2'
+        where += ` and d.kind = $${values.length}`
+      }
+      if (list.report) {
+        values.push(list.report)
+        where += ` and d.daily_report_id = $${values.length}`
       }
       const filters = values.length
       const { rows } = await client.query<DocumentRow>(
@@ -362,11 +377,22 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
               file: ['Il file non corrisponde al suo tipo, oppure è vuoto.'],
             })
           }
+          if (input.daily_report_id !== null) {
+            const report = await client.query(
+              'select 1 from public.daily_reports where id = $1 and site_id = $2',
+              [input.daily_report_id, request.params.site],
+            )
+            if (!report.rowCount) {
+              throw new ValidationFailed({
+                daily_report_id: ['Rapportino non trovato in questo cantiere.'],
+              })
+            }
+          }
           const kind: Kind = type.startsWith('image/') ? 'photo' : 'document'
           const { rows } = await client.query<{ id: string }>(
-            `insert into public.site_documents (company_id, site_id, kind, title, file_name,
-               content_type, size_bytes, uploaded_by)
-             values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7) returning id`,
+            `insert into public.site_documents (company_id, site_id, daily_report_id, kind, title,
+               file_name, content_type, size_bytes, uploaded_by)
+             values (app.current_company_id(), $1, $8, $2, $3, $4, $5, $6, $7) returning id`,
             [
               request.params.site,
               kind,
@@ -375,6 +401,7 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
               type,
               body.length,
               session.user.id,
+              input.daily_report_id,
             ],
           )
           const id = rows[0]?.id ?? ''

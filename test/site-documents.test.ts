@@ -301,4 +301,51 @@ describe('site documents and photos', () => {
     )
     expect(rows).toEqual([{ action: 'create', user_id: s.user.id }])
   })
+  it('links photos to a daily report of the same site and lists them', async () => {
+    const s = await scene()
+    const reports = await ctx.owner.query<{ id: string }>(
+      `insert into public.daily_reports (company_id, site_id, report_date)
+       values ($1, $2, '2026-11-06'), ($1, $3, '2026-11-06') returning id`,
+      [s.company.id, s.site, s.other],
+    )
+    const mine = reports.rows[0]?.id ?? ''
+    const elsewhere = reports.rows[1]?.id ?? ''
+    const linked = await s.upload(JPEG, 'image/jpeg', `file_name=scavo.jpg&daily_report_id=${mine}`)
+    expect(linked.statusCode).toBe(201)
+    expect(linked.json()).toMatchObject({ kind: 'photo', daily_report_id: mine })
+    const loose = await s.upload(JPEG, 'image/jpeg', 'file_name=altro.jpg')
+    expect(loose.json()).toMatchObject({ daily_report_id: null })
+
+    const listed = await s.browser.call('GET', `${s.base}?filter[daily_report]=${mine}`)
+    expect(listed.statusCode).toBe(200)
+    expect(listed.json<{ data: Doc[] }>().data.map((d) => d.id)).toEqual([linked.json<Doc>().id])
+    expect((await s.browser.call('GET', `${s.base}?filter[daily_report]=abc`)).statusCode).toBe(422)
+
+    for (const report of [elsewhere, '00000000-0000-4000-8000-000000000000', 'abc']) {
+      const res = await s.upload(JPEG, 'image/jpeg', `file_name=x.jpg&daily_report_id=${report}`)
+      expect(res.statusCode).toBe(422)
+      expect(res.json()).toMatchObject({ errors: { daily_report_id: [expect.any(String)] } })
+    }
+
+    // A draft report moved to another site takes its photos along.
+    await ctx.owner.query('delete from public.daily_reports where id = $1', [elsewhere])
+    await ctx.owner.query('update public.daily_reports set site_id = $1 where id = $2', [
+      s.other,
+      mine,
+    ])
+    const moved = await ctx.owner.query<{ site_id: string }>(
+      'select site_id from public.site_documents where id = $1',
+      [linked.json<Doc>().id],
+    )
+    expect(moved.rows[0]?.site_id).toBe(s.other)
+
+    // Deleting the report keeps the photo in the site archive.
+    await ctx.owner.query('delete from public.daily_reports where id = $1', [mine])
+    const kept = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/sites/${s.other}/documents/${linked.json<Doc>().id}`,
+    )
+    expect(kept.statusCode).toBe(200)
+    expect(kept.json()).toMatchObject({ daily_report_id: null })
+  })
 })

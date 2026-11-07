@@ -1075,6 +1075,20 @@ describe('the API role cannot cross companies', () => {
       return u.rowCount! + d.rowCount!
     })
     expect(changed).toBe(0)
+    // A document of company A cannot be linked to a daily report of company B.
+    const reportB = await owner.query<{ id: string }>(
+      "insert into public.daily_reports (company_id, site_id, report_date) values ($1, $2, '2026-11-06') returning id",
+      [companyB.id, siteB],
+    )
+    await expect(
+      as(alice.id, companyA.id, async (c) => {
+        const own = await c.query<{ id: string }>(docOf(companyA.id, siteA))
+        return c.query('update public.site_documents set daily_report_id = $1 where id = $2', [
+          reportB.rows[0]?.id,
+          own.rows[0]?.id,
+        ])
+      }),
+    ).rejects.toThrow(/foreign key/)
     // The bytes are written once: the application role cannot change or delete them.
     await expect(
       as(alice.id, companyA.id, async (c) => {
