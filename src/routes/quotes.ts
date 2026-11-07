@@ -661,6 +661,49 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
     return send(reply, row, 201)
   })
 
+  app.post<{ Params: Params }>(`${base}/:quote/duplicate`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const body: unknown = request.body
+    const target =
+      typeof body === 'object' && body !== null && 'client_id' in body ? body.client_id : undefined
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('quotes.view')) throw notFound()
+      if (!permissions.has('quotes.create')) throw forbidden()
+      const id = request.params.quote ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const found = await client.query('select 1 from public.quotes where id = $1', [id])
+      if (!found.rowCount) throw notFound()
+      if (target !== null && (typeof target !== 'string' || !UUID.test(target))) {
+        throw new ValidationFailed({ client_id: ['Indica un cliente, o null per lo stesso.'] })
+      }
+      // Same head as the source but no number, revision, site or dates: a new draft.
+      const others = FIELDS.filter((f) => f !== 'client_id')
+      const { rows } = await client
+        .query<{ id: string }>(
+          `insert into public.quotes (company_id, client_id, ${others.join(', ')})
+           select company_id, coalesce($2::uuid, client_id), ${others.join(', ')}
+           from public.quotes where id = $1
+           returning id`,
+          [id, target],
+        )
+        .catch(clientNotFound)
+      const copyId = rows[0]?.id ?? ''
+      await client.query(
+        `insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
+           unit_price_cents, discount_percent, vat_rate, vat_nature, position)
+         select company_id, $2, kind, description, unit, quantity, unit_price_cents,
+           discount_percent, vat_rate, vat_nature, position
+         from public.quote_lines where quote_id = $1`,
+        [id, copyId],
+      )
+      return readOne(client, copyId)
+    })
+    if (!row) throw new Error('insert returned no row')
+    return send(reply, row, 201)
+  })
+
   app.post<{ Params: Params & { estimate: string } }>(
     '/api/companies/:company/estimates/:estimate/quote',
     async (request, reply) => {

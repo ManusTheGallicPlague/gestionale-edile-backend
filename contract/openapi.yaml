@@ -6232,6 +6232,42 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
 
+  /api/companies/{company}/quotes/{quote}/duplicate:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/Quote'
+    post:
+      operationId: duplicateQuote
+      summary: Copia di un preventivo, anche per un altro cliente
+      description: |
+        Permessi: quotes.view e quotes.create. Crea una bozza nuova con oggetto, validità, note,
+        condizioni e una copia di tutte le righe, in qualunque stato sia il preventivo di
+        partenza, che non cambia. A differenza della revisione la copia non è collegata al
+        preventivo di partenza né al suo cantiere e al primo invio prende un numero nuovo. Con
+        `client_id` la copia va a un altro cliente dell'azienda (422 sotto `client_id` se non
+        si trova); con null resta lo stesso cliente. Senza permesso di vedere il preventivo
+        risponde 404.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuoteDuplicateInput' }
+      responses:
+        '201':
+          description: La copia in bozza
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Quote' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/quotes/{quote}/lines:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -9501,6 +9537,15 @@ components:
       type: string
       description: 'draft: bozza. sent: inviato. accepted: accettato. rejected: rifiutato. expired: scaduto.'
       enum: [draft, sent, accepted, rejected, expired]
+    QuoteDuplicateInput:
+      type: object
+      required: [client_id]
+      properties:
+        client_id:
+          description: Il cliente della copia; null per lo stesso del preventivo di partenza.
+          oneOf:
+            - { $ref: '#/components/schemas/Id' }
+            - type: 'null'
     QuoteInput:
       type: object
       description: I campi facoltativi si inviano comunque, con null se vuoti.

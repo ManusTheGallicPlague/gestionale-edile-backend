@@ -376,3 +376,111 @@ describe('quotes', () => {
     )
   })
 })
+
+describe('quote copies', () => {
+  const line = {
+    kind: 'item',
+    description: 'Manto in coppi',
+    unit: 'm²',
+    quantity: '120.000',
+    unit_price: '45.00',
+    discount_percent: '0',
+    vat_rate: 10,
+  }
+
+  it('copies an accepted quote to a new draft for another client, with all the lines', async () => {
+    const { browser, base, company, create } = await scene()
+    const q = await create({ subject: 'Tetto' })
+    await browser.call('POST', `${base}/${q.id}/lines`, { body: line })
+    await browser.call('POST', `${base}/${q.id}/lines`, {
+      body: { ...line, description: 'Grondaie', quantity: '30.500', unit_price: '12.35' },
+    })
+    await browser.call('POST', `${base}/${q.id}/send`, { headers: { 'if-match': '"1"' } })
+    const accepted = await browser.call('POST', `${base}/${q.id}/status`, {
+      body: { status: 'accepted' },
+      headers: { 'if-match': '"2"' },
+    })
+    expect(accepted.statusCode).toBe(200)
+    const before = await browser.call('GET', `${base}/${q.id}`)
+
+    const other = await ctx.owner.query<{ id: string }>(
+      "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Lucia Verdi') returning id",
+      [company.id],
+    )
+    const res = await browser.call('POST', `${base}/${q.id}/duplicate`, {
+      body: { client_id: other.rows[0]?.id },
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.headers.etag).toBe('"1"')
+    const copy = res.json<Quote & { totals: unknown; revision_of: unknown; site_id: unknown }>()
+    expect(copy).toMatchObject({
+      status: 'draft',
+      number: null,
+      revision: null,
+      revision_of: null,
+      issue_date: null,
+      site_id: null,
+      subject: 'Tetto',
+      client: { name: 'Lucia Verdi' },
+    })
+    expect(copy.id).not.toBe(q.id)
+    expect(copy.totals).toEqual(before.json<{ totals: unknown }>().totals)
+    const lines = await browser.call('GET', `${base}/${copy.id}/lines`)
+    expect(
+      lines.json<{ data: { description: string }[] }>().data.map((l) => l.description),
+    ).toEqual(['Manto in coppi', 'Grondaie'])
+
+    // The source does not change.
+    expect((await browser.call('GET', `${base}/${q.id}`)).body).toBe(before.body)
+
+    // Null keeps the client; the copy is sent with a new number, not a revision.
+    const same = await browser.call('POST', `${base}/${q.id}/duplicate`, {
+      body: { client_id: null },
+    })
+    expect(same.json()).toMatchObject({ client: { name: 'Condominio Aurora' } })
+    const sent = await browser.call('POST', `${base}/${same.json<Quote>().id}/send`, {
+      headers: { 'if-match': '"1"' },
+    })
+    expect(sent.json<Quote>().number).not.toBe(before.json<Quote>().number)
+    expect(sent.json<Quote>().number).not.toContain('-R')
+  })
+
+  it('refuses a client of another company, a bad body, other companies and missing permissions', async () => {
+    const { browser, base, create } = await scene()
+    const q = await create()
+    const theirs = await scene()
+    const foreign = await browser.call('POST', `${base}/${q.id}/duplicate`, {
+      body: { client_id: theirs.clientId },
+    })
+    expect(foreign.statusCode).toBe(422)
+    expect(foreign.json()).toMatchObject({ errors: { client_id: ['Cliente non trovato.'] } })
+    for (const body of [{}, { client_id: 'x' }, { client_id: 3 }]) {
+      const bad = await browser.call('POST', `${base}/${q.id}/duplicate`, { body })
+      expect(bad.statusCode).toBe(422)
+    }
+
+    const stolen = await theirs.browser.call('POST', `${theirs.base}/${q.id}/duplicate`, {
+      body: { client_id: theirs.clientId },
+    })
+    expect(stolen.statusCode).toBe(404)
+    const reader = await scene(['quotes.view'])
+    const r = await reader.browser.call('POST', `${reader.base}/${q.id}/duplicate`, {
+      body: { client_id: null },
+    })
+    // Like a revision: without quotes.create the answer is 403 before looking for the quote.
+    expect(r.statusCode).toBe(403)
+    const blind = await scene(['quotes.create'])
+    expect(
+      (
+        await blind.browser.call('POST', `${blind.base}/${q.id}/duplicate`, {
+          body: { client_id: null },
+        })
+      ).statusCode,
+    ).toBe(404)
+    const noCsrf = await browser.call('POST', `${base}/${q.id}/duplicate`, {
+      body: { client_id: null },
+      csrf: false,
+    })
+    expect(noCsrf.statusCode).toBe(403)
+  })
+})
