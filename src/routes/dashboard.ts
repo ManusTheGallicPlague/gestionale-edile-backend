@@ -9,6 +9,7 @@ import { REMAINING_CENTS } from './invoices.js'
 import { statementTotals } from './progress-statements.js'
 import { FOLLOW_UPS as ORDER_FOLLOW_UPS } from './purchase-orders.js'
 import { FOLLOW_UPS } from './quotes.js'
+import { COMPLIANCE_SQL } from './suppliers.js'
 import { BELOW_MIN } from './warehouse.js'
 
 /**
@@ -306,6 +307,25 @@ async function warehouseCounts(client: PoolClient) {
   return { below_min: rows[0]?.below_min ?? 0 }
 }
 
+/**
+ * Active (not archived) subcontractors to check before they enter a site, with the same
+ * conditions as filter[compliance] in the supplier list.
+ */
+async function subcontractorCounts(client: PoolClient) {
+  const { rows } = await client.query<{ expired: number; expiring: number; no_valid_durc: number }>(
+    `select count(*) filter (where ${COMPLIANCE_SQL.expired})::int as expired,
+       count(*) filter (where ${COMPLIANCE_SQL.expiring})::int as expiring,
+       count(*) filter (where ${COMPLIANCE_SQL.no_valid_durc})::int as no_valid_durc
+     from public.suppliers
+     where subcontractor and archived_at is null`,
+  )
+  return {
+    expired: rows[0]?.expired ?? 0,
+    expiring: rows[0]?.expiring ?? 0,
+    no_valid_durc: rows[0]?.no_valid_durc ?? 0,
+  }
+}
+
 /** The company dashboard: each section only for those who may see its data. */
 export function dashboardRoutes(app: FastifyInstance, db: Db): void {
   app.get<{ Params: { company: string } }>('/api/companies/:company/dashboard', async (request) => {
@@ -331,6 +351,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         quotes: can('quotes.view') ? await quoteTotals(client) : null,
         purchase_orders: can('purchases.view') ? await purchaseOrderTotals(client) : null,
         warehouse: can('warehouse.view') ? await warehouseCounts(client) : null,
+        subcontractors: can('suppliers.view') ? await subcontractorCounts(client) : null,
       }
     })
   })

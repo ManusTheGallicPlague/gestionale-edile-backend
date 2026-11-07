@@ -9355,6 +9355,7 @@ components:
           quotes,
           purchase_orders,
           warehouse,
+          subcontractors,
         ]
       properties:
         today: { $ref: '#/components/schemas/Date' }
@@ -9465,6 +9466,28 @@ components:
                   type: integer
                   minimum: 0
                   description: Articoli sotto la scorta minima, da riordinare.
+            - type: 'null'
+        subcontractors:
+          oneOf:
+            - type: object
+              description: |
+                Subappaltatori non archiviati da controllare prima di farli entrare in cantiere,
+                con suppliers.view: gli stessi di filter[compliance] con
+                filter[subcontractor]=true in listSuppliers.
+              required: [expired, expiring, no_valid_durc]
+              properties:
+                expired:
+                  type: integer
+                  minimum: 0
+                  description: Con almeno un documento scaduto.
+                expiring:
+                  type: integer
+                  minimum: 0
+                  description: Nessuno scaduto, almeno uno in scadenza entro 30 giorni.
+                no_valid_durc:
+                  type: integer
+                  minimum: 0
+                  description: Senza un DURC valido oggi.
             - type: 'null'
     SubjectAccount:
       type: object

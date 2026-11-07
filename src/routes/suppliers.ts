@@ -95,7 +95,7 @@ const LATEST_EXPIRIES = `
   select max(d.expires_on) as expires_on from public.supplier_documents d
   where d.supplier_id = suppliers.id and d.expires_on is not null group by d.kind`
 
-const COMPLIANCE_SQL: Record<(typeof COMPLIANCE)[number], string> = {
+export const COMPLIANCE_SQL: Record<(typeof COMPLIANCE)[number], string> = {
   expired: `exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${TODAY})`,
   expiring: `not exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${TODAY})
     and exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on <= ${TODAY} + 30)`,

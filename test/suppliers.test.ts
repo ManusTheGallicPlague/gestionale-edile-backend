@@ -212,6 +212,32 @@ describe('list', () => {
     expect((await browser.call('GET', `${base}/export?filter[compliance]=durc`)).statusCode).toBe(
       422,
     )
+
+    // The dashboard counts the same, for subcontractors only and not archived ones.
+    await browser.call('POST', base, { body: supplierBody({ name: 'Materiali' }) })
+    const archived = await browser.call('POST', base, {
+      body: supplierBody({ name: 'Archiviato', subcontractor: true }),
+    })
+    await ctx.owner.query('update public.suppliers set archived_at = now() where id = $1', [
+      archived.json<{ id: string }>().id,
+    ])
+    const dashboard = `/api/companies/${company.slug}/dashboard`
+    const d = await browser.call('GET', dashboard)
+    expect(d.statusCode).toBe(200)
+    expect(d.json<{ subcontractors: unknown }>().subcontractors).toEqual({
+      expired: 2,
+      expiring: 1,
+      no_valid_durc: 1,
+    })
+    const blind = await signedIn(['clients.view'])
+    await fx.member(
+      blind.user.id,
+      company.id,
+      await fx.role(company.id, 'Senza fornitori', ['clients.view']),
+    )
+    const hidden = await blind.browser.call('GET', dashboard)
+    expect(hidden.statusCode).toBe(200)
+    expect(hidden.json<{ subcontractors: unknown }>().subcontractors).toBeNull()
   })
 
   it('refuses wrong filters with 422', async () => {
