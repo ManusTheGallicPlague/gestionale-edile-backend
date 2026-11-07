@@ -49,6 +49,8 @@ interface InvoiceInput {
   vat_nature: VatNature | null | undefined
   /** undefined when absent: null on creation, unchanged on update. */
   progress_statement_id: string | null | undefined
+  /** undefined when absent: 0 on creation, unchanged on update. */
+  withholding_cents: string | undefined
   due_date: string | null
   paid_on: string | null
   notes: string | null
@@ -72,6 +74,8 @@ interface InvoiceRow {
   vat_nature: VatNature | null
   progress_statement_id: string | null
   total_cents: string
+  withholding_cents: string
+  due_cents: string
   due_date: string | null
   paid_on: string | null
   payment_status: PaymentStatus
@@ -103,6 +107,8 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
     i.site_id, s.name as site_name, s.code as site_code, i.description,
     i.taxable_cents::text as taxable_cents, i.vat_cents::text as vat_cents,
     i.vat_nature, i.progress_statement_id, (i.taxable_cents + i.vat_cents)::text as total_cents,
+    i.withholding_cents::text as withholding_cents,
+    (i.taxable_cents + i.vat_cents - i.withholding_cents)::text as due_cents,
     i.due_date::text as due_date, i.paid_on::text as paid_on,
     ${PAYMENT_STATUS} as payment_status, d.id as deadline_id,
     (select ${ATTACHMENT_JSON} from public.invoice_files f where f.invoice_id = i.id) as file,
@@ -140,6 +146,8 @@ function toContract(row: InvoiceRow) {
     vat_nature: row.vat_nature,
     progress_statement_id: row.progress_statement_id,
     total: centsToAmount(row.total_cents),
+    withholding_amount: centsToAmount(row.withholding_cents),
+    amount_due: centsToAmount(row.due_cents),
     due_date: row.due_date,
     paid_on: row.paid_on,
     payment_status: row.payment_status,
@@ -252,6 +260,14 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
       add('progress_statement_id', 'Si collega un SAL solo a una fattura emessa.')
     }
   }
+  let withholding_cents: string | undefined
+  if ('withholding_amount' in raw && raw.withholding_amount !== undefined) {
+    withholding_cents = amount('withholding_amount') ?? undefined
+    if (withholding_cents !== undefined && taxable_cents !== null) {
+      const message = withholdingError(withholding_cents, taxable_cents)
+      if (message) add('withholding_amount', message)
+    }
+  }
   const due_date = date('due_date')
   if (
     due_date !== null &&
@@ -286,10 +302,18 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
     vat_cents,
     vat_nature,
     progress_statement_id,
+    withholding_cents,
     due_date,
     paid_on,
     notes,
   }
+}
+
+/** The withholding is taken on the taxable amount, so it never goes beyond it. */
+function withholdingError(withholding: string, taxable: string): string | null {
+  return BigInt(withholding) > BigInt(taxable)
+    ? "La ritenuta d'acconto non può superare l'imponibile."
+    : null
 }
 
 /** Client, supplier and site must be of the company: errors under their own field. */
@@ -353,7 +377,7 @@ async function syncDeadline(client: PoolClient, invoiceId: string): Promise<void
        supplier_id, status, done_at, invoice_id)
      select i.company_id, left('Fattura ' || i.number || ' – ' || coalesce(c.name, p.name), 200),
        i.due_date, case i.direction when 'issued' then 'invoice_out' else 'invoice_in' end,
-       i.taxable_cents + i.vat_cents, i.client_id, i.supplier_id,
+       i.taxable_cents + i.vat_cents - i.withholding_cents, i.client_id, i.supplier_id,
        case when i.paid_on is null then 'open' else 'done' end,
        case when i.paid_on is not null then now() end, i.id
      from public.invoices i
@@ -496,8 +520,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const count = await client.query<{ total: number; amount: string; outstanding: string }>(
         `select count(*)::int as total,
            coalesce(sum(i.taxable_cents + i.vat_cents), 0)::text as amount,
-           coalesce(sum(i.taxable_cents + i.vat_cents) filter (where i.paid_on is null), 0)::text
-             as outstanding
+           coalesce(sum(i.taxable_cents + i.vat_cents - i.withholding_cents)
+             filter (where i.paid_on is null), 0)::text as outstanding
          from public.invoices i where ${where.join(' and ')}`,
         values.slice(0, filters),
       )
@@ -538,6 +562,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             'IVA',
             'Natura IVA',
             'Totale',
+            "Ritenuta d'acconto",
+            'Netto a pagare',
             'Scadenza pagamento',
             'Pagata il',
             'Stato',
@@ -554,6 +580,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             italianAmount(r.vat_cents),
             r.vat_nature,
             italianAmount(r.total_cents),
+            italianAmount(r.withholding_cents),
+            italianAmount(r.due_cents),
             r.due_date === null ? null : italianDate(r.due_date),
             r.paid_on === null ? null : italianDate(r.paid_on),
             STATUS_LABELS[r.payment_status],
@@ -593,9 +621,9 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
         .query<{ id: string }>(
           `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
              supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on, notes,
-             vat_nature, progress_statement_id)
+             vat_nature, progress_statement_id, withholding_cents)
            values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             $13, $14)
+             $13, $14, $15)
            returning id`,
           [
             input.direction,
@@ -612,6 +640,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.notes,
             input.vat_nature ?? null,
             input.progress_statement_id ?? null,
+            input.withholding_cents ?? '0',
           ],
         )
         .catch(writeFailed)
@@ -644,6 +673,12 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
           })
         }
       }
+      // Absent: the withholding stays, if it still fits the new taxable amount.
+      if (input.withholding_cents === undefined) {
+        input.withholding_cents = current.withholding_cents
+        const message = withholdingError(current.withholding_cents, input.taxable_cents)
+        if (message) throw new ValidationFailed({ withholding_amount: [message] })
+      }
       await checkReferences(client, input)
       const { rowCount } = await client
         .query(
@@ -653,7 +688,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
                due_date = $10, paid_on = $11, notes = $12,
                vat_nature = case when $9::bigint <> 0 then null
                                  when $16::boolean then $15::text else vat_nature end,
-               progress_statement_id = $17,
+               progress_statement_id = $17, withholding_cents = $18,
                version = version + 1, updated_at = now()
            where id = $13 and version = $14`,
           [
@@ -674,6 +709,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.vat_nature ?? null,
             input.vat_nature !== undefined,
             input.progress_statement_id,
+            input.withholding_cents,
           ],
         )
         .catch(writeFailed)

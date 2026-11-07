@@ -219,7 +219,7 @@ describe('invoices', () => {
     expect(kept.statusCode).toBe(200)
     expect(kept.json()).toMatchObject({ vat_nature: 'N6.3' })
     const csv = await s.browser.call('GET', `${s.base}/export`)
-    expect(csv.body).toContain(';1500,00;0,00;N6.3;1500,00;')
+    expect(csv.body).toContain(';1500,00;0,00;N6.3;1500,00;0,00;1500,00;')
 
     const withVat = await put(received(s, { vat_nature: 'N6.3' }), 2)
     expect(withVat.statusCode).toBe(422)
@@ -247,6 +247,58 @@ describe('invoices', () => {
         taxed.json<Invoice>().id,
       ]),
     ).rejects.toThrow(/invoices_vat_nature_zero_vat/)
+  })
+
+  it('a withholding tax lowers the amount due, the deadline and what is outstanding', async () => {
+    const s = await scene()
+    // A designer's fee: 20% withheld on the taxable amount.
+    const res = await s.browser.call('POST', s.base, {
+      body: received(s, { taxable_amount: '1000', vat_amount: '220', withholding_amount: '200' }),
+    })
+    expect(res.statusCode).toBe(201)
+    const invoice = res.json<Invoice & { deadline_id: string }>()
+    expect(invoice).toMatchObject({
+      total: '1220.00',
+      withholding_amount: '200.00',
+      amount_due: '1020.00',
+    })
+    const deadline = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/deadlines/${invoice.deadline_id}`,
+    )
+    expect(deadline.json()).toMatchObject({ amount: '1020.00' })
+    const list = await s.browser.call('GET', s.base)
+    expect(list.json()).toMatchObject({ total_amount: '1220.00', outstanding_amount: '1020.00' })
+    const csv = await s.browser.call('GET', `${s.base}/export`)
+    expect(csv.body).toContain(';1000,00;220,00;;1220,00;200,00;1020,00;')
+
+    const url = `${s.base}/${invoice.id}`
+    const put = (body: object, version: number) =>
+      s.browser.call('PUT', url, { body, headers: { 'if-match': `"${version}"` } })
+    // Absent on update: it stays.
+    const kept = await put(received(s, { taxable_amount: '1000', vat_amount: '220' }), 1)
+    expect(kept.statusCode).toBe(200)
+    expect(kept.json()).toMatchObject({ withholding_amount: '200.00', amount_due: '1020.00' })
+    // Not negative, not beyond the taxable amount; also when kept from before.
+    for (const body of [
+      received(s, { taxable_amount: '100', withholding_amount: '200' }),
+      received(s, { taxable_amount: '0', withholding_amount: '1' }),
+      received(s, { withholding_amount: '-20' }),
+      received(s, { taxable_amount: '100' }),
+      received(s, { withholding_amount: '1,5' }),
+    ]) {
+      const bad = await put(body, 2)
+      expect(bad.statusCode).toBe(422)
+      expect(Object.keys(bad.json<{ errors: object }>().errors)).toEqual(['withholding_amount'])
+    }
+    // Without the field, nothing is withheld.
+    const plain = await s.browser.call('POST', s.base, { body: issued(s) })
+    expect(plain.json()).toMatchObject({ withholding_amount: '0.00', amount_due: '11000.50' })
+    await expect(
+      ctx.owner.query('update public.invoices set withholding_cents = 999999999 where id = $1', [
+        invoice.id,
+      ]),
+    ).rejects.toThrow(/invoices_withholding_within_taxable/)
   })
 
   it('a number is used once per year (per supplier for received invoices)', async () => {
@@ -402,9 +454,9 @@ describe('invoices', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="fatture.csv"')
     const lines = res.body.replace('﻿', '').trim().split('\r\n')
     expect(lines).toEqual([
-      'Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Natura IVA;Totale;Scadenza pagamento;Pagata il;Stato;Note',
-      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;;11000,50;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
-      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;;1830,00;;;Da pagare;',
+      "Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Natura IVA;Totale;Ritenuta d'acconto;Netto a pagare;Scadenza pagamento;Pagata il;Stato;Note",
+      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;;11000,50;0,00;11000,50;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
+      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;;1830,00;0,00;1830,00;;;Da pagare;',
     ])
     const filtered = await s.browser.call('GET', `${url}?filter[direction]=received`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(2)

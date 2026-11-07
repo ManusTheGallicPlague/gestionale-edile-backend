@@ -4339,7 +4339,7 @@ paths:
       description: |
         Permesso: invoices.view. Dalla più recente. total_amount è la somma dei totali delle
         fatture che rispettano i filtri, non solo della pagina; outstanding_amount la parte
-        ancora da pagare o incassare.
+        ancora da pagare o incassare (netto della ritenuta d'acconto).
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -7229,6 +7229,13 @@ components:
           oneOf:
             - $ref: '#/components/schemas/VatNature'
             - type: 'null'
+        withholding_amount:
+          description: |
+            Ritenuta d'acconto trattenuta da chi paga (es. 20% sul compenso di un professionista,
+            4% del condominio sui lavori in appalto), mai oltre l'imponibile. Facoltativa: se manca, alla creazione vale 0.00 e alla modifica resta
+            com'è.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
         progress_statement_id:
           description: |
             Il SAL approvato che questa fattura emessa addebita (fattura d'acconto sullo stato di
@@ -7266,6 +7273,8 @@ components:
               deadline_id,
               file,
               vat_nature,
+              withholding_amount,
+              amount_due,
               progress_statement_id,
               created_at,
               updated_at,
@@ -7298,6 +7307,12 @@ components:
               description: Imponibile più IVA.
               allOf:
                 - $ref: '#/components/schemas/Amount'
+            amount_due:
+              description: |
+                Netto a pagare (o da incassare): totale meno la ritenuta d'acconto. È l'importo
+                della scadenza nello scadenziario.
+              allOf:
+                - $ref: '#/components/schemas/Amount'
             payment_status: { $ref: '#/components/schemas/InvoicePaymentStatus' }
             deadline_id:
               description: La scadenza nello scadenziario; null senza scadenza di pagamento.
@@ -7323,7 +7338,7 @@ components:
           allOf:
             - $ref: '#/components/schemas/Amount'
         outstanding_amount:
-          description: Somma dei totali delle fatture filtrate non ancora pagate.
+          description: Somma dei netti a pagare (amount_due) delle fatture filtrate non ancora pagate.
           allOf:
             - $ref: '#/components/schemas/Amount'
     WarehouseItemInput:
