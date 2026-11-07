@@ -3263,6 +3263,40 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/cash-flow:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: getCashFlowForecast
+      summary: Previsione di cassa, mese per mese
+      description: |
+        Permesso: invoices.view. Quanto resta da incassare dalle fatture emesse e da pagare
+        per quelle ricevute (remaining_amount, come in DashboardInvoices), diviso per mese
+        della scadenza di pagamento, a partire dal mese in corso in Italia. Le fatture già
+        scadute stanno in overdue e non nel loro mese; quelle senza scadenza in undated;
+        quelle oltre l'ultimo mese in later. balance di ogni mese è il saldo accumulato:
+        overdue più i netti dei mesi fino a quello compreso. Conta solo le fatture: preventivi,
+        ordini e SAL non ancora fatturati restano fuori.
+      parameters:
+        - name: months
+          in: query
+          description: Quanti mesi, quello in corso compreso.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 24
+            default: 6
+      responses:
+        '200':
+          description: La previsione
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CashFlowForecast' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/dashboard:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -9201,6 +9235,58 @@ components:
         overdue:
           allOf:
             - $ref: '#/components/schemas/Amount'
+    CashFlowAmounts:
+      type: object
+      description: Da incassare (fatture emesse), da pagare (ricevute) e la differenza.
+      required: [incoming, outgoing, net]
+      properties:
+        incoming: { $ref: '#/components/schemas/Amount' }
+        outgoing: { $ref: '#/components/schemas/Amount' }
+        net: { $ref: '#/components/schemas/SignedAmount' }
+    CashFlowMonth:
+      allOf:
+        - $ref: '#/components/schemas/CashFlowAmounts'
+        - type: object
+          required: [month, balance]
+          properties:
+            month:
+              type: string
+              pattern: '^\d{4}-\d{2}$'
+              description: AAAA-MM.
+            balance:
+              description: Saldo accumulato, scaduto compreso, alla fine del mese.
+              allOf:
+                - $ref: '#/components/schemas/SignedAmount'
+    CashFlowForecast:
+      type: object
+      required: [today, overdue, months, later, undated, total]
+      properties:
+        today:
+          description: La data di oggi in Italia, su cui è calcolato lo scaduto.
+          allOf:
+            - $ref: '#/components/schemas/Date'
+        overdue:
+          description: Fatture con la scadenza già passata.
+          allOf:
+            - $ref: '#/components/schemas/CashFlowAmounts'
+        months:
+          type: array
+          minItems: 1
+          maxItems: 24
+          description: Dal mese in corso, uno per mese, anche quelli a zero.
+          items: { $ref: '#/components/schemas/CashFlowMonth' }
+        later:
+          description: Fatture con la scadenza dopo l'ultimo mese.
+          allOf:
+            - $ref: '#/components/schemas/CashFlowAmounts'
+        undated:
+          description: Fatture senza scadenza di pagamento.
+          allOf:
+            - $ref: '#/components/schemas/CashFlowAmounts'
+        total:
+          description: Somma di tutte le fatture aperte.
+          allOf:
+            - $ref: '#/components/schemas/CashFlowAmounts'
     DashboardInvoices:
       type: object
       description: |
