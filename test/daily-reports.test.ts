@@ -262,6 +262,69 @@ describe('daily reports', () => {
     }
   })
 
+  it('prints the work log of a site for a period, one report per page', async () => {
+    const s = await scene()
+    await create(s, { work_done: 'Scavo di fondazione' })
+    await create(s, { date: '2026-11-03', work_done: 'Tracciamento' })
+    await create(s, { date: '2026-11-20', work_done: 'Fuori periodo' })
+    await create(s, { site_id: s.other, work_done: 'Altro cantiere' })
+
+    const url = `${s.base}/pdf`
+    const query = `filter[site]=${s.site}&filter[from]=2026-11-01&filter[to]=2026-11-10`
+    const pdf = await s.browser.call('GET', `${url}?${query}`)
+    expect(pdf.statusCode).toBe(200)
+    expect(pdf.headers['content-type']).toBe('application/pdf')
+    expect(pdf.headers['content-disposition']).toBe(
+      'attachment; filename="giornale-lavori-C-1-2026-11-01-2026-11-10.pdf"',
+    )
+    const text = pdf.rawPayload.toString('latin1')
+    expect(text).toContain('(Tracciamento)')
+    expect(text).toContain('(Scavo di fondazione)')
+    expect(text).not.toContain('Fuori periodo')
+    expect(text).not.toContain('Altro cantiere')
+    // In date order, each on its own page.
+    expect(text.indexOf('(Tracciamento)')).toBeLessThan(text.indexOf('(Scavo di fondazione)'))
+    expect(text).toContain('(Rapportino del 03/11/2026 \x96 pagina 1 di 2)')
+    expect(text).toContain('(Rapportino del 05/11/2026 \x96 pagina 2 di 2)')
+
+    // Only approved reports: none in the period.
+    const none = await s.browser.call('GET', `${url}?${query}&filter[status]=approved`)
+    expect(none.statusCode).toBe(422)
+    expect(none.json<{ errors: Record<string, unknown> }>().errors).toHaveProperty(['filter[from]'])
+
+    // Site and period are required.
+    const missing = await s.browser.call('GET', `${url}?filter[site]=${s.site}`)
+    expect(missing.statusCode).toBe(422)
+    expect(Object.keys(missing.json<{ errors: object }>().errors).sort()).toEqual([
+      'filter[from]',
+      'filter[to]',
+    ])
+
+    // More than 200 reports: shorten the period.
+    await ctx.owner.query(
+      `insert into public.daily_reports (company_id, site_id, report_date)
+       select $1, $2, d::date from generate_series('2025-01-01'::date, '2025-07-20', '1 day') d`,
+      [s.company.id, s.site],
+    )
+    const long = `filter[site]=${s.site}&filter[from]=2025-01-01&filter[to]=2025-12-31`
+    const tooMany = await s.browser.call('GET', `${url}?${long}`)
+    expect(tooMany.statusCode).toBe(422)
+    expect(tooMany.json<{ errors: Record<string, unknown> }>().errors).toHaveProperty([
+      'filter[to]',
+    ])
+
+    // Another company: our site is a 404 for them, our slug a 404 too.
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', `${theirs.base}/pdf?${query}`)).statusCode).toBe(404)
+    expect((await theirs.browser.call('GET', `${url}?${query}`)).statusCode).toBe(404)
+    // Without reports.view: 403.
+    const guest = await fx.user()
+    await fx.member(guest.id, s.company.id, await fx.role(s.company.id, 'Ospite', ['sites.view']))
+    const browser = new Browser(ctx.app)
+    await browser.signIn(guest.email)
+    expect((await browser.call('GET', `${url}?${query}`)).statusCode).toBe(403)
+  })
+
   it('exports the reports as CSV with the same filters', async () => {
     const s = await scene()
     await create(s)

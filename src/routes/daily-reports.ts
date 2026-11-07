@@ -17,7 +17,7 @@ import {
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 import { centsToAmount } from '../money.js'
-import { reportPdf } from '../daily-reports/pdf.js'
+import { reportPdf, reportsPdf, type ReportPdfData } from '../daily-reports/pdf.js'
 import { italianQuantity } from '../quotes/pdf.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
@@ -321,6 +321,53 @@ function readMonthlyHours(query: Record<string, unknown>) {
   return { month: month ?? '', status, siteId }
 }
 
+const MAX_WORK_LOG = 200
+
+async function pdfCommon(client: PoolClient) {
+  const profile = await readProfile(client)
+  return {
+    logo: await readLogoForPdf(client),
+    company: {
+      ...profile,
+      share_capital:
+        profile.share_capital_cents === null ? null : centsToAmount(profile.share_capital_cents),
+    },
+  }
+}
+
+function pdfData(
+  common: Awaited<ReturnType<typeof pdfCommon>>,
+  { row, labor, vehicles }: FullReport,
+  address: string | null,
+): ReportPdfData {
+  return {
+    ...common,
+    site: { name: row.site_name, code: row.site_code, address },
+    date: row.report_date,
+    status: row.status,
+    weather: row.weather,
+    work_done: row.work_done,
+    notes: row.notes,
+    created_by: row.created_by ? (row.created_by_name ?? null) : null,
+    approved_by: row.approved_by ? (row.approved_by_name ?? null) : null,
+    approved_at: row.approved_at,
+    total_labor_hours: row.labor_hours,
+    total_vehicle_hours: row.vehicle_hours,
+    labor,
+    vehicles,
+  }
+}
+
+function sendPdf(reply: FastifyReply, name: string, buffer: Buffer) {
+  // Site codes are free text: keep the file name to safe characters.
+  const file = `${name.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`
+  return reply
+    .header('Content-Type', 'application/pdf')
+    .header('Content-Disposition', `attachment; filename="${file}"`)
+    .header('Cache-Control', 'private, no-store')
+    .send(buffer)
+}
+
 async function readOne(client: PoolClient, id: string): Promise<FullReport | undefined> {
   const { rows } = await client.query<ReportRow>(`${SELECT} where r.id = $1`, [id])
   const row = rows[0]
@@ -612,46 +659,72 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
         'select address from public.sites where id = $1',
         [row.site_id],
       )
-      const profile = await readProfile(client)
+      const common = await pdfCommon(client)
       return {
         name: [row.report_date, row.site_code].filter(Boolean).join('-'),
-        buffer: reportPdf({
-          logo: await readLogoForPdf(client),
-          company: {
-            ...profile,
-            share_capital:
-              profile.share_capital_cents === null
-                ? null
-                : centsToAmount(profile.share_capital_cents),
-          },
-          site: {
-            name: row.site_name,
-            code: row.site_code,
-            address: site.rows[0]?.address ?? null,
-          },
-          date: row.report_date,
-          status: row.status,
-          weather: row.weather,
-          work_done: row.work_done,
-          notes: row.notes,
-          created_by: row.created_by ? (row.created_by_name ?? null) : null,
-          approved_by: row.approved_by ? (row.approved_by_name ?? null) : null,
-          approved_at: row.approved_at,
-          total_labor_hours: row.labor_hours,
-          total_vehicle_hours: row.vehicle_hours,
-          labor: report.labor,
-          vehicles: report.vehicles,
-        }),
+        buffer: reportPdf(pdfData(common, report, site.rows[0]?.address ?? null)),
       }
     })
-    // Site codes are free text: keep the file name to safe characters.
-    const file = `rapportino-${pdf.name.replace(/[^A-Za-z0-9-]+/g, '-')}.pdf`
-    return reply
-      .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', `attachment; filename="${file}"`)
-      .header('Cache-Control', 'private, no-store')
-      .send(pdf.buffer)
+    return sendPdf(reply, `rapportino-${pdf.name}`, pdf.buffer)
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/pdf`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      const errors: FieldErrors = {}
+      for (const [field, value] of [
+        ['filter[site]', list.siteId],
+        ['filter[from]', list.from],
+        ['filter[to]', list.to],
+      ] as const) {
+        if (value === undefined) errors[field] = ['Campo obbligatorio.']
+      }
+      if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+      const pdf = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('reports.view')) throw forbidden()
+        const site = await client.query<{ code: string | null; address: string | null }>(
+          'select code, address from public.sites where id = $1',
+          [list.siteId],
+        )
+        const found = site.rows[0]
+        if (!found) throw notFound()
+        const values: unknown[] = [list.siteId, list.from, list.to]
+        let status = ''
+        if (list.status) {
+          values.push(list.status)
+          status = 'and r.status = $4'
+        }
+        const { rows } = await client.query<{ id: string }>(
+          `select r.id from public.daily_reports r
+           where r.site_id = $1 and r.report_date between $2::date and $3::date ${status}
+           order by r.report_date, r.id limit ${MAX_WORK_LOG + 1}`,
+          values,
+        )
+        if (rows.length > MAX_WORK_LOG) {
+          throw new ValidationFailed({
+            'filter[to]': [`Più di ${MAX_WORK_LOG} rapportini: accorcia il periodo.`],
+          })
+        }
+        if (rows.length === 0) {
+          throw new ValidationFailed({ 'filter[from]': ['Nessun rapportino nel periodo.'] })
+        }
+        const common = await pdfCommon(client)
+        const reports: ReportPdfData[] = []
+        for (const { id } of rows) {
+          const report = await readOne(client, id)
+          if (report) reports.push(pdfData(common, report, found.address))
+        }
+        return {
+          name: [found.code, list.from, list.to].filter(Boolean).join('-'),
+          buffer: reportsPdf(reports),
+        }
+      })
+      return sendPdf(reply, `giornale-lavori-${pdf.name}`, pdf.buffer)
+    },
+  )
 
   app.post<{ Params: Params }>(base, async (request, reply) => {
     const session = requireSession(request)

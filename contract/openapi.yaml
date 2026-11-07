@@ -1723,6 +1723,53 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/daily-reports/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: getWorkLogPdf
+      summary: Giornale dei lavori di un cantiere in PDF
+      description: |
+        Permesso: reports.view. I rapportini di un cantiere in un periodo, per data, in un solo
+        PDF da archiviare o consegnare alla direzione lavori: ognuno comincia su una pagina
+        nuova, come in getDailyReportPdf. Cantiere, inizio e fine sono obbligatori; si possono
+        tenere solo i rapportini di uno stato (per esempio solo gli approvati). Al massimo 200
+        rapportini: oltre, 422 sotto filter[to] e si accorcia il periodo. Senza rapportini nel
+        periodo, 422 sotto filter[from]. Un cantiere che non c'è o di un'altra azienda risponde
+        404. Il file si chiama giornale-lavori-C-1-2026-11-01-2026-11-30.pdf (codice del
+        cantiere, se c'è, e periodo).
+      parameters:
+        - name: filter
+          in: query
+          required: true
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            required: [site, from, to]
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              status: { $ref: '#/components/schemas/DailyReportStatus' }
+      responses:
+        '200':
+          description: Il PDF
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/daily-reports/{report}:
     parameters:
       - $ref: '#/components/parameters/Company'

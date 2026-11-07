@@ -42,10 +42,30 @@ const romeDate = new Intl.DateTimeFormat('it-IT', {
 
 /** The daily report in A4, to file or have signed: hours of people and machines, no costs. */
 export function reportPdf(data: ReportPdfData): Buffer {
+  return reportsPdf([data])
+}
+
+/**
+ * Several daily reports in one file (the site's work log), each starting on a new page;
+ * the footer of each page names the report it belongs to.
+ */
+export function reportsPdf(reports: ReportPdfData[]): Buffer {
   const pdf = new PdfDocument()
+  const labels: string[] = []
+  for (const data of reports) drawReport(pdf, data, labels)
+  labels.forEach((label, page) => {
+    const text = `${label} – pagina ${page + 1} di ${pdf.pageCount}`
+    pdf.text(RIGHT - textWidth(text, { size: 8 }), 30, text, { size: 8 }, page)
+  })
+  return pdf.toBuffer()
+}
+
+function drawReport(pdf: PdfDocument, data: ReportPdfData, labels: string[]): void {
+  const day = italianDate(data.date)
   let y = 0
   const newPage = () => {
     pdf.addPage()
+    labels.push(`Rapportino del ${day}`)
     y = A4.height - MARGIN
   }
   const paragraph = (text: string, style: TextStyle) => {
@@ -98,7 +118,6 @@ export function reportPdf(data: ReportPdfData): Buffer {
   newPage()
   const header = companyHeader(pdf, data.logo, data.company, y)
   y = header.bottom - 12
-  const day = italianDate(data.date)
   const title =
     data.status === 'draft'
       ? `Rapportino del ${day} (bozza, non ancora inviato)`
@@ -152,10 +171,4 @@ export function reportPdf(data: ReportPdfData): Buffer {
   pdf.text(RIGHT - 220, y, 'Per il committente o la direzione lavori', BODY)
   pdf.line(MARGIN, y - 28, MARGIN + 200, y - 28)
   pdf.line(RIGHT - 220, y - 28, RIGHT, y - 28)
-
-  for (let page = 0; page < pdf.pageCount; page++) {
-    const text = `Rapportino del ${day} – pagina ${page + 1} di ${pdf.pageCount}`
-    pdf.text(RIGHT - textWidth(text, { size: 8 }), 30, text, { size: 8 }, page)
-  }
-  return pdf.toBuffer()
 }
