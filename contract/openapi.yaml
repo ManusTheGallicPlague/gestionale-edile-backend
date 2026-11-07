@@ -3469,6 +3469,46 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/progress-statements/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportCompanyProgressStatements
+      summary: Esportazione in CSV dei SAL di tutta l'azienda
+      description: |
+        Permesso: estimates.view. Stessi filtri e ordinamento di listCompanyProgressStatements,
+        senza paginazione, nello stesso formato dell'esportazione dei clienti. Date come
+        30/11/2026, importi con la virgola decimale (1234,50). Il file si chiama sal.csv.
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              status: { $ref: '#/components/schemas/ProgressStatementStatus' }
+              invoiced: { type: string, enum: ['true', 'false'] }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/estimates/{estimate}/progress-statements:
     parameters:
       - $ref: '#/components/parameters/Company'

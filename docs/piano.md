@@ -192,6 +192,7 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: nella scheda di un cliente 
 Aggiunta il 07/11/2026, con il piano tutto spuntato: l'ufficio vuole vedere in un solo elenco i SAL di tutti i cantieri, soprattutto quelli approvati e non ancora fatturati, senza aprire computo per computo.
 
 - [x] SAL di tutta l'azienda (`listCompanyProgressStatements` su `…/progress-statements`): computo e cantiere di ogni SAL, dal più recente, filtri per cantiere, stato, fatturato sì/no e data, con i totali (importo e netto) di tutte le pagine
+- [x] SAL di tutta l'azienda in CSV (`exportCompanyProgressStatements`, file `sal.csv`): stessi filtri e ordine dell'elenco, con ritenuta, netto e fatturato sì/no
 
 ## Decisioni prese
 

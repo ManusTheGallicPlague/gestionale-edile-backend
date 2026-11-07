@@ -19,6 +19,7 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 import { statementPdf } from '../progress/pdf.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
+import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 const MAX_LINES = 2000
 /** numeric(14,3): at most 11 digits before the point. */
@@ -218,6 +219,32 @@ function readCompanyList(query: Record<string, unknown>) {
   return { page, perPage, where, values }
 }
 
+/** The SAL of the whole company, with their estimate and site, filtered by `where`. */
+const companyStatements = (where: string[], columns: string) => `with st as (${SELECT})
+  select ${columns} from st join public.estimates e on e.id = st.estimate_id
+  left join public.sites site on site.id = e.site_id
+  where ${where.join(' and ')}`
+
+async function readCompanyStatements(
+  client: PoolClient,
+  list: ReturnType<typeof readCompanyList>,
+  limit: number,
+  offset: number,
+) {
+  const n = list.values.length
+  const { rows } = await client.query<CompanyStatementRow>(
+    `${companyStatements(
+      list.where,
+      `st.*, e.title as estimate_title, site.id as site_id, site.name as site_name,
+       site.code as site_code`,
+    )}
+     order by st.statement_date desc, st.number desc, st.id
+     limit $${n + 1} offset $${n + 2}`,
+    [...list.values, limit, offset],
+  )
+  return rows
+}
+
 function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.statementMissingIfMatch, 'precondition_required')
@@ -348,6 +375,49 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
     })
 
   app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/progress-statements/export',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readCompanyList(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('estimates.view')) throw forbidden()
+        const rows = await readCompanyStatements(client, list, MAX_EXPORT_ROWS, 0)
+        return toCsv(
+          [
+            'Data',
+            'Cantiere',
+            'Computo',
+            'SAL n.',
+            'Stato',
+            'Importo',
+            'Ritenuta %',
+            'Ritenuta',
+            'Netto',
+            'Fatturato',
+          ],
+          rows.map((r) => [
+            italianDate(r.statement_date),
+            r.site_name,
+            r.estimate_title,
+            r.number,
+            r.status === 'approved' ? 'Approvato' : 'Bozza',
+            italianAmount(r.amount_cents),
+            r.retention_percent.replace('.', ','),
+            italianAmount(r.retention_cents),
+            italianAmount((BigInt(r.amount_cents) - BigInt(r.retention_cents)).toString()),
+            r.invoice_id ? 'Sì' : 'No',
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="sal.csv"')
+        .send(csv)
+    },
+  )
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
     '/api/companies/:company/progress-statements',
     async (request) => {
       const session = requireSession(request)
@@ -355,22 +425,19 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
       return withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('estimates.view')) throw forbidden()
-        const from = (columns: string) => `with st as (${SELECT})
-          select ${columns} from st join public.estimates e on e.id = st.estimate_id
-          left join public.sites site on site.id = e.site_id
-          where ${list.where.join(' and ')}`
-        const n = list.values.length
-        const { rows } = await client.query<CompanyStatementRow>(
-          `${from(`st.*, e.title as estimate_title, site.id as site_id,
-             site.name as site_name, site.code as site_code`)}
-           order by st.statement_date desc, st.number desc, st.id
-           limit $${n + 1} offset $${n + 2}`,
-          [...list.values, list.perPage, (list.page - 1) * list.perPage],
+        const rows = await readCompanyStatements(
+          client,
+          list,
+          list.perPage,
+          (list.page - 1) * list.perPage,
         )
         const count = await client.query<{ total: number; amount: string; net: string }>(
-          from(`count(*)::int as total,
+          companyStatements(
+            list.where,
+            `count(*)::int as total,
              coalesce(sum(st.amount_cents::bigint), 0)::text as amount,
-             coalesce(sum(st.amount_cents::bigint - st.retention_cents::bigint), 0)::text as net`),
+             coalesce(sum(st.amount_cents::bigint - st.retention_cents::bigint), 0)::text as net`,
+          ),
           list.values,
         )
         const totals = count.rows[0]

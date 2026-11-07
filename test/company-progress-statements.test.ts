@@ -221,3 +221,38 @@ describe('progress statements of the whole company', () => {
     expect((await new Browser(ctx.app).call('GET', s.url)).statusCode).toBe(401)
   })
 })
+
+describe('progress statements of the whole company in CSV', () => {
+  it('exports the filtered SAL in the order of the list', async () => {
+    const s = await scene()
+    const all = await s.browser.call('GET', `${s.url}/export`)
+    expect(all.statusCode).toBe(200)
+    expect(all.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(all.headers['content-disposition']).toBe('attachment; filename="sal.csv"')
+    expect(all.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Data;Cantiere;Computo;SAL n.;Stato;Importo;Ritenuta %;Ritenuta;Netto;Fatturato',
+      '01/11/2026;;Muro;1;Approvato;50,00;0,00;0,00;50,00;No',
+      '31/10/2026;Villetta;Villetta;2;Bozza;300,00;0,00;0,00;300,00;No',
+      '15/10/2026;Box;Box;1;Approvato;100,00;10,00;10,00;90,00;Sì',
+      '30/09/2026;Villetta;Villetta;1;Approvato;1000,00;5,00;50,00;950,00;No',
+    ])
+    const toInvoice = await s.browser.call(
+      'GET',
+      `${s.url}/export?filter[status]=approved&filter[invoiced]=false&filter[from]=2026-10-01`,
+    )
+    expect(toInvoice.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Data;Cantiere;Computo;SAL n.;Stato;Importo;Ritenuta %;Ritenuta;Netto;Fatturato',
+      '01/11/2026;;Muro;1;Approvato;50,00;0,00;0,00;50,00;No',
+    ])
+    expect((await s.browser.call('GET', `${s.url}/export?filter[invoiced]=1`)).statusCode).toBe(422)
+  })
+
+  it('is 404 for another company, 403 without estimates.view, 401 without a session', async () => {
+    const ours = await scene(['estimates.view'])
+    const theirs = await scene(['estimates.view'])
+    expect((await theirs.browser.call('GET', `${ours.url}/export`)).statusCode).toBe(404)
+    const blind = await scene(['invoices.view'])
+    expect((await blind.browser.call('GET', `${blind.url}/export`)).statusCode).toBe(403)
+    expect((await new Browser(ctx.app).call('GET', `${ours.url}/export`)).statusCode).toBe(401)
+  })
+})
