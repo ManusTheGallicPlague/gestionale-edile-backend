@@ -1157,6 +1157,56 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/deadlines/calendar:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportDeadlinesCalendar
+      summary: Scadenze in formato calendario (iCalendar)
+      description: |
+        Permesso: deadlines.view. Le scadenze come file .ics (RFC 5545) da aprire nel calendario
+        del telefono o del computer. Stessi filtri e ricerca dell'esportazione CSV; senza
+        `filter[status]` escono solo le scadenze aperte. Ogni scadenza è un evento di un giorno
+        intero, con un promemoria alle 9 del giorno prima; nella descrizione ci sono tipo,
+        importo, cliente, fornitore, cantiere, dipendente, mezzo e note. L'UID dell'evento resta
+        lo stesso a ogni esportazione, così il calendario aggiorna l'evento invece di
+        duplicarlo. Le ricorrenze non diventano RRULE: la scadenza successiva nasce quando si
+        completa quella attuale. Il file si chiama scadenze.ics.
+      parameters:
+        - $ref: '#/components/parameters/Search'
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              kind: { $ref: '#/components/schemas/DeadlineKind' }
+              status: { $ref: '#/components/schemas/DeadlineStatus' }
+              client: { $ref: '#/components/schemas/Id' }
+              supplier: { $ref: '#/components/schemas/Id' }
+              site: { $ref: '#/components/schemas/Id' }
+              employee: { $ref: '#/components/schemas/Id' }
+              vehicle: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Il file iCalendar
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/calendar:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/deadlines/summary:
     parameters:
       - $ref: '#/components/parameters/Company'

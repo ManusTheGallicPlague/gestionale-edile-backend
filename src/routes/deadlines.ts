@@ -23,6 +23,7 @@ import {
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { centsToAmount } from '../money.js'
 import { isIsoDate } from '../suppliers/documents.js'
+import { toICalendar } from '../deadlines/ical.js'
 
 interface DeadlineRow extends Omit<DeadlineInput, 'amount_cents'> {
   id: string
@@ -126,6 +127,22 @@ const RECURRENCE_LABELS: Record<string, string> = {
   monthly: 'Mensile',
   quarterly: 'Trimestrale',
   yearly: 'Annuale',
+}
+
+function calendarDescription(r: DeadlineRow): string {
+  const lines = [`Tipo: ${KIND_LABELS[r.kind] ?? r.kind}`]
+  if (r.amount_cents !== null) lines.push(`Importo: € ${italianAmount(r.amount_cents)}`)
+  const links: [string, string | null][] = [
+    ['Cliente', r.client_name],
+    ['Fornitore', r.supplier_name],
+    ['Cantiere', r.site_name],
+    ['Dipendente', r.employee_name],
+    ['Mezzo', r.vehicle_name],
+  ]
+  for (const [label, name] of links) if (name) lines.push(`${label}: ${name}`)
+  if (r.recurrence) lines.push(`Ricorrenza: ${RECURRENCE_LABELS[r.recurrence] ?? r.recurrence}`)
+  if (r.notes) lines.push('', r.notes)
+  return lines.join('\n')
 }
 
 const send = (reply: FastifyReply, row: DeadlineRow, status = 200) =>
@@ -363,6 +380,40 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
         .header('Content-Type', 'text/csv; charset=utf-8')
         .header('Content-Disposition', 'attachment; filename="scadenze.csv"')
         .send(csv)
+    },
+  )
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/calendar`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const list = readList(request.query)
+      // A calendar is for what is still to do: done deadlines only when asked for.
+      const { where, values } = listFilter({ ...list, status: list.status ?? 'open' })
+      const ics = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('deadlines.view')) throw forbidden()
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<DeadlineRow>(
+          `${SELECT} where ${where.join(' and ')} order by ${SORTS.due_on}
+           limit $${values.length}`,
+          values,
+        )
+        return toICalendar(
+          'Scadenze',
+          rows.map((r) => ({
+            uid: `deadline-${r.id}`,
+            date: r.due_on,
+            summary: r.status === 'done' ? `Fatta: ${r.title}` : r.title,
+            description: calendarDescription(r),
+            stamp: r.updated_at,
+          })),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/calendar; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="scadenze.ics"')
+        .send(ics)
     },
   )
 
