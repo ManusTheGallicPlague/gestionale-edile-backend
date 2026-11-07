@@ -1675,6 +1675,54 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/daily-reports/monthly-hours:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportMonthlyHours
+      summary: Foglio ore mensile dei dipendenti in CSV
+      description: |
+        Permessi: reports.view ed employees.view. Le ore dei rapportini di un mese, da mandare al
+        consulente del lavoro per le buste paga: una riga per dipendente con ore nel mese (per
+        cognome e nome), con cognome, nome e codice fiscale, una colonna per ogni giorno del
+        mese (1, 2, … 31; vuota se zero) e il totale. Ore con la virgola decimale (7,5). Se un
+        dipendente lavora su due cantieri lo stesso giorno, le ore si sommano. Si possono tenere
+        solo i rapportini di un cantiere o di uno stato (per esempio solo gli approvati). Il
+        file si chiama ore-2026-11.csv.
+      parameters:
+        - name: month
+          in: query
+          required: true
+          description: Il mese, come 2026-11.
+          schema:
+            type: string
+            pattern: '^\d{4}-(0[1-9]|1[0-2])$'
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              status: { $ref: '#/components/schemas/DailyReportStatus' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/daily-reports/{report}:
     parameters:
       - $ref: '#/components/parameters/Company'

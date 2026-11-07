@@ -18,6 +18,7 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 import { centsToAmount } from '../money.js'
 import { reportPdf } from '../daily-reports/pdf.js'
+import { italianQuantity } from '../quotes/pdf.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
 
@@ -292,6 +293,34 @@ function readList(query: Record<string, unknown>) {
   return { page, perPage, sort: sort ?? '-date', status, siteId, employeeId, vehicleId, from, to }
 }
 
+function readMonthlyHours(query: Record<string, unknown>) {
+  const errors: FieldErrors = {}
+  const single = (name: string): string | undefined => {
+    const value = query[name]
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') {
+      errors[name] = ['Indicalo una volta sola.']
+      return undefined
+    }
+    return value
+  }
+  const month = single('month')
+  if (month === undefined) {
+    errors.month ??= ['Indica il mese (AAAA-MM).']
+  } else if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+    errors.month = ['Mese non valido (AAAA-MM).']
+  }
+  const statusValue = single('filter[status]')
+  const status = REPORT_STATUSES.find((s) => s === statusValue)
+  if (statusValue !== undefined && !status) errors['filter[status]'] = ['Stato non valido.']
+  const siteId = single('filter[site]')
+  if (siteId !== undefined && !UUID.test(siteId)) {
+    errors['filter[site]'] = ['Identificativo non valido.']
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { month: month ?? '', status, siteId }
+}
+
 async function readOne(client: PoolClient, id: string): Promise<FullReport | undefined> {
   const { rows } = await client.query<ReportRow>(`${SELECT} where r.id = $1`, [id])
   const row = rows[0]
@@ -472,6 +501,86 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
       return reply
         .header('Content-Type', 'text/csv; charset=utf-8')
         .header('Content-Disposition', 'attachment; filename="rapportini.csv"')
+        .send(csv)
+    },
+  )
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${base}/monthly-hours`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const query = readMonthlyHours(request.query)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('reports.view') || !permissions.has('employees.view')) {
+          throw forbidden()
+        }
+        const values: unknown[] = [`${query.month}-01`]
+        const where = [
+          'r.report_date >= $1::date',
+          "r.report_date < ($1::date + interval '1 month')",
+        ]
+        if (query.siteId) {
+          values.push(query.siteId)
+          where.push(`r.site_id = $${values.length}`)
+        }
+        if (query.status) {
+          values.push(query.status)
+          where.push(`r.status = $${values.length}`)
+        }
+        const { rows } = await client.query<{
+          id: string
+          last_name: string
+          first_name: string
+          tax_code: string | null
+          day: number
+          hours: string
+          total: string
+        }>(
+          `select e.id, e.last_name, e.first_name, e.tax_code,
+             extract(day from r.report_date)::int as day,
+             sum(l.hours)::numeric(8, 2)::text as hours,
+             (sum(sum(l.hours)) over (partition by e.id))::numeric(8, 2)::text as total
+           from public.daily_report_labor l
+           join public.daily_reports r on r.id = l.report_id
+           join public.employees e on e.id = l.employee_id
+           where ${where.join(' and ')}
+           group by e.id, r.report_date
+           order by lower(e.last_name), lower(e.first_name), e.id, r.report_date`,
+          values,
+        )
+        const [year = 0, month = 0] = query.month.split('-').map(Number)
+        const days = new Date(Date.UTC(year, month, 0)).getUTCDate()
+        const employees = new Map<
+          string,
+          { head: string[]; cells: (string | null)[]; total: string }
+        >()
+        for (const r of rows) {
+          let entry = employees.get(r.id)
+          if (!entry) {
+            entry = {
+              head: [r.last_name, r.first_name, r.tax_code ?? ''],
+              cells: Array.from({ length: days }, () => null),
+              total: r.total,
+            }
+            employees.set(r.id, entry)
+          }
+          entry.cells[r.day - 1] = /^0+(\.0+)?$/.test(r.hours) ? null : italianQuantity(r.hours)
+        }
+        return toCsv(
+          [
+            'Cognome',
+            'Nome',
+            'Codice fiscale',
+            ...Array.from({ length: days }, (_, i) => String(i + 1)),
+            'Totale',
+          ],
+          [...employees.values()].map((e) => [...e.head, ...e.cells, italianQuantity(e.total)]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="ore-${query.month}.csv"`)
         .send(csv)
     },
   )

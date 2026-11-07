@@ -18,6 +18,7 @@ const ALL: Permission[] = [
   'reports.delete',
   'reports.approve',
   'sites.delete',
+  'employees.view',
   'employees.delete',
   'vehicles.delete',
 ]
@@ -151,6 +152,114 @@ describe('daily reports', () => {
     const browser = new Browser(ctx.app)
     await browser.signIn(guest.email)
     expect((await browser.call('GET', `${url}/pdf`)).statusCode).toBe(404)
+  })
+
+  it('exports the monthly hours of each employee, one column per day', async () => {
+    const s = await scene()
+    await ctx.owner.query(
+      "update public.employees set tax_code = 'VRDLCU80A01H501U' where id = $1",
+      [s.verdi],
+    )
+    // Verdi on two sites the same day: 8 + 2 hours on the 5th.
+    const { report } = await create(s)
+    await create(s, {
+      site_id: s.other,
+      labor: [{ employee_id: s.verdi, hours: '2', description: null }],
+      vehicles: [],
+    })
+    await create(s, {
+      date: '2026-11-30',
+      labor: [{ employee_id: s.bassi, hours: '4.25', description: null }],
+      vehicles: [],
+    })
+    // Outside the month.
+    await create(s, {
+      date: '2026-12-01',
+      labor: [{ employee_id: s.verdi, hours: '9', description: null }],
+    })
+    await create(s, {
+      date: '2026-10-31',
+      labor: [{ employee_id: s.verdi, hours: '9', description: null }],
+    })
+
+    const url = `${s.base}/monthly-hours`
+    const read = async (query: string) => {
+      const res = await s.browser.call('GET', `${url}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.body.replace('﻿', '').trim().split('\r\n')
+    }
+    const res = await s.browser.call('GET', `${url}?month=2026-11`)
+    expect(res.headers['content-disposition']).toBe('attachment; filename="ore-2026-11.csv"')
+    const lines = await read('month=2026-11')
+    const days = Array.from({ length: 30 }, (_, i) => String(i + 1))
+    expect(lines[0]).toBe(['Cognome', 'Nome', 'Codice fiscale', ...days, 'Totale'].join(';'))
+    const row = (
+      last: string,
+      first: string,
+      tax: string,
+      cells: Record<number, string>,
+      total: string,
+    ) => [last, first, tax, ...days.map((d) => cells[Number(d)] ?? ''), total].join(';')
+    expect(lines.slice(1)).toEqual([
+      row('Bassi', 'Anna', '', { 5: '7,5', 30: '4,25' }, '11,75'),
+      row('Verdi', 'Luca', 'VRDLCU80A01H501U', { 5: '10' }, '10'),
+    ])
+    // February has 28 days; a month with no reports has only the header.
+    const feb = await read('month=2026-02')
+    expect(feb).toHaveLength(1)
+    expect(feb[0]?.split(';')).toHaveLength(3 + 28 + 1)
+
+    // Only one site, only one status.
+    expect((await read(`month=2026-11&filter[site]=${s.other}`)).slice(1)).toEqual([
+      row('Verdi', 'Luca', 'VRDLCU80A01H501U', { 5: '2' }, '2'),
+    ])
+    expect(await read('month=2026-11&filter[status]=approved')).toHaveLength(1)
+    for (const [status, version] of [
+      ['submitted', '"1"'],
+      ['approved', '"2"'],
+    ] as const) {
+      const moved = await s.browser.call('POST', `${s.base}/${report.id}/status`, {
+        body: { status },
+        headers: { 'If-Match': version },
+      })
+      expect(moved.statusCode).toBe(200)
+    }
+    expect((await read('month=2026-11&filter[status]=approved')).slice(1)).toEqual([
+      row('Bassi', 'Anna', '', { 5: '7,5' }, '7,5'),
+      row('Verdi', 'Luca', 'VRDLCU80A01H501U', { 5: '8' }, '8'),
+    ])
+
+    // A missing or wrong month, a wrong filter: 422 under the field.
+    for (const [query, field] of [
+      ['', 'month'],
+      ['month=2026-13', 'month'],
+      ['month=2026-11-01', 'month'],
+      ['month=2026-11&filter[status]=nope', 'filter[status]'],
+      ['month=2026-11&filter[site]=x', 'filter[site]'],
+    ] as const) {
+      const bad = await s.browser.call('GET', `${url}?${query}`)
+      expect(bad.statusCode).toBe(422)
+      expect(bad.json<{ errors: Record<string, unknown> }>().errors).toHaveProperty([field])
+    }
+
+    // Another company sees only its own hours; its slug for ours is a 404.
+    const theirs = await scene()
+    const other = await theirs.browser.call('GET', `${theirs.base}/monthly-hours?month=2026-11`)
+    expect(other.body.replace('﻿', '').trim().split('\r\n')).toHaveLength(1)
+    expect((await theirs.browser.call('GET', `${url}?month=2026-11`)).statusCode).toBe(404)
+
+    // Both permissions are needed: hours alone do not show tax codes.
+    for (const permissions of [['reports.view'], ['employees.view']] as Permission[][]) {
+      const guest = await fx.user()
+      await fx.member(
+        guest.id,
+        s.company.id,
+        await fx.role(s.company.id, `Ospite ${permissions.join()}`, permissions),
+      )
+      const browser = new Browser(ctx.app)
+      await browser.signIn(guest.email)
+      expect((await browser.call('GET', `${url}?month=2026-11`)).statusCode).toBe(403)
+    }
   })
 
   it('exports the reports as CSV with the same filters', async () => {
