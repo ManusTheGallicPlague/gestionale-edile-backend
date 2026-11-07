@@ -24,6 +24,7 @@ const ALL: Permission[] = [
   'deadlines.view',
   'price_lists.view',
   'documents.view',
+  'warehouse.view',
 ]
 
 interface Hit {
@@ -109,6 +110,10 @@ async function scene(permissions: Permission[] = ALL) {
        'application/pdf', 100)`,
     [site.rows[0]?.id],
   )
+  await q(
+    `insert into public.warehouse_items (company_id, code, name, unit)
+     values ($1, 'ROSSI-T', 'Tavole da ponte', 'pz')`,
+  )
 
   const user = await fx.user()
   await fx.member(user.id, id, await fx.role(id, 'Ricerca', permissions))
@@ -143,6 +148,7 @@ describe('quick search', () => {
       ['deadline', 'DURC Ferramenta Rossi', '31/12/2026'],
       ['price_list_item', 'Intonaco civile', 'ROSSI.01'],
       ['site_document', 'Contratto', 'Villa sul lago'],
+      ['warehouse_item', 'Tavole da ponte', 'ROSSI-T'],
     ])
     const parent = (type: string) => body.items.find((h) => h.type === type)?.parent_id
     expect(parent('price_list_item')).toBe(s.priceListId)
@@ -160,6 +166,7 @@ describe('quick search', () => {
     expect(await types('2026/005')).toEqual([['purchase_order', '2026/005']])
     expect(await types('luca rossi')).toEqual([['employee', 'Rossi Luca']])
     expect(await types('ab123')).toEqual([['vehicle', 'Escavatore Rossi']])
+    expect(await types('rossi-t')).toEqual([['warehouse_item', 'Tavole da ponte']])
   })
 
   it('treats % and _ as plain characters', async () => {
@@ -206,7 +213,7 @@ describe('quick search', () => {
       'select id from public.clients where company_id = $1',
       [other.company.id],
     )
-    expect(ids).toHaveLength(12)
+    expect(ids).toHaveLength(13)
     for (const row of theirs.rows) expect(ids).not.toContain(row.id)
 
     const cross = await mine.browser.call('GET', `${other.url}?q=rossi`)

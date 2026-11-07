@@ -103,6 +103,12 @@ const TYPES: { type: string; permission: Permission; sql: string; parent?: true 
       from public.site_documents d join public.sites s on s.id = d.site_id
       where d.title ilike $1 or d.file_name ilike $1`,
   },
+  {
+    type: 'warehouse_item',
+    permission: 'warehouse.view',
+    sql: `select id, name as title, code as subtitle from public.warehouse_items
+      where name ilike $1 or code ilike $1`,
+  },
 ]
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
