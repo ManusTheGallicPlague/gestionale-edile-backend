@@ -219,7 +219,7 @@ describe('invoices', () => {
     expect(kept.statusCode).toBe(200)
     expect(kept.json()).toMatchObject({ vat_nature: 'N6.3' })
     const csv = await s.browser.call('GET', `${s.base}/export`)
-    expect(csv.body).toContain(';1500,00;0,00;N6.3;1500,00;0,00;No;1500,00;')
+    expect(csv.body).toContain(';1500,00;0,00;N6.3;1500,00;0,00;No;No;1500,00;')
 
     const withVat = await put(received(s, { vat_nature: 'N6.3' }), 2)
     expect(withVat.statusCode).toBe(422)
@@ -270,7 +270,7 @@ describe('invoices', () => {
     const list = await s.browser.call('GET', s.base)
     expect(list.json()).toMatchObject({ total_amount: '1220.00', outstanding_amount: '1020.00' })
     const csv = await s.browser.call('GET', `${s.base}/export`)
-    expect(csv.body).toContain(';1000,00;220,00;;1220,00;200,00;No;1020,00;')
+    expect(csv.body).toContain(';1000,00;220,00;;1220,00;200,00;No;No;1020,00;')
 
     const url = `${s.base}/${invoice.id}`
     const put = (body: object, version: number) =>
@@ -319,7 +319,7 @@ describe('invoices', () => {
     const list = await s.browser.call('GET', s.base)
     expect(list.json()).toMatchObject({ total_amount: '11000.50', outstanding_amount: '10000.00' })
     const csv = await s.browser.call('GET', `${s.base}/export`)
-    expect(csv.body).toContain(';11000,50;0,00;Sì;10000,00;')
+    expect(csv.body).toContain(';11000,50;0,00;Sì;No;10000,00;')
 
     const url = `${s.base}/${invoice.id}`
     const put = (body: object, version: number) =>
@@ -366,6 +366,8 @@ describe('invoices', () => {
     const kept = await put(issued(s, { taxable_amount: '9000' }), 1)
     expect(kept.statusCode).toBe(200)
     expect(kept.json()).toMatchObject({ retention_release: true, taxable_amount: '9000.00' })
+    const csv = await s.browser.call('GET', `${s.base}/export`)
+    expect(csv.body).toContain(';10000,50;0,00;No;Sì;10000,50;')
     for (const body of [
       received(s),
       issued(s, { site_id: null }),
@@ -547,9 +549,9 @@ describe('invoices', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="fatture.csv"')
     const lines = res.body.replace('﻿', '').trim().split('\r\n')
     expect(lines).toEqual([
-      "Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Natura IVA;Totale;Ritenuta d'acconto;Scissione dei pagamenti;Netto a pagare;Già pagato;Residuo;Scadenza pagamento;Pagata il;Stato;Note",
-      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;;11000,50;0,00;No;11000,50;0,00;0,00;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
-      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;;1830,00;0,00;No;1830,00;0,00;1830,00;;;Da pagare;',
+      "Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Natura IVA;Totale;Ritenuta d'acconto;Scissione dei pagamenti;Svincolo ritenuta;Netto a pagare;Già pagato;Residuo;Scadenza pagamento;Pagata il;Stato;Note",
+      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;;11000,50;0,00;No;No;11000,50;0,00;0,00;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
+      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;;1830,00;0,00;No;No;1830,00;0,00;1830,00;;;Da pagare;',
     ])
     const filtered = await s.browser.call('GET', `${url}?filter[direction]=received`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
