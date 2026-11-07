@@ -6972,6 +6972,38 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+    put:
+      operationId: arrangeQuoteLines
+      summary: Riordino delle righe, in blocco
+      description: |
+        Permesso: quotes.update. Solo in bozza. Si inviano gli id di tutte le righe del
+        preventivo, ognuna una volta sola, nel nuovo ordine: la posizione è quella nell'elenco.
+        Testi, prezzi, totali e versioni delle righe non cambiano. Se nel frattempo una riga è
+        stata aggiunta o eliminata l'elenco non torna più e la risposta è 422 su lines: si
+        ricarica la pagina. Per mettere una riga nuova a metà si crea in fondo e poi si riordina.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/QuoteLineArrangement' }
+      responses:
+        '200':
+          description: Le righe nel nuovo ordine
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/QuoteLineList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il preventivo non è più in bozza (code quote_not_draft).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/quotes/{quote}/lines/{line}:
     parameters:
@@ -10866,6 +10898,15 @@ components:
             version:
               type: string
               description: Lo stesso valore dell'ETag, da rimandare in If-Match.
+    QuoteLineArrangement:
+      type: object
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          description: Gli id di tutte le righe del preventivo, nel nuovo ordine.
+          maxItems: 2000
+          items: { $ref: '#/components/schemas/Id' }
     QuoteLineList:
       type: object
       required: [data]

@@ -168,6 +168,21 @@ function parseLine(body: unknown): LineInput {
   return input
 }
 
+function parseArrangement(body: unknown): string[] {
+  const lines =
+    typeof body === 'object' && body !== null && !Array.isArray(body)
+      ? (body as Record<string, unknown>).lines
+      : undefined
+  if (!Array.isArray(lines)) {
+    throw new ValidationFailed({ lines: ['Serve l’elenco degli id delle righe.'] })
+  }
+  if (lines.length > 2000) throw new ValidationFailed({ lines: ['Al massimo 2000 righe.'] })
+  if (!lines.every((id): id is string => typeof id === 'string' && UUID.test(id))) {
+    throw new ValidationFailed({ lines: ['Ogni elemento deve essere l’id di una riga.'] })
+  }
+  return lines.map((id) => id.toLowerCase())
+}
+
 /** Opens the company and the quote; writes need a draft, locked until commit. */
 async function enterQuote(
   client: PoolClient,
@@ -257,6 +272,43 @@ export function quoteLineRoutes(app: FastifyInstance, config: Config, db: Db): v
     })
     if (!row) throw new Error('insert returned no row')
     return sendLine(reply, row, 201)
+  })
+
+  app.put<{ Params: Params }>(base, async (request) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const quoteId = await enterQuote(client, request, 'quotes.update')
+      const order = parseArrangement(request.body)
+      const { rows: existing } = await client.query<{ id: string }>(
+        'select id from public.quote_lines where quote_id = $1',
+        [quoteId],
+      )
+      const known = new Set(existing.map((r) => r.id))
+      if (
+        new Set(order).size !== order.length ||
+        order.length !== known.size ||
+        !order.every((id) => known.has(id))
+      ) {
+        throw new ValidationFailed({
+          lines: [
+            'Servono tutte le righe del preventivo, ognuna una volta sola: ricarica la pagina.',
+          ],
+        })
+      }
+      await client.query(
+        `update public.quote_lines l set position = o.n - 1
+         from unnest($2::uuid[]) with ordinality as o(id, n)
+         where l.id = o.id and l.quote_id = $1 and l.position <> o.n - 1`,
+        [quoteId, order],
+      )
+      await touch(client, quoteId)
+      const { rows } = await client.query<LineRow>(
+        `select ${LINE_COLUMNS} from public.quote_lines where quote_id = $1 order by position, id`,
+        [quoteId],
+      )
+      return { data: rows.map(lineToContract) }
+    })
   })
 
   app.put<{ Params: Params }>(`${base}/:line`, async (request, reply) => {

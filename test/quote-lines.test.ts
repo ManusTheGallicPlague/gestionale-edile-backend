@@ -161,6 +161,86 @@ describe('quote lines', () => {
     expect(still.data).toHaveLength(1)
   })
 
+  it('reorders all the lines at once, keeping content and versions', async () => {
+    const { browser, base, quoteUrl } = await scene()
+    const add = async (body: object) =>
+      (await browser.call('POST', base, { body })).json<Line & { version: string }>()
+    const section = await add(text('section', 'Copertura'))
+    const first = await add(item())
+    const note = await add(text('text', 'Ponteggi esclusi.'))
+    const second = await add(item({ quantity: '2', unit_price: '10.00' }))
+    const before = (await browser.call('GET', quoteUrl)).json<{ totals: unknown }>().totals
+
+    const order = [section.id, second.id, note.id, first.id]
+    const res = await browser.call('PUT', base, { body: { lines: order } })
+    expect(res.statusCode).toBe(200)
+    const data = res.json<{ data: (Line & { version: string })[] }>().data
+    expect(data.map((l) => l.id)).toEqual(order)
+    expect(data.map((l) => l.position)).toEqual([0, 1, 2, 3])
+    expect(data.map((l) => l.version)).toEqual(['"1"', '"1"', '"1"', '"1"'])
+    expect(data[1]).toMatchObject({ amount: '20.00' })
+    const listed = (await browser.call('GET', base)).json<{ data: Line[] }>().data
+    expect(listed.map((l) => l.id)).toEqual(order)
+    expect((await browser.call('GET', quoteUrl)).json<{ totals: unknown }>().totals).toEqual(before)
+
+    // A line added afterwards goes at the end, after the new order.
+    expect((await add(text('text', 'Fine.'))).position).toBe(4)
+  })
+
+  it.each([
+    ['a line missing', (ids: string[]) => ids.slice(1)],
+    ['a line twice', (ids: string[]) => [...ids, ids[0]]],
+    [
+      'an unknown line',
+      (ids: string[]) => [...ids.slice(1), '0b8f6a52-3c1e-4d7a-9f20-6f1b2c3d4e5f'],
+    ],
+    ['an id that is not a UUID', (ids: string[]) => [...ids.slice(1), 'riga']],
+    ['no array', () => 'tutte'],
+  ])('refuses a reordering with %s, changing nothing', async (_label, build) => {
+    const { browser, base } = await scene()
+    const ids: string[] = []
+    for (const body of [item(), text('text', 'Nota'), item()]) {
+      ids.push((await browser.call('POST', base, { body })).json<Line>().id)
+    }
+    const res = await browser.call('PUT', base, { body: { lines: build([...ids].reverse()) } })
+    expect(res.statusCode).toBe(422)
+    expect(Object.keys(res.json<{ errors: object }>().errors)).toEqual(['lines'])
+    const listed = (await browser.call('GET', base)).json<{ data: Line[] }>().data
+    expect(listed.map((l) => l.id)).toEqual(ids)
+  })
+
+  it('reordering: only drafts, with quotes.update, never across companies', async () => {
+    const theirs = await scene()
+    const created = await theirs.browser.call('POST', theirs.base, { body: item() })
+    const lineId = created.json<Line>().id
+    const body = { lines: [lineId] }
+
+    const mine = await scene()
+    const sameQuote = `/api/companies/${mine.company.slug}/quotes/${theirs.quoteId}/lines`
+    expect((await mine.browser.call('PUT', sameQuote, { body })).statusCode).toBe(404)
+    // Their line id in my quote is unknown: 422, and their quote is untouched.
+    expect((await mine.browser.call('PUT', mine.base, { body })).statusCode).toBe(422)
+
+    const reader = await scene(['quotes.view'])
+    expect(
+      (await reader.browser.call('PUT', reader.base, { body: { lines: [] } })).statusCode,
+    ).toBe(403)
+    // Like the other writes on lines: 403 without quotes.update.
+    const blind = await scene(['clients.view'])
+    expect((await blind.browser.call('PUT', blind.base, { body: { lines: [] } })).statusCode).toBe(
+      403,
+    )
+    expect((await new Browser(ctx.app).call('PUT', theirs.base, { body })).statusCode).toBe(401)
+    expect((await theirs.browser.call('PUT', theirs.base, { body, csrf: false })).statusCode).toBe(
+      403,
+    )
+
+    await theirs.browser.call('POST', `${theirs.quoteUrl}/send`, { headers: { 'if-match': '"1"' } })
+    const sent = await theirs.browser.call('PUT', theirs.base, { body })
+    expect(sent.statusCode).toBe(409)
+    expect(sent.json()).toMatchObject({ code: 'quote_not_draft' })
+  })
+
   it('computes taxable, VAT per rate and total on the quote', async () => {
     const { browser, base, quoteUrl } = await scene()
     const empty = await browser.call('GET', quoteUrl)
