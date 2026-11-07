@@ -3431,7 +3431,7 @@ paths:
         Qualsiasi membro dell'azienda la chiama; ogni sezione è null se manca il suo permesso:
         sites con sites.view; over_budget con sites.view e costs.view; costs_this_month con
         costs.view; reports con reports.view; deadlines con deadlines.view; invoices con
-        invoices.view; progress_statements con estimates.view. Le date sono quelle
+        invoices.view; progress_statements con estimates.view; quotes con quotes.view. Le date sono quelle
         di oggi in Italia. over_budget elenca, dal più sforato, al massimo 10 cantieri non chiusi
         con un budget e costi oltre il budget (manodopera e mezzi dai rapportini approvati, più
         i costi inseriti a mano, come in getSiteCostSummary). costs_this_month somma i costi del
@@ -9279,6 +9279,7 @@ components:
           deadlines,
           invoices,
           progress_statements,
+          quotes,
         ]
       properties:
         today: { $ref: '#/components/schemas/Date' }
@@ -9361,6 +9362,10 @@ components:
                 to_invoice: { type: integer, minimum: 0 }
                 to_invoice_amount: { $ref: '#/components/schemas/SignedAmount' }
                 to_invoice_net_amount: { $ref: '#/components/schemas/SignedAmount' }
+            - type: 'null'
+        quotes:
+          oneOf:
+            - $ref: '#/components/schemas/DashboardQuotes'
             - type: 'null'
     SubjectAccount:
       type: object
@@ -9509,6 +9514,39 @@ components:
           description: Parte di payable già scaduta.
           allOf:
             - $ref: '#/components/schemas/Amount'
+    DashboardQuotes:
+      type: object
+      description: |
+        Preventivi da seguire, con quotes.view. In attesa: inviati (status sent) e non
+        sostituiti da una revisione già inviata (una revisione in bozza non conta: il cliente ha
+        ancora il preventivo di prima); l'importo è la somma dei loro imponibili. Validità: la
+        data valid_until del preventivo, cioè la data più validity_days.
+      required: [drafts, awaiting, awaiting_taxable, expiring, past_validity, accepted_without_site]
+      properties:
+        drafts:
+          type: integer
+          minimum: 0
+          description: Preventivi in bozza.
+        awaiting:
+          type: integer
+          minimum: 0
+          description: Preventivi in attesa di risposta del cliente.
+        awaiting_taxable:
+          description: Imponibile dei preventivi in attesa.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+        expiring:
+          type: integer
+          minimum: 0
+          description: In attesa con la validità che finisce entro 7 giorni da oggi, oggi compreso.
+        past_validity:
+          type: integer
+          minimum: 0
+          description: In attesa con la validità già finita, da sollecitare o da segnare scaduti.
+        accepted_without_site:
+          type: integer
+          minimum: 0
+          description: Preventivi accettati da cui non è ancora stato creato un cantiere.
     DashboardOverBudgetSite:
       type: object
       required: [site, budget, total, overrun]

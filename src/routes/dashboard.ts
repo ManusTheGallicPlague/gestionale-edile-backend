@@ -211,6 +211,51 @@ async function invoiceTotals(client: PoolClient, today: string) {
   }
 }
 
+/**
+ * Quotes to follow up. Awaiting: sent and not replaced by a revision; the taxable amount
+ * rounds each line as the quote totals do, then sums them.
+ */
+async function quoteTotals(client: PoolClient, today: string) {
+  const { rows } = await client.query<{
+    drafts: number
+    awaiting: number
+    taxable: string
+    expiring: number
+    past_validity: number
+    accepted_without_site: number
+  }>(
+    `with q as (
+       select q.status, q.issue_date + q.validity_days as valid_until,
+         q.status = 'sent' and not exists (
+           select 1 from public.quotes r
+           where r.revision_of_id = q.id and r.status <> 'draft') as awaiting,
+         exists (select 1 from public.sites s where s.quote_id = q.id) as has_site,
+         (select coalesce(sum(round(l.quantity * l.unit_price_cents
+             * (100 - l.discount_percent) / 100)), 0)
+          from public.quote_lines l where l.quote_id = q.id and l.kind = 'item') as taxable
+       from public.quotes q
+     )
+     select count(*) filter (where status = 'draft')::int as drafts,
+       count(*) filter (where awaiting)::int as awaiting,
+       coalesce(sum(taxable) filter (where awaiting), 0)::bigint::text as taxable,
+       count(*) filter (where awaiting and valid_until between $1::date and $1::date + 7)::int
+         as expiring,
+       count(*) filter (where awaiting and valid_until < $1::date)::int as past_validity,
+       count(*) filter (where status = 'accepted' and not has_site)::int as accepted_without_site
+     from q`,
+    [today],
+  )
+  const r = rows[0]
+  return {
+    drafts: r?.drafts ?? 0,
+    awaiting: r?.awaiting ?? 0,
+    awaiting_taxable: centsToAmount(r?.taxable ?? '0'),
+    expiring: r?.expiring ?? 0,
+    past_validity: r?.past_validity ?? 0,
+    accepted_without_site: r?.accepted_without_site ?? 0,
+  }
+}
+
 /** The company dashboard: each section only for those who may see its data. */
 export function dashboardRoutes(app: FastifyInstance, db: Db): void {
   app.get<{ Params: { company: string } }>('/api/companies/:company/dashboard', async (request) => {
@@ -233,6 +278,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         deadlines: can('deadlines.view') ? await nearDeadlines(client, today) : null,
         invoices: can('invoices.view') ? await invoiceTotals(client, today) : null,
         progress_statements: can('estimates.view') ? await statementTotals(client) : null,
+        quotes: can('quotes.view') ? await quoteTotals(client, today) : null,
       }
     })
   })

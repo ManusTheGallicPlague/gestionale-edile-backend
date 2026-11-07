@@ -208,6 +208,11 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: nella scheda di un dipenden
 - [x] Ore di un cantiere per dipendente e per mezzo (`getSiteWorkSummary` su `…/sites/{site}/work-summary`), per la scheda squadra: da chi ha più ore, costi solo con `costs.view`, stessi filtri
 - [x] Ore mensili dei dipendenti per cantiere in CSV per la Cassa Edile e il consulente del lavoro (`exportMonthlySiteHours` su `…/daily-reports/monthly-site-hours?month=2026-11`): una riga per dipendente e cantiere, con codice fiscale, indirizzo del cantiere, giorni e ore, filtri per cantiere e stato
 
+### 24. Preventivi da seguire
+Aggiunta il 07/11/2026, con il piano tutto spuntato: il titolare vuole vedere in dashboard quanti preventivi aspettano una risposta e quali stanno per perdere validità, per richiamare il cliente in tempo.
+
+- [x] Preventivi nella dashboard (`quotes` in `getDashboard`, con `quotes.view`): bozze, in attesa con il loro imponibile, in scadenza entro 7 giorni, con la validità già finita e accettati senza cantiere
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -361,6 +366,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 07/11/2026: il CSV delle ore per cantiere è un file a sé (`monthly-site-hours`) e non una colonna in più del foglio ore mensile, che resta una riga per dipendente; stessi permessi (`reports.view` ed `employees.view`) e stessi filtri.
 - 07/11/2026: nelle ore di un cantiere i costi ci sono solo con `costs.view` (le ore bastano con `reports.view`); nei totali le ore senza costo orario valgono zero, come nel riepilogo dei costi, nelle righe il costo è null.
 - 07/11/2026: le ore per cantiere di dipendenti e mezzi usano il costo orario attuale, come il riepilogo dei costi del cantiere (non c'è uno storico dei costi orari); costo null se il costo orario manca. Servono il permesso della scheda (senza, 404) e `reports.view` (senza, 403); senza filtri si contano tutti i rapportini, anche in bozza.
+- 07/11/2026: nella dashboard un preventivo inviato non è più «in attesa» quando una sua revisione è stata inviata; con la revisione ancora in bozza resta in attesa, perché il cliente ha in mano quello. L'imponibile arrotonda riga per riga, come i totali del preventivo.
 
 ## Registro dei giri
 
