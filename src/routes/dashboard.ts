@@ -9,6 +9,7 @@ import { REMAINING_CENTS } from './invoices.js'
 import { statementTotals } from './progress-statements.js'
 import { FOLLOW_UPS as ORDER_FOLLOW_UPS } from './purchase-orders.js'
 import { FOLLOW_UPS } from './quotes.js'
+import { ACTIVITY_FOLLOW_UPS } from './site-activities.js'
 import { COMPLIANCE_SQL } from './suppliers.js'
 import { BELOW_MIN } from './warehouse.js'
 
@@ -326,6 +327,16 @@ async function subcontractorCounts(client: PoolClient) {
   }
 }
 
+/** Schedule activities to follow, as filter[follow_up] in the company activity list. */
+async function activityCounts(client: PoolClient) {
+  const { rows } = await client.query<{ late: number; starting_soon: number }>(
+    `select count(*) filter (where ${ACTIVITY_FOLLOW_UPS.late})::int as late,
+       count(*) filter (where ${ACTIVITY_FOLLOW_UPS.starting_soon})::int as starting_soon
+     from public.site_activities a`,
+  )
+  return { late: rows[0]?.late ?? 0, starting_soon: rows[0]?.starting_soon ?? 0 }
+}
+
 /** The company dashboard: each section only for those who may see its data. */
 export function dashboardRoutes(app: FastifyInstance, db: Db): void {
   app.get<{ Params: { company: string } }>('/api/companies/:company/dashboard', async (request) => {
@@ -352,6 +363,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         purchase_orders: can('purchases.view') ? await purchaseOrderTotals(client) : null,
         warehouse: can('warehouse.view') ? await warehouseCounts(client) : null,
         subcontractors: can('suppliers.view') ? await subcontractorCounts(client) : null,
+        activities: can('sites.view') ? await activityCounts(client) : null,
       }
     })
   })

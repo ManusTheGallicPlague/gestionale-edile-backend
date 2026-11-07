@@ -3631,6 +3631,43 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/activities:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listCompanyActivities
+      summary: Attività del cronoprogramma di tutti i cantieri
+      description: |
+        Permesso: sites.view. Le attività di tutti i cantieri, in ordine di fine, inizio e nome,
+        con il cantiere. Filtri sul cantiere (filter[site]) e sulle attività da seguire
+        (filter[follow_up]), calcolate sulla data italiana e solo per i cantieri previsti o in
+        corso (non sospesi né chiusi): late le attività non finite (avanzamento sotto 100) con
+        la fine già passata; starting_soon quelle non ancora iniziate (avanzamento 0) che
+        iniziano entro 7 giorni da oggi, oggi compreso; in_progress quelle non finite in corso
+        oggi. Sono le stesse condizioni di activities in getDashboard.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              follow_up: { $ref: '#/components/schemas/ActivityFollowUp' }
+      responses:
+        '200':
+          description: Una pagina di attività
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyActivityList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/progress-statements:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -9422,6 +9459,7 @@ components:
           purchase_orders,
           warehouse,
           subcontractors,
+          activities,
         ]
       properties:
         today: { $ref: '#/components/schemas/Date' }
@@ -9554,6 +9592,10 @@ components:
                   type: integer
                   minimum: 0
                   description: Senza un DURC valido oggi.
+            - type: 'null'
+        activities:
+          oneOf:
+            - $ref: '#/components/schemas/DashboardActivities'
             - type: 'null'
     SubjectAccount:
       type: object
@@ -9993,6 +10035,55 @@ components:
             updated_at:
               type: string
               format: date-time
+    ActivityFollowUp:
+      type: string
+      description: |
+        late: non finite con la fine già passata. starting_soon: non iniziate che iniziano entro
+        7 giorni, oggi compreso. in_progress: non finite in corso oggi. Solo cantieri previsti o
+        in corso.
+      enum: [late, starting_soon, in_progress]
+    CompanyActivityList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/SiteActivity'
+              - type: object
+                required: [site, days_late]
+                properties:
+                  site:
+                    type: object
+                    required: [id, name, code, status]
+                    properties:
+                      id: { $ref: '#/components/schemas/Id' }
+                      name: { type: string }
+                      code: { type: [string, 'null'] }
+                      status: { $ref: '#/components/schemas/SiteStatus' }
+                  days_late:
+                    type: integer
+                    minimum: 0
+                    description: |
+                      Giorni passati dalla fine prevista per un'attività non finita; 0 se è
+                      finita o la fine non è ancora passata.
+        meta: { $ref: '#/components/schemas/ListMeta' }
+    DashboardActivities:
+      type: object
+      description: |
+        Attività del cronoprogramma da seguire, con sites.view, con le stesse condizioni di
+        filter[follow_up] in listCompanyActivities (solo cantieri previsti o in corso).
+      required: [late, starting_soon]
+      properties:
+        late:
+          type: integer
+          minimum: 0
+          description: Attività non finite con la fine già passata.
+        starting_soon:
+          type: integer
+          minimum: 0
+          description: Attività non iniziate che iniziano entro 7 giorni da oggi, oggi compreso.
     SiteActivityList:
       type: object
       required: [data]

@@ -195,6 +195,72 @@ async function writeDependencies(
   }
 }
 
+const TODAY = "(now() at time zone 'Europe/Rome')::date"
+const FOLLOWED_SITE =
+  "(select s.status from public.sites s where s.id = a.site_id) in ('planned', 'active')"
+
+/**
+ * Schedule activities to follow, only on planned or active sites: the same conditions for
+ * filter[follow_up] in the company list and for the dashboard (alias `a`).
+ */
+export const ACTIVITY_FOLLOW_UPS = {
+  late: `(${FOLLOWED_SITE} and a.progress < 100 and a.end_on < ${TODAY})`,
+  starting_soon: `(${FOLLOWED_SITE} and a.progress = 0 and a.start_on between ${TODAY} and ${TODAY} + 7)`,
+  in_progress: `(${FOLLOWED_SITE} and a.progress < 100 and ${TODAY} between a.start_on and a.end_on)`,
+} as const
+
+type FollowUp = keyof typeof ACTIVITY_FOLLOW_UPS
+const isFollowUp = (value: string): value is FollowUp => Object.hasOwn(ACTIVITY_FOLLOW_UPS, value)
+
+function readCompanyList(query: Record<string, unknown>) {
+  const errors: FieldErrors = {}
+  const single = (name: string): string | undefined => {
+    const value = query[name]
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') {
+      errors[name] = ['Indicalo una volta sola.']
+      return undefined
+    }
+    return value
+  }
+  const integer = (name: string, fallback: number, max?: number): number => {
+    const value = single(name)
+    if (value === undefined) return fallback
+    const n = /^\d{1,6}$/.test(value) ? Number(value) : NaN
+    if (!Number.isInteger(n) || n < 1 || (max !== undefined && n > max)) {
+      errors[name] = [max ? `Un numero intero da 1 a ${max}.` : 'Un numero intero da 1 in su.']
+      return fallback
+    }
+    return n
+  }
+  const page = integer('page', 1)
+  const perPage = integer('per_page', 25, 100)
+  const where = ['true']
+  const values: unknown[] = []
+  const site = single('filter[site]')
+  if (site !== undefined) {
+    if (!UUID.test(site)) errors['filter[site]'] = ['Identificativo non valido.']
+    else {
+      values.push(site.toLowerCase())
+      where.push(`a.site_id = $${values.length}`)
+    }
+  }
+  const followUp = single('filter[follow_up]')
+  if (followUp !== undefined) {
+    if (isFollowUp(followUp)) where.push(ACTIVITY_FOLLOW_UPS[followUp])
+    else errors['filter[follow_up]'] = ['Valori ammessi: late, starting_soon, in_progress.']
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { page, perPage, where: where.join(' and '), values }
+}
+
+interface CompanyActivityRow extends ActivityRow {
+  site_name: string
+  site_code: string | null
+  site_status: string
+  days_late: number
+}
+
 export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/sites/:site/activities'
 
@@ -213,6 +279,44 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
       if (!(await siteExists(client, siteId, write))) throw notFound()
       return fn(client, siteId)
     })
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/activities',
+    async (request) => {
+      const session = requireSession(request)
+      const list = readCompanyList(request.query)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('sites.view')) throw forbidden()
+        const offset = (list.page - 1) * list.perPage
+        const { rows } = await client.query<CompanyActivityRow>(
+          `select x.*, s.name as site_name, s.code as site_code, s.status as site_status
+           from (${SELECT.replace(
+             'a.created_at, a.updated_at,',
+             `a.created_at, a.updated_at,
+               case when a.progress < 100 and a.end_on < ${TODAY}
+                 then ${TODAY} - a.end_on else 0 end as days_late,`,
+           )} where ${list.where}) x
+           join public.sites s on s.id = x.site_id
+           order by x.end_on, x.start_on, lower(x.name), x.id
+           limit ${list.perPage} offset ${offset}`,
+          list.values,
+        )
+        const count = await client.query<{ total: number }>(
+          `select count(*)::int as total from public.site_activities a where ${list.where}`,
+          list.values,
+        )
+        return {
+          data: rows.map((r) => ({
+            ...toContract(r),
+            site: { id: r.site_id, name: r.site_name, code: r.site_code, status: r.site_status },
+            days_late: r.days_late,
+          })),
+          meta: { total: count.rows[0]?.total ?? 0, page: list.page, per_page: list.perPage },
+        }
+      })
+    },
+  )
 
   app.get<{ Params: Params }>(base, async (request) => {
     const session = requireSession(request)
