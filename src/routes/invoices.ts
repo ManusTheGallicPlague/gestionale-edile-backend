@@ -25,6 +25,7 @@ import {
 } from '../http/files.js'
 import { cleanFileName, matchesType } from './site-documents.js'
 import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
+import { isVatNature, type VatNature } from '../quotes/vat.js'
 
 export const DIRECTIONS = ['issued', 'received'] as const
 type Direction = (typeof DIRECTIONS)[number]
@@ -44,6 +45,8 @@ interface InvoiceInput {
   description: string | null
   taxable_cents: string
   vat_cents: string
+  /** undefined when absent: null on creation, unchanged on update (if VAT stays zero). */
+  vat_nature: VatNature | null | undefined
   due_date: string | null
   paid_on: string | null
   notes: string | null
@@ -64,6 +67,7 @@ interface InvoiceRow {
   description: string | null
   taxable_cents: string
   vat_cents: string
+  vat_nature: VatNature | null
   total_cents: string
   due_date: string | null
   paid_on: string | null
@@ -95,7 +99,7 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
     i.client_id, c.name as client_name, i.supplier_id, p.name as supplier_name,
     i.site_id, s.name as site_name, s.code as site_code, i.description,
     i.taxable_cents::text as taxable_cents, i.vat_cents::text as vat_cents,
-    (i.taxable_cents + i.vat_cents)::text as total_cents,
+    i.vat_nature, (i.taxable_cents + i.vat_cents)::text as total_cents,
     i.due_date::text as due_date, i.paid_on::text as paid_on,
     ${PAYMENT_STATUS} as payment_status, d.id as deadline_id,
     (select ${ATTACHMENT_JSON} from public.invoice_files f where f.invoice_id = i.id) as file,
@@ -130,6 +134,7 @@ function toContract(row: InvoiceRow) {
     description: row.description,
     taxable_amount: centsToAmount(row.taxable_cents),
     vat_amount: centsToAmount(row.vat_cents),
+    vat_nature: row.vat_nature,
     total: centsToAmount(row.total_cents),
     due_date: row.due_date,
     paid_on: row.paid_on,
@@ -227,6 +232,15 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
   const description = text('description', 500)
   const taxable_cents = amount('taxable_amount')
   const vat_cents = amount('vat_amount')
+  let vat_nature: VatNature | null | undefined
+  if ('vat_nature' in raw && raw.vat_nature !== undefined) {
+    if (raw.vat_nature === null) vat_nature = null
+    else if (!isVatNature(raw.vat_nature)) {
+      add('vat_nature', 'Natura IVA non valida: un codice come N6.3.')
+    } else if (vat_cents !== null && vat_cents !== '0') {
+      add('vat_nature', 'La natura IVA si indica solo senza IVA (0.00).')
+    } else vat_nature = raw.vat_nature
+  }
   const due_date = date('due_date')
   if (
     due_date !== null &&
@@ -259,6 +273,7 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
     description,
     taxable_cents,
     vat_cents,
+    vat_nature,
     due_date,
     paid_on,
     notes,
@@ -490,6 +505,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             'Descrizione',
             'Imponibile',
             'IVA',
+            'Natura IVA',
             'Totale',
             'Scadenza pagamento',
             'Pagata il',
@@ -505,6 +521,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             r.description,
             italianAmount(r.taxable_cents),
             italianAmount(r.vat_cents),
+            r.vat_nature,
             italianAmount(r.total_cents),
             r.due_date === null ? null : italianDate(r.due_date),
             r.paid_on === null ? null : italianDate(r.paid_on),
@@ -544,8 +561,10 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const { rows } = await client
         .query<{ id: string }>(
           `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
-             supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on, notes)
-           values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+             supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on, notes,
+             vat_nature)
+           values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
+             $13)
            returning id`,
           [
             input.direction,
@@ -560,6 +579,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.due_date,
             input.paid_on,
             input.notes,
+            input.vat_nature ?? null,
           ],
         )
         .catch(writeFailed)
@@ -589,6 +609,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
            set direction = $1, number = $2, invoice_date = $3, client_id = $4, supplier_id = $5,
                site_id = $6, description = $7, taxable_cents = $8, vat_cents = $9,
                due_date = $10, paid_on = $11, notes = $12,
+               vat_nature = case when $9::bigint <> 0 then null
+                                 when $16::boolean then $15::text else vat_nature end,
                version = version + 1, updated_at = now()
            where id = $13 and version = $14`,
           [
@@ -606,6 +628,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.notes,
             id,
             version,
+            input.vat_nature ?? null,
+            input.vat_nature !== undefined,
           ],
         )
         .catch(writeFailed)

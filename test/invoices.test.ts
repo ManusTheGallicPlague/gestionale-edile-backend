@@ -203,6 +203,52 @@ describe('invoices', () => {
     })
   })
 
+  it('a subcontractor invoice in reverse charge keeps its VAT nature', async () => {
+    const s = await scene()
+    const res = await s.browser.call('POST', s.base, {
+      body: received(s, { vat_amount: '0', vat_nature: 'N6.3' }),
+    })
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ vat_amount: '0.00', vat_nature: 'N6.3', total: '1500.00' })
+    const url = `${s.base}/${res.json<Invoice>().id}`
+    const put = (body: object, version: number) =>
+      s.browser.call('PUT', url, { body, headers: { 'if-match': `"${version}"` } })
+
+    // Absent on update: unchanged while VAT stays zero.
+    const kept = await put(received(s, { vat_amount: '0.00', description: 'Getto' }), 1)
+    expect(kept.statusCode).toBe(200)
+    expect(kept.json()).toMatchObject({ vat_nature: 'N6.3' })
+    const csv = await s.browser.call('GET', `${s.base}/export`)
+    expect(csv.body).toContain(';1500,00;0,00;N6.3;1500,00;')
+
+    const withVat = await put(received(s, { vat_nature: 'N6.3' }), 2)
+    expect(withVat.statusCode).toBe(422)
+    expect(Object.keys(withVat.json<{ errors: object }>().errors)).toEqual(['vat_nature'])
+    const unknown = await put(received(s, { vat_amount: '0', vat_nature: 'N8' }), 2)
+    expect(unknown.statusCode).toBe(422)
+    expect(Object.keys(unknown.json<{ errors: object }>().errors)).toEqual(['vat_nature'])
+
+    // VAT no longer zero: the nature goes, even if not sent.
+    const taxed = await put(received(s), 2)
+    expect(taxed.statusCode).toBe(200)
+    expect(taxed.json()).toMatchObject({ vat_amount: '330.00', vat_nature: null })
+    const back = await put(received(s, { vat_amount: '0', vat_nature: 'N6.7' }), 3)
+    expect(back.json()).toMatchObject({ vat_nature: 'N6.7' })
+    const cleared = await put(received(s, { vat_amount: '0', vat_nature: null }), 4)
+    expect(cleared.json()).toMatchObject({ vat_nature: null })
+
+    // Without the field, a new invoice has none.
+    const plain = await s.browser.call('POST', s.base, {
+      body: received(s, { number: 'A-78', vat_amount: '0' }),
+    })
+    expect(plain.json()).toMatchObject({ vat_nature: null })
+    await expect(
+      ctx.owner.query("update public.invoices set vat_cents = 1, vat_nature = 'N4' where id = $1", [
+        taxed.json<Invoice>().id,
+      ]),
+    ).rejects.toThrow(/invoices_vat_nature_zero_vat/)
+  })
+
   it('a number is used once per year (per supplier for received invoices)', async () => {
     const s = await scene()
     expect((await s.browser.call('POST', s.base, { body: issued(s) })).statusCode).toBe(201)
@@ -356,9 +402,9 @@ describe('invoices', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="fatture.csv"')
     const lines = res.body.replace('﻿', '').trim().split('\r\n')
     expect(lines).toEqual([
-      'Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Totale;Scadenza pagamento;Pagata il;Stato;Note',
-      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;11000,50;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
-      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;1830,00;;;Da pagare;',
+      'Tipo;Numero;Data;Cliente o fornitore;Cantiere;Descrizione;Imponibile;IVA;Natura IVA;Totale;Scadenza pagamento;Pagata il;Stato;Note',
+      "Emessa;12/2026;02/11/2026;Mario Bianchi;Villetta;Primo SAL;10000,00;1000,50;;11000,50;31/12/2026;20/11/2026;Pagata;'=SOMMA(A1)",
+      'Ricevuta;A-77;03/11/2026;Calcestruzzi Srl;;Calcestruzzo;1500,00;330,00;;1830,00;;;Da pagare;',
     ])
     const filtered = await s.browser.call('GET', `${url}?filter[direction]=received`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(2)

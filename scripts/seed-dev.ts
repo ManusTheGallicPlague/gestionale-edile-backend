@@ -688,20 +688,26 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            select id from public.sites where company_id = $1 and code = '2026-01'
          )
          insert into public.invoices (company_id, direction, number, invoice_date, client_id,
-           supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on)
+           supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on,
+           vat_nature)
          select $1, i.direction, i.number || '/' || extract(year from current_date + i.days),
            current_date + i.days,
            case when i.direction = 'issued' then (select id from c) end,
            case when i.direction = 'received' then (select id from p) end,
            (select id from s), i.description, i.taxable, i.vat, current_date + i.due,
-           case when i.paid then current_date + i.days + 10 end
+           case when i.paid then current_date + i.days + 10 end, i.nature
          from (values
-           ('issued', '1', -40, 'Primo SAL', 2000000::bigint, 440000::bigint, 20, false),
-           ('issued', '2', -70, 'Acconto lavori', 800000::bigint, 176000::bigint, -10, false),
+           ('issued', '1', -40, 'Primo SAL', 2000000::bigint, 440000::bigint, 20, false,
+             null::text),
+           ('issued', '2', -70, 'Acconto lavori', 800000::bigint, 176000::bigint, -10, false,
+             null),
            ('received', 'F-118', -22, 'Calcestruzzo e pompaggio', 602459::bigint,
-             132541::bigint, 8, false),
-           ('received', 'F-097', -60, 'Nolo ponteggio', 150000::bigint, 33000::bigint, 0, true)
-         ) as i (direction, number, days, description, taxable, vat, due, paid)
+             132541::bigint, 8, false, null),
+           ('received', 'F-097', -60, 'Nolo ponteggio', 150000::bigint, 33000::bigint, 0, true,
+             null),
+           ('received', 'S-12', -15, 'Subappalto impianto elettrico, primo acconto',
+             450000::bigint, 0::bigint, 15, false, 'N6.3')
+         ) as i (direction, number, days, description, taxable, vat, due, paid, nature)
          where exists (select 1 from c) and exists (select 1 from p)`,
         [companyId],
       )

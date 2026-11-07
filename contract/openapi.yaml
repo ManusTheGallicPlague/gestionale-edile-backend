@@ -7149,6 +7149,14 @@ components:
           description: IVA; 0.00 per le operazioni senza IVA (ad esempio in reverse charge).
           allOf:
             - $ref: '#/components/schemas/Amount'
+        vat_nature:
+          description: |
+            Natura IVA della fattura senza IVA (es. N6.3, subappalto in inversione contabile),
+            solo con vat_amount 0.00. Facoltativa: se manca, alla creazione vale null e alla
+            modifica resta com'è; diventa null se l'IVA non è più zero.
+          oneOf:
+            - $ref: '#/components/schemas/VatNature'
+            - type: 'null'
         due_date:
           description: Scadenza di pagamento; alimenta lo scadenziario.
           oneOf:
@@ -7176,6 +7184,7 @@ components:
               payment_status,
               deadline_id,
               file,
+              vat_nature,
               created_at,
               updated_at,
             ]
