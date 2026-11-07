@@ -554,6 +554,25 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where s.company_id = $1 and s.code = '2026-01'`,
         [companyId],
       )
+      // Deadlines of an employee, a vehicle and a site.
+      await client.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, recurrence, employee_id,
+           vehicle_id, site_id)
+         select $1, 'Visita medica periodica', current_date + 20, 'medical_check', 'yearly'::text,
+           (select id from public.employees where company_id = $1 and last_name = 'Ferri'),
+           null::uuid, null::uuid
+         union all
+         select $1, 'Aggiornamento corso sicurezza', current_date + 45, 'training', null,
+           (select id from public.employees where company_id = $1 and last_name = 'Galli'),
+           null, null
+         union all
+         select $1, 'Revisione furgone', current_date + 12, 'vehicle', null, null,
+           (select id from public.vehicles where company_id = $1 and plate = 'AA000AA'), null
+         union all
+         select $1, 'Scadenza occupazione suolo pubblico', current_date + 30, 'other', null,
+           null, null, (select id from public.sites where company_id = $1 and code = '2026-01')`,
+        [companyId],
+      )
       await client.query(
         `insert into public.daily_reports (company_id, site_id, report_date, status, weather,
            work_done, submitted_at, approved_at)

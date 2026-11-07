@@ -257,6 +257,54 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.deadlines')).rejects.toThrow(/permission denied/)
   })
 
+  it('deadlines: cannot link a site, employee or vehicle of another company', async () => {
+    const site = await owner.query<{ id: string }>(
+      "insert into public.sites (company_id, name) values ($1, 'B') returning id",
+      [companyB.id],
+    )
+    const employee = await owner.query<{ id: string }>(
+      "insert into public.employees (company_id, first_name, last_name) values ($1, 'B', 'B') returning id",
+      [companyB.id],
+    )
+    const vehicle = await owner.query<{ id: string }>(
+      "insert into public.vehicles (company_id, name, kind) values ($1, 'B', 'vehicle') returning id",
+      [companyB.id],
+    )
+    for (const [column, id] of [
+      ['site_id', site.rows[0]?.id],
+      ['employee_id', employee.rows[0]?.id],
+      ['vehicle_id', vehicle.rows[0]?.id],
+    ] as const) {
+      await expect(
+        as(alice.id, companyA.id, (c) =>
+          c.query(
+            `insert into public.deadlines (company_id, title, due_on, kind, ${column})
+             values ($1, 'X', '2026-12-01', 'other', $2)`,
+            [companyA.id, id],
+          ),
+        ),
+      ).rejects.toThrow(/foreign key/)
+      // Their deadline pointing to their own vehicle is still invisible and untouchable.
+      await owner.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, ${column})
+         values ($1, 'B', '2026-12-01', 'other', $2)`,
+        [companyB.id, id],
+      )
+      const seen = await as(alice.id, companyA.id, (c) =>
+        c.query(`select 1 from public.deadlines where ${column} = $1`, [id]),
+      )
+      expect(seen.rowCount).toBe(0)
+      const changed = await as(alice.id, companyA.id, async (c) => {
+        const u = await c.query(
+          `update public.deadlines set ${column} = null where ${column} = $1`,
+          [id],
+        )
+        return u.rowCount ?? 0
+      })
+      expect(changed).toBe(0)
+    }
+  })
+
   it('estimates: cannot read, write or link a client across companies', async () => {
     const clientB = await owner.query<{ id: string }>(
       'select id from public.clients where company_id = $1 limit 1',

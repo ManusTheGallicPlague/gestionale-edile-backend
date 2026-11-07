@@ -34,6 +34,9 @@ interface DeadlineRow extends Omit<DeadlineInput, 'amount_cents'> {
   done_at: Date | null
   client_name: string | null
   supplier_name: string | null
+  site_name: string | null
+  employee_name: string | null
+  vehicle_name: string | null
   version: number
   created_at: Date
   updated_at: Date
@@ -43,12 +46,16 @@ type Params = { company: string; deadline?: string }
 
 // Dates leave the database as text, never as a JavaScript Date shifted by the time zone.
 const SELECT = `select d.id, d.title, d.due_on::text as due_on, d.kind, d.amount_cents::text as amount_cents,
-    d.client_id, d.supplier_id, d.notes, d.recurrence, d.next_deadline_id,
+    d.client_id, d.supplier_id, d.site_id, d.employee_id, d.vehicle_id, d.notes, d.recurrence, d.next_deadline_id,
     d.supplier_document_id, d.invoice_id, d.status, d.done_at, d.version, d.created_at, d.updated_at,
-    c.name as client_name, s.name as supplier_name
+    c.name as client_name, s.name as supplier_name, si.name as site_name,
+    e.last_name || ' ' || e.first_name as employee_name, v.name as vehicle_name
   from public.deadlines d
   left join public.clients c on c.id = d.client_id
-  left join public.suppliers s on s.id = d.supplier_id`
+  left join public.suppliers s on s.id = d.supplier_id
+  left join public.sites si on si.id = d.site_id
+  left join public.employees e on e.id = d.employee_id
+  left join public.vehicles v on v.id = d.vehicle_id`
 
 const SORTS = { due_on: 'd.due_on asc, d.id asc', '-due_on': 'd.due_on desc, d.id desc' } as const
 
@@ -63,6 +70,12 @@ function toContract(row: DeadlineRow) {
     supplier_id: row.supplier_id,
     client: row.client_id ? { id: row.client_id, name: row.client_name ?? '' } : null,
     supplier: row.supplier_id ? { id: row.supplier_id, name: row.supplier_name ?? '' } : null,
+    site_id: row.site_id,
+    employee_id: row.employee_id,
+    vehicle_id: row.vehicle_id,
+    site: row.site_id ? { id: row.site_id, name: row.site_name ?? '' } : null,
+    employee: row.employee_id ? { id: row.employee_id, name: row.employee_name ?? '' } : null,
+    vehicle: row.vehicle_id ? { id: row.vehicle_id, name: row.vehicle_name ?? '' } : null,
     notes: row.notes,
     recurrence: row.recurrence,
     next_deadline_id: row.next_deadline_id,
@@ -88,6 +101,9 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.status) add((p) => `d.status = ${p}`, list.status)
   if (list.clientId) add((p) => `d.client_id = ${p}`, list.clientId)
   if (list.supplierId) add((p) => `d.supplier_id = ${p}`, list.supplierId)
+  if (list.siteId) add((p) => `d.site_id = ${p}`, list.siteId)
+  if (list.employeeId) add((p) => `d.employee_id = ${p}`, list.employeeId)
+  if (list.vehicleId) add((p) => `d.vehicle_id = ${p}`, list.vehicleId)
   if (list.search) {
     add((p) => `(d.title ilike ${p} or d.notes ilike ${p})`, `%${escapeLike(list.search)}%`)
   }
@@ -102,6 +118,8 @@ const KIND_LABELS: Record<string, string> = {
   invoice_out: 'Fattura da incassare',
   contract: 'Contratto',
   vehicle: 'Mezzo',
+  medical_check: 'Visita medica',
+  training: 'Formazione',
   other: 'Altro',
 }
 const RECURRENCE_LABELS: Record<string, string> = {
@@ -140,13 +158,14 @@ async function createNext(client: PoolClient, id: string): Promise<void> {
        where id = $1 and recurrence is not null and next_deadline_id is null
      ), next as (
        insert into public.deadlines (company_id, title, due_on, kind, amount_cents, client_id,
-         supplier_id, notes, recurrence)
+         supplier_id, site_id, employee_id, vehicle_id, notes, recurrence)
        select company_id, title,
          (due_on + case recurrence
            when 'monthly' then interval '${STEP.monthly}'
            when 'quarterly' then interval '${STEP.quarterly}'
            else interval '${STEP.yearly}' end)::date,
-         kind, amount_cents, client_id, supplier_id, notes, recurrence
+         kind, amount_cents, client_id, supplier_id, site_id, employee_id, vehicle_id, notes,
+         recurrence
        from source
        returning id
      )
@@ -156,11 +175,22 @@ async function createNext(client: PoolClient, id: string): Promise<void> {
   )
 }
 
-/** The composite foreign keys refuse a client or supplier of another company, or a missing one. */
+const LINKS = [
+  ['supplier', 'supplier_id', 'Soggetto non trovato.'],
+  ['site', 'site_id', 'Cantiere non trovato.'],
+  ['employee', 'employee_id', 'Dipendente non trovato.'],
+  ['vehicle', 'vehicle_id', 'Mezzo non trovato.'],
+] as const
+
+/**
+ * The composite foreign keys refuse a client, supplier, site, employee or vehicle of another
+ * company, or a missing one.
+ */
 function subjectNotFound(error: unknown): never {
   if (isForeignKeyViolation(error)) {
-    const field = error.constraint?.includes('supplier') ? 'supplier_id' : 'client_id'
-    throw new ValidationFailed({ [field]: ['Soggetto non trovato.'] })
+    const link = LINKS.find(([name]) => error.constraint?.includes(name))
+    const [field, message] = link ? [link[1], link[2]] : ['client_id', 'Soggetto non trovato.']
+    throw new ValidationFailed({ [field]: [message] })
   }
   throw error
 }
@@ -231,9 +261,26 @@ function readList(query: Record<string, unknown>) {
   const status = oneOf('filter[status]', ['open', 'done'] as const)
   const clientId = id('filter[client]')
   const supplierId = id('filter[supplier]')
+  const siteId = id('filter[site]')
+  const employeeId = id('filter[employee]')
+  const vehicleId = id('filter[vehicle]')
 
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort, search, from, to, kind, status, clientId, supplierId }
+  return {
+    page,
+    perPage,
+    sort,
+    search,
+    from,
+    to,
+    kind,
+    status,
+    clientId,
+    supplierId,
+    siteId,
+    employeeId,
+    vehicleId,
+  }
 }
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -289,6 +336,9 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
             'Importo',
             'Cliente',
             'Fornitore',
+            'Cantiere',
+            'Dipendente',
+            'Mezzo',
             'Stato',
             'Ricorrenza',
             'Note',
@@ -300,6 +350,9 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
             r.amount_cents === null ? null : italianAmount(r.amount_cents),
             r.client_name,
             r.supplier_name,
+            r.site_name,
+            r.employee_name,
+            r.vehicle_name,
             r.status === 'done' ? 'Fatta' : 'Aperta',
             r.recurrence ? (RECURRENCE_LABELS[r.recurrence] ?? r.recurrence) : null,
             r.notes,

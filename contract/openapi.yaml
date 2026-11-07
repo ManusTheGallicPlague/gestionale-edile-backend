@@ -838,7 +838,8 @@ paths:
           in: query
           description: |
             Filtri, ad esempio filter[from]=2026-11-01&filter[to]=2026-11-30&filter[status]=open.
-            filter[client] e filter[supplier] prendono l'id del soggetto.
+            filter[client], filter[supplier], filter[site], filter[employee] e filter[vehicle]
+            prendono l'id del soggetto, del cantiere, del dipendente o del mezzo.
           style: deepObject
           explode: true
           schema:
@@ -850,6 +851,9 @@ paths:
               status: { $ref: '#/components/schemas/DeadlineStatus' }
               client: { $ref: '#/components/schemas/Id' }
               supplier: { $ref: '#/components/schemas/Id' }
+              site: { $ref: '#/components/schemas/Id' }
+              employee: { $ref: '#/components/schemas/Id' }
+              vehicle: { $ref: '#/components/schemas/Id' }
       responses:
         '200':
           description: Una pagina di scadenze
@@ -916,6 +920,9 @@ paths:
               status: { $ref: '#/components/schemas/DeadlineStatus' }
               client: { $ref: '#/components/schemas/Id' }
               supplier: { $ref: '#/components/schemas/Id' }
+              site: { $ref: '#/components/schemas/Id' }
+              employee: { $ref: '#/components/schemas/Id' }
+              vehicle: { $ref: '#/components/schemas/Id' }
       responses:
         '200':
           description: Il file CSV
@@ -6133,8 +6140,10 @@ components:
       description: |
         durc, insurance (assicurazione), tax (imposte e contributi), invoice_in (fattura da
         pagare), invoice_out (fattura da incassare), contract (contratto), vehicle (mezzo:
-        bollo, revisione), other.
-      enum: [durc, insurance, tax, invoice_in, invoice_out, contract, vehicle, other]
+        bollo, revisione), medical_check (visita medica del dipendente), training (formazione
+        e corsi sulla sicurezza), other.
+      enum:
+        [durc, insurance, tax, invoice_in, invoice_out, contract, vehicle, medical_check, training, other]
     DeadlineStatus:
       type: string
       enum: [open, done]
@@ -6156,7 +6165,8 @@ components:
       type: object
       description: |
         I campi facoltativi si inviano comunque, con null se vuoti. Al massimo uno tra
-        client_id e supplier_id.
+        client_id e supplier_id. site_id, employee_id e vehicle_id si possono omettere: un
+        campo assente vale null, anche in modifica (toglie il collegamento).
       required: [title, due_on, kind, amount, client_id, supplier_id, notes, recurrence]
       properties:
         title:
@@ -6174,6 +6184,21 @@ components:
             - $ref: '#/components/schemas/Id'
             - type: 'null'
         supplier_id:
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        site_id:
+          description: Cantiere a cui si riferisce la scadenza (es. un permesso).
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        employee_id:
+          description: Dipendente a cui si riferisce (es. visita medica, corso sulla sicurezza).
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        vehicle_id:
+          description: Mezzo a cui si riferisce (es. revisione, bollo, assicurazione).
           oneOf:
             - $ref: '#/components/schemas/Id'
             - type: 'null'
@@ -6197,6 +6222,12 @@ components:
             - invoice_id
             - client
             - supplier
+            - site_id
+            - employee_id
+            - vehicle_id
+            - site
+            - employee
+            - vehicle
             - created_at
             - updated_at
           properties:
@@ -6237,6 +6268,21 @@ components:
                 - $ref: '#/components/schemas/SubjectRef'
                 - type: 'null'
             supplier:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            site:
+              description: Cantiere collegato, con il nome.
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            employee:
+              description: Dipendente collegato, con cognome e nome.
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            vehicle:
+              description: Mezzo collegato, con il nome.
               oneOf:
                 - $ref: '#/components/schemas/SubjectRef'
                 - type: 'null'

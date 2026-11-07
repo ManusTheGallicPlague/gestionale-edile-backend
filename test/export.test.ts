@@ -136,9 +136,9 @@ describe('deadlines export', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="scadenze.csv"')
     const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
     expect(lines).toEqual([
-      'Scadenza;Titolo;Tipo;Importo;Cliente;Fornitore;Stato;Ricorrenza;Note',
-      '30/11/2026;Revisione furgone;Mezzo;;;;Aperta;;',
-      '16/12/2026;F24 IVA;Imposte;1234,50;;;Aperta;Mensile;',
+      'Scadenza;Titolo;Tipo;Importo;Cliente;Fornitore;Cantiere;Dipendente;Mezzo;Stato;Ricorrenza;Note',
+      '30/11/2026;Revisione furgone;Mezzo;;;;;;;Aperta;;',
+      '16/12/2026;F24 IVA;Imposte;1234,50;;;;;;Aperta;Mensile;',
     ])
     const ranged = await browser.call('GET', `${url}?filter[from]=2026-12-01`)
     expect(ranged.body.trim().split('\r\n')).toHaveLength(2)

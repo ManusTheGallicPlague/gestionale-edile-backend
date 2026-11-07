@@ -10,6 +10,8 @@ export const DEADLINE_KINDS = [
   'invoice_out',
   'contract',
   'vehicle',
+  'medical_check',
+  'training',
   'other',
 ] as const
 export type DeadlineKind = (typeof DEADLINE_KINDS)[number]
@@ -27,6 +29,9 @@ export interface DeadlineInput {
   amount_cents: string | null
   client_id: string | null
   supplier_id: string | null
+  site_id: string | null
+  employee_id: string | null
+  vehicle_id: string | null
   notes: string | null
   recurrence: Recurrence | null
 }
@@ -38,6 +43,9 @@ export const DEADLINE_COLUMNS = [
   'amount_cents',
   'client_id',
   'supplier_id',
+  'site_id',
+  'employee_id',
+  'vehicle_id',
   'notes',
   'recurrence',
 ] as const satisfies readonly (keyof DeadlineInput)[]
@@ -100,6 +108,21 @@ export function parseDeadlineInput(
   const supplier_id = id('supplier_id')
   if (client_id && supplier_id) add('supplier_id', 'Collega un cliente oppure un fornitore.')
 
+  // Added later: absent means none, so older clients keep working.
+  const link = (field: 'site_id' | 'employee_id' | 'vehicle_id', message: string) => {
+    if (!(field in raw)) return null
+    const value = raw[field]
+    if (value === null) return null
+    if (typeof value !== 'string' || !UUID.test(value.trim())) {
+      add(field, message)
+      return null
+    }
+    return value.trim()
+  }
+  const site_id = link('site_id', 'Cantiere non trovato.')
+  const employee_id = link('employee_id', 'Dipendente non trovato.')
+  const vehicle_id = link('vehicle_id', 'Mezzo non trovato.')
+
   const notes = text('notes')
   if (notes !== null && notes.length > 2000) add('notes', 'Al massimo 2000 caratteri.')
 
@@ -109,6 +132,18 @@ export function parseDeadlineInput(
 
   if (Object.keys(errors).length > 0 || !kind || !title || !due_on) return { errors }
   return {
-    input: { title, due_on, kind, amount_cents, client_id, supplier_id, notes, recurrence },
+    input: {
+      title,
+      due_on,
+      kind,
+      amount_cents,
+      client_id,
+      supplier_id,
+      site_id,
+      employee_id,
+      vehicle_id,
+      notes,
+      recurrence,
+    },
   }
 }
