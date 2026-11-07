@@ -239,6 +239,76 @@ describe('invoice payments', () => {
     expect(again.statusCode).toBe(422)
   })
 
+  it('lists the payments of the whole company with filters and totals', async () => {
+    const s = await scene()
+    const supplier =
+      (
+        await ctx.owner.query<{ id: string }>(
+          "insert into public.suppliers (company_id, name) values ($1, 'Calcestruzzi Srl') returning id",
+          [s.company.id],
+        )
+      ).rows[0]?.id ?? ''
+    const site =
+      (
+        await ctx.owner.query<{ id: string }>(
+          "insert into public.sites (company_id, name, code) values ($1, 'Villetta', 'C-1') returning id",
+          [s.company.id],
+        )
+      ).rows[0]?.id ?? ''
+    const out = await invoice(s, { site_id: site })
+    const into = await invoice(s, { direction: 'received', client_id: null, supplier_id: supplier })
+    await s.browser.call('POST', `${s.base}/${out.id}/payments`, {
+      body: payment({ date: '2026-11-05', amount: '300' }),
+      headers: { 'If-Match': '"1"' },
+    })
+    await s.browser.call('POST', `${s.base}/${out.id}/payments`, {
+      body: payment({ date: '2026-11-15', amount: '100', method: 'cash' }),
+      headers: { 'If-Match': '"2"' },
+    })
+    await s.browser.call('POST', `${s.base}/${into.id}/payments`, {
+      body: payment({ date: '2026-11-10', amount: '50', method: 'riba' }),
+      headers: { 'If-Match': '"1"' },
+    })
+    // A payment of another company never shows up.
+    const other = await scene()
+    const foreign = await invoice(other)
+    await other.browser.call('POST', `${other.base}/${foreign.id}/payments`, {
+      body: payment(),
+      headers: { 'If-Match': '"1"' },
+    })
+
+    const url = `/api/companies/${s.company.slug}/invoice-payments`
+    const all = await s.browser.call('GET', url)
+    expect(all.statusCode).toBe(200)
+    const body = all.json<{
+      data: { date: string; invoice: { direction: string; subject: { name: string } } }[]
+      meta: { total: number }
+      collected: string
+      paid: string
+    }>()
+    expect(body.data.map((p) => p.date)).toEqual(['2026-11-15', '2026-11-10', '2026-11-05'])
+    expect(body.data[1]?.invoice).toMatchObject({
+      direction: 'received',
+      subject: { name: 'Calcestruzzi Srl' },
+      site: null,
+    })
+    expect(body).toMatchObject({ meta: { total: 3 }, collected: '400.00', paid: '50.00' })
+
+    const filtered = await s.browser.call(
+      'GET',
+      `${url}?filter[direction]=issued&filter[from]=2026-11-01&filter[to]=2026-11-10&filter[site]=${site}`,
+    )
+    expect(filtered.json()).toMatchObject({ meta: { total: 1 }, collected: '300.00', paid: '0.00' })
+    const cash = await s.browser.call('GET', `${url}?filter[method]=cash&per_page=1`)
+    expect(cash.json()).toMatchObject({ meta: { total: 1, per_page: 1 }, collected: '100.00' })
+    expect((await s.browser.call('GET', `${url}?filter[method]=gold`)).statusCode).toBe(422)
+    expect((await s.browser.call('GET', `${url}?filter[from]=ieri`)).statusCode).toBe(422)
+
+    const blind = await scene(['deadlines.view'])
+    const blindUrl = `/api/companies/${blind.company.slug}/invoice-payments`
+    expect((await blind.browser.call('GET', blindUrl)).statusCode).toBe(403)
+  })
+
   it('needs the invoices permissions; other companies see nothing', async () => {
     const s = await scene()
     const inv = await invoice(s)

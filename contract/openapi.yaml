@@ -4764,6 +4764,45 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/invoice-payments:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listPayments
+      summary: Incassi e pagamenti registrati di tutte le fatture (prima nota)
+      description: |
+        Permesso: invoices.view. Dal più recente. Filtri sulla data del pagamento
+        (filter[from], filter[to]), sul tipo di fattura (filter[direction]: issued per gli
+        incassi, received per i pagamenti), sul cantiere della fattura (filter[site]) e sulla
+        modalità (filter[method]). collected e paid sono le somme di incassi e pagamenti che
+        rispettano i filtri, non solo della pagina. Le fatture segnate pagate senza pagamenti
+        registrati non compaiono.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              direction: { $ref: '#/components/schemas/InvoiceDirection' }
+              site: { $ref: '#/components/schemas/Id' }
+              method: { $ref: '#/components/schemas/InvoicePaymentMethod' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Una pagina di incassi e pagamenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PaymentList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/roles:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -7518,6 +7557,47 @@ components:
             created_at:
               type: string
               format: date-time
+    PaymentList:
+      type: object
+      required: [data, meta, collected, paid]
+      properties:
+        data:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/InvoicePayment'
+              - type: object
+                required: [invoice]
+                properties:
+                  invoice:
+                    type: object
+                    required: [id, number, direction, subject, site]
+                    properties:
+                      id: { $ref: '#/components/schemas/Id' }
+                      number: { type: string }
+                      direction: { $ref: '#/components/schemas/InvoiceDirection' }
+                      subject:
+                        description: Il cliente (emesse) o il fornitore (ricevute).
+                        allOf:
+                          - $ref: '#/components/schemas/SubjectRef'
+                      site:
+                        oneOf:
+                          - type: object
+                            required: [id, name, code]
+                            properties:
+                              id: { $ref: '#/components/schemas/Id' }
+                              name: { type: string }
+                              code: { type: [string, 'null'] }
+                          - type: 'null'
+        meta: { $ref: '#/components/schemas/ListMeta' }
+        collected:
+          description: Somma degli incassi (fatture emesse) filtrati.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        paid:
+          description: Somma dei pagamenti (fatture ricevute) filtrati.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
     InvoiceList:
       type: object
       required: [data, meta, total_amount, outstanding_amount]

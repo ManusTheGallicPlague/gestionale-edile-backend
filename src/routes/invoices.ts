@@ -617,8 +617,145 @@ function listFilter(list: ReturnType<typeof readList>) {
   return { where, values }
 }
 
+function readPaymentList(query: Record<string, unknown>) {
+  const errors: FieldErrors = {}
+  const single = (name: string): string | undefined => {
+    const value = query[name]
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') {
+      errors[name] = ['Indicalo una volta sola.']
+      return undefined
+    }
+    return value
+  }
+  const integer = (name: string, fallback: number, max?: number): number => {
+    const value = single(name)
+    if (value === undefined) return fallback
+    const n = /^\d{1,6}$/.test(value) ? Number(value) : NaN
+    if (!Number.isInteger(n) || n < 1 || (max !== undefined && n > max)) {
+      errors[name] = [max ? `Un numero intero da 1 a ${max}.` : 'Un numero intero da 1 in su.']
+      return fallback
+    }
+    return n
+  }
+  const page = integer('page', 1)
+  const perPage = integer('per_page', 25, 100)
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  const direction = single('filter[direction]')
+  if (direction !== undefined) {
+    if (!DIRECTIONS.some((d) => d === direction)) {
+      errors['filter[direction]'] = ['Valori ammessi: issued, received.']
+    } else add((p) => `i.direction = ${p}`, direction)
+  }
+  const method = single('filter[method]')
+  if (method !== undefined) {
+    if (!PAYMENT_METHODS.some((m) => m === method)) {
+      errors['filter[method]'] = ['Modalità di pagamento non valida.']
+    } else add((p) => `ip.method = ${p}`, method)
+  }
+  const site = single('filter[site]')
+  if (site !== undefined) {
+    if (!UUID.test(site)) errors['filter[site]'] = ['Identificativo non valido.']
+    else add((p) => `i.site_id = ${p}`, site)
+  }
+  for (const [name, op] of [
+    ['filter[from]', '>='],
+    ['filter[to]', '<='],
+  ] as const) {
+    const value = single(name)
+    if (value === undefined) continue
+    if (!isIsoDate(value)) errors[name] = ['Data non valida (AAAA-MM-GG).']
+    else add((p) => `ip.payment_date ${op} ${p}`, value)
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { page, perPage, where, values }
+}
+
 export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/invoices'
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/invoice-payments',
+    async (request) => {
+      const session = requireSession(request)
+      const filter = readPaymentList(request.query)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('invoices.view')) throw forbidden()
+        const { where, values } = filter
+        const n = values.length
+        const { rows } = await client.query<{
+          id: string
+          payment_date: string
+          amount_cents: string
+          method: PaymentMethod | null
+          notes: string | null
+          created_at: Date
+          invoice_id: string
+          number: string
+          direction: Direction
+          subject_id: string
+          subject_name: string
+          site_id: string | null
+          site_name: string | null
+          site_code: string | null
+        }>(
+          `select ip.id, ip.payment_date::text as payment_date,
+             ip.amount_cents::text as amount_cents, ip.method, ip.notes, ip.created_at,
+             i.id as invoice_id, i.number, i.direction,
+             coalesce(c.id, p.id) as subject_id, coalesce(c.name, p.name, '') as subject_name,
+             s.id as site_id, s.name as site_name, s.code as site_code
+           from public.invoice_payments ip
+           join public.invoices i on i.id = ip.invoice_id
+           left join public.clients c on c.id = i.client_id
+           left join public.suppliers p on p.id = i.supplier_id
+           left join public.sites s on s.id = i.site_id
+           where ${where.join(' and ')}
+           order by ip.payment_date desc, ip.created_at desc, ip.id desc
+           limit $${n + 1} offset $${n + 2}`,
+          [...values, filter.perPage, (filter.page - 1) * filter.perPage],
+        )
+        const count = await client.query<{ total: number; collected: string; paid: string }>(
+          `select count(*)::int as total,
+             coalesce(sum(ip.amount_cents) filter (where i.direction = 'issued'), 0)::text
+               as collected,
+             coalesce(sum(ip.amount_cents) filter (where i.direction = 'received'), 0)::text
+               as paid
+           from public.invoice_payments ip join public.invoices i on i.id = ip.invoice_id
+           where ${where.join(' and ')}`,
+          values,
+        )
+        const totals = count.rows[0]
+        return {
+          data: rows.map((r) => ({
+            id: r.id,
+            date: r.payment_date,
+            amount: centsToAmount(r.amount_cents),
+            method: r.method,
+            notes: r.notes,
+            created_at: r.created_at.toISOString(),
+            invoice: {
+              id: r.invoice_id,
+              number: r.number,
+              direction: r.direction,
+              subject: { id: r.subject_id, name: r.subject_name },
+              site: r.site_id
+                ? { id: r.site_id, name: r.site_name ?? '', code: r.site_code }
+                : null,
+            },
+          })),
+          meta: { total: totals?.total ?? 0, page: filter.page, per_page: filter.perPage },
+          collected: centsToAmount(totals?.collected ?? '0'),
+          paid: centsToAmount(totals?.paid ?? '0'),
+        }
+      })
+    },
+  )
 
   app.get<{ Params: Params; Querystring: Record<string, unknown> }>(base, async (request) => {
     const session = requireSession(request)
