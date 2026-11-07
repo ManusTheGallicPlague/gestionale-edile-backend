@@ -188,6 +188,11 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: nella scheda di un cliente 
 - [x] Crediti e debiti in CSV (`exportClientBalances`, `exportSupplierBalances`), da passare al commercialista
 - [x] Solo chi ha qualcosa di scaduto (`filter[overdue]=true`) negli elenchi e nei CSV dei crediti e dei debiti, con i totali sullo stesso filtro
 
+### 21. SAL da fatturare
+Aggiunta il 07/11/2026, con il piano tutto spuntato: l'ufficio vuole vedere in un solo elenco i SAL di tutti i cantieri, soprattutto quelli approvati e non ancora fatturati, senza aprire computo per computo.
+
+- [x] SAL di tutta l'azienda (`listCompanyProgressStatements` su `…/progress-statements`): computo e cantiere di ogni SAL, dal più recente, filtri per cantiere, stato, fatturato sì/no e data, con i totali (importo e netto) di tutte le pagine
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -334,6 +339,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 07/11/2026: la ricerca rapida usa `ilike` senza indici trigrammi: per un'impresa con qualche migliaio di righe per tabella basta, e `pg_trgm` è un'estensione in più da installare; si aggiungerà se servisse. Clienti e fornitori archiviati non escono; un tipo senza permesso è semplicemente assente (non 403), come le sezioni della dashboard. Il 422 per un testo troppo corto (meno di 2 caratteri) evita di restituire mezzo database a ogni tasto.
 
 - 07/11/2026: l'estratto conto conta solo le fatture (emesse per il cliente, ricevute per il fornitore), non preventivi o ordini, e restituisce solo i totali: le righe sono già in listInvoices con filter[client] o filter[supplier]. Il già saldato è il netto a pagare meno il residuo, così una fattura segnata pagata senza incassi registrati conta per intero. Funziona anche per clienti e fornitori archiviati. Il PDF dell'estratto conto c'è solo per i clienti (è un sollecito: ai fornitori non si manda), elenca solo le fatture con un residuo e chiude con una frase di cortesia per chi ha già pagato. Gli elenchi dei crediti e dei debiti hanno un ordine fisso (dal residuo più alto), senza `sort`: è l'unico ordine utile per decidere chi sollecitare; senza uno dei due permessi rispondono 403, come gli altri elenchi.
+- 07/11/2026: l'elenco dei SAL di tutta l'azienda chiede solo `estimates.view` (403 senza, come gli altri elenchi aziendali) e mostra `invoice_id` anche senza `invoices.view`, come già fa `getProgressStatement`; `filter[invoiced]` vale anche per le bozze, che non hanno mai fattura.
 
 ## Registro dei giri
 

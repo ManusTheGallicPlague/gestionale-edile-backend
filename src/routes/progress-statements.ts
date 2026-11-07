@@ -151,6 +151,73 @@ const lineToContract = (row: LineRow) => ({
   cumulative_amount: centsToAmount(row.cumulative_cents),
 })
 
+interface CompanyStatementRow extends StatementRow {
+  estimate_title: string
+  site_id: string | null
+  site_name: string | null
+  site_code: string | null
+}
+
+/** Filters of listCompanyProgressStatements, on the columns of the `st` CTE and `e`. */
+function readCompanyList(query: Record<string, unknown>) {
+  const errors: FieldErrors = {}
+  const single = (name: string): string | undefined => {
+    const value = query[name]
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') {
+      errors[name] = ['Indicalo una volta sola.']
+      return undefined
+    }
+    return value
+  }
+  const integer = (name: string, fallback: number, max?: number): number => {
+    const value = single(name)
+    if (value === undefined) return fallback
+    const n = /^\d{1,6}$/.test(value) ? Number(value) : NaN
+    if (!Number.isInteger(n) || n < 1 || (max !== undefined && n > max)) {
+      errors[name] = [max ? `Un numero intero da 1 a ${max}.` : 'Un numero intero da 1 in su.']
+      return fallback
+    }
+    return n
+  }
+  const page = integer('page', 1)
+  const perPage = integer('per_page', 25, 100)
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  const site = single('filter[site]')
+  if (site !== undefined) {
+    if (!UUID.test(site)) errors['filter[site]'] = ['Identificativo non valido.']
+    else add((p) => `e.site_id = ${p}`, site)
+  }
+  const status = single('filter[status]')
+  if (status !== undefined) {
+    if (status !== 'draft' && status !== 'approved') {
+      errors['filter[status]'] = ['Valori ammessi: draft, approved.']
+    } else add((p) => `st.status = ${p}`, status)
+  }
+  const invoiced = single('filter[invoiced]')
+  if (invoiced !== undefined) {
+    if (invoiced === 'true') where.push('st.invoice_id is not null')
+    else if (invoiced === 'false') where.push('st.invoice_id is null')
+    else errors['filter[invoiced]'] = ['Valori ammessi: true, false.']
+  }
+  for (const [name, op] of [
+    ['filter[from]', '>='],
+    ['filter[to]', '<='],
+  ] as const) {
+    const value = single(name)
+    if (value === undefined) continue
+    if (!isIsoDate(value)) errors[name] = ['Data non valida (AAAA-MM-GG).']
+    else add((p) => `st.statement_date::date ${op} ${p}::date`, value)
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { page, perPage, where, values }
+}
+
 function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.statementMissingIfMatch, 'precondition_required')
@@ -279,6 +346,47 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
       if (!rowCount) throw notFound()
       return fn(client, id)
     })
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/progress-statements',
+    async (request) => {
+      const session = requireSession(request)
+      const list = readCompanyList(request.query)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('estimates.view')) throw forbidden()
+        const from = (columns: string) => `with st as (${SELECT})
+          select ${columns} from st join public.estimates e on e.id = st.estimate_id
+          left join public.sites site on site.id = e.site_id
+          where ${list.where.join(' and ')}`
+        const n = list.values.length
+        const { rows } = await client.query<CompanyStatementRow>(
+          `${from(`st.*, e.title as estimate_title, site.id as site_id,
+             site.name as site_name, site.code as site_code`)}
+           order by st.statement_date desc, st.number desc, st.id
+           limit $${n + 1} offset $${n + 2}`,
+          [...list.values, list.perPage, (list.page - 1) * list.perPage],
+        )
+        const count = await client.query<{ total: number; amount: string; net: string }>(
+          from(`count(*)::int as total,
+             coalesce(sum(st.amount_cents::bigint), 0)::text as amount,
+             coalesce(sum(st.amount_cents::bigint - st.retention_cents::bigint), 0)::text as net`),
+          list.values,
+        )
+        const totals = count.rows[0]
+        return {
+          data: rows.map((r) => ({
+            ...summaryToContract(r),
+            estimate: { id: r.estimate_id, title: r.estimate_title },
+            site: r.site_id ? { id: r.site_id, name: r.site_name ?? '', code: r.site_code } : null,
+          })),
+          meta: { total: totals?.total ?? 0, page: list.page, per_page: list.perPage },
+          total_amount: centsToAmount(totals?.amount ?? '0'),
+          total_net_amount: centsToAmount(totals?.net ?? '0'),
+        }
+      })
+    },
+  )
 
   app.get<{ Params: Params }>(base, async (request) => {
     const session = requireSession(request)

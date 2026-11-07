@@ -3430,6 +3430,45 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/progress-statements:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listCompanyProgressStatements
+      summary: SAL di tutti i computi dell'azienda
+      description: |
+        Permesso: estimates.view. Dal più recente per data del SAL. Filtri sul cantiere del
+        computo (filter[site]), sullo stato (filter[status]), sulla fattura (filter[invoiced]:
+        true i SAL già fatturati, false quelli senza fattura) e sulla data del SAL
+        (filter[from], filter[to]). Con filter[status]=approved e filter[invoiced]=false si
+        hanno i SAL approvati da fatturare. total_amount e total_net_amount sommano i SAL che
+        rispettano i filtri, non solo quelli della pagina.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              site: { $ref: '#/components/schemas/Id' }
+              status: { $ref: '#/components/schemas/ProgressStatementStatus' }
+              invoiced: { type: string, enum: ['true', 'false'] }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Una pagina di SAL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyProgressStatementList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/estimates/{estimate}/progress-statements:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -9486,6 +9525,43 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/ProgressStatementSummary' }
+    CompanyProgressStatementList:
+      type: object
+      required: [data, meta, total_amount, total_net_amount]
+      properties:
+        data:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/ProgressStatementSummary'
+              - type: object
+                required: [estimate, site]
+                properties:
+                  estimate:
+                    type: object
+                    required: [id, title]
+                    properties:
+                      id: { $ref: '#/components/schemas/Id' }
+                      title: { type: string }
+                  site:
+                    description: Il cantiere del computo, o null.
+                    oneOf:
+                      - type: object
+                        required: [id, name, code]
+                        properties:
+                          id: { $ref: '#/components/schemas/Id' }
+                          name: { type: string }
+                          code: { type: [string, 'null'] }
+                      - type: 'null'
+        meta: { $ref: '#/components/schemas/ListMeta' }
+        total_amount:
+          description: Somma degli importi dei SAL filtrati.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+        total_net_amount:
+          description: Somma degli importi netti (dopo la ritenuta di garanzia) dei SAL filtrati.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
     SiteCostList:
       type: object
       required: [data, meta, total_amount]
