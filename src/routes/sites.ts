@@ -38,6 +38,14 @@ interface SiteValues {
   budget_cents: string | null
   notes: string | null
 }
+interface Location {
+  latitude: string
+  longitude: string
+}
+interface SiteInput extends SiteValues {
+  /** undefined: not sent, so unchanged on update and null on create. */
+  location: Location | null | undefined
+}
 const COLUMNS = [
   'code',
   'name',
@@ -52,6 +60,8 @@ const COLUMNS = [
 
 interface SiteRow extends SiteValues {
   id: string
+  latitude: string | null
+  longitude: string | null
   client_name: string | null
   version: number
   created_at: Date
@@ -62,7 +72,7 @@ type Params = { company: string; site?: string }
 
 const SELECT = `select s.id, s.code, s.name, s.client_id, s.address, s.status,
     s.start_on::text as start_on, s.end_on::text as end_on, s.budget_cents::text as budget_cents,
-    s.notes, s.version, s.created_at, s.updated_at, c.name as client_name
+    s.notes, s.latitude::text as latitude, s.longitude::text as longitude, s.version, s.created_at, s.updated_at, c.name as client_name
   from public.sites s
   left join public.clients c on c.id = s.client_id`
 
@@ -90,6 +100,10 @@ function toContract(row: SiteRow) {
     end_on: row.end_on,
     budget: row.budget_cents === null ? null : centsToAmount(row.budget_cents),
     notes: row.notes,
+    location:
+      row.latitude === null || row.longitude === null
+        ? null
+        : { latitude: row.latitude, longitude: row.longitude },
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -106,7 +120,43 @@ function expectedVersion(header: string | string[] | undefined): number {
   return match ? Number(match[1]) : -1
 }
 
-export function parseSiteInput(body: unknown): { input: SiteValues } | { errors: FieldErrors } {
+const COORDINATE = /^(-?)(\d{1,3})(?:\.(\d{1,6}))?$/
+
+/** A coordinate as a string with six decimals, or null when invalid or out of range. */
+function coordinate(value: unknown, max: number): string | null {
+  if (typeof value !== 'string') return null
+  const match = COORDINATE.exec(value.trim())
+  if (!match) return null
+  const [, sign = '', whole = '', decimals = ''] = match
+  const units = Number(whole)
+  const fraction = decimals.padEnd(6, '0')
+  if (units > max || (units === max && Number(fraction) > 0)) return null
+  const zero = units === 0 && Number(fraction) === 0
+  return `${zero ? '' : sign}${units}.${fraction}`
+}
+
+function parseLocation(value: unknown, add: (field: string, message: string) => void) {
+  if (value === undefined || value === null) return value
+  if (typeof value !== 'object' || Array.isArray(value)) {
+    add('location', 'Deve essere un oggetto con latitude e longitude, o null.')
+    return undefined
+  }
+  const raw = value as Record<string, unknown>
+  const latitude = coordinate(raw.latitude, 90)
+  const longitude = coordinate(raw.longitude, 180)
+  if (latitude === null) {
+    add('location.latitude', 'Latitudine non valida: gradi decimali da -90 a 90 (es. 45.070312).')
+  }
+  if (longitude === null) {
+    add(
+      'location.longitude',
+      'Longitudine non valida: gradi decimali da -180 a 180 (es. 7.686856).',
+    )
+  }
+  return latitude === null || longitude === null ? undefined : { latitude, longitude }
+}
+
+export function parseSiteInput(body: unknown): { input: SiteInput } | { errors: FieldErrors } {
   const errors: FieldErrors = {}
   const add = (field: string, message: string) => {
     ;(errors[field] ??= []).push(message)
@@ -161,9 +211,21 @@ export function parseSiteInput(body: unknown): { input: SiteValues } | { errors:
     if (budget_cents === null) add('budget', 'Importo non valido (es. 1234.50).')
   }
   const notes = text('notes', 2000)
+  const location = parseLocation(raw.location, add)
   if (Object.keys(errors).length > 0 || !name || !status) return { errors }
   return {
-    input: { code, name, client_id, address, status, start_on, end_on, budget_cents, notes },
+    input: {
+      code,
+      name,
+      client_id,
+      address,
+      status,
+      start_on,
+      end_on,
+      budget_cents,
+      notes,
+      location,
+    },
   }
 }
 
@@ -346,10 +408,15 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
       const { rows } = await client
         .query<{ id: string }>(
-          `insert into public.sites (company_id, ${COLUMNS.join(', ')})
-           values (app.current_company_id(), ${COLUMNS.map((_, i) => `$${i + 1}`).join(', ')})
+          `insert into public.sites (company_id, ${COLUMNS.join(', ')}, latitude, longitude)
+           values (app.current_company_id(), ${COLUMNS.map((_, i) => `$${i + 1}`).join(', ')},
+             $${COLUMNS.length + 1}, $${COLUMNS.length + 2})
            returning id`,
-          COLUMNS.map((f) => parsed.input[f]),
+          [
+            ...COLUMNS.map((f) => parsed.input[f]),
+            parsed.input.location?.latitude ?? null,
+            parsed.input.location?.longitude ?? null,
+          ],
         )
         .catch(writeFailed)
       return readOne(client, rows[0]?.id ?? '')
@@ -369,12 +436,18 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       const version = expectedVersion(request.headers['if-match'])
       const parsed = parseSiteInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
+      const columns: string[] = [...COLUMNS]
       const values: unknown[] = COLUMNS.map((f) => parsed.input[f])
+      const { location } = parsed.input
+      if (location !== undefined) {
+        columns.push('latitude', 'longitude')
+        values.push(location?.latitude ?? null, location?.longitude ?? null)
+      }
       values.push(id, version)
       const { rowCount } = await client
         .query(
           `update public.sites
-           set ${COLUMNS.map((f, i) => `${f} = $${i + 1}`).join(', ')},
+           set ${columns.map((f, i) => `${f} = $${i + 1}`).join(', ')},
                version = version + 1, updated_at = now()
            where id = $${values.length - 1} and version = $${values.length}`,
           values,

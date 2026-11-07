@@ -91,6 +91,11 @@ Aggiunta il 06/11/2026, quando la sezione 8 era finita. `docs/frontend.md` vuole
 - [x] Esportazione CSV degli ordini ai fornitori e dei costi (`exportPurchaseOrders`, `exportSiteCosts`)
 - [x] Esportazione CSV dei rapportini e degli articoli di magazzino (`exportDailyReports`, `exportWarehouseItems`)
 
+### 10. Rilettura di `docs/frontend.md`
+Aggiunta il 07/11/2026, rileggendo `docs/frontend.md` del frontend dopo la sezione 9 (il frontend non ha ancora mock né codice dei moduli).
+
+- [x] Posizione dei cantieri sulla mappa (stack: react-leaflet + OpenStreetMap): `location` con latitudine e longitudine nel cantiere
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -189,6 +194,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 06/11/2026: la scadenza di pagamento crea una scadenza nello scadenziario (`deadlines.invoice_id`, `invoice_out`/`invoice_in`, titolo «Fattura <numero> – <nome>», importo il totale), tenuta allineata dal backend a ogni salvataggio: chiusa quando `paid_on` è valorizzato, riaperta se torna null, eliminata senza scadenza o con la fattura. Pagata si segna con `PUT` (campo `paid_on`), senza un'azione a parte. `payment_status` (`open`/`overdue`/`paid`) è calcolato con la data italiana.
 - 06/11/2026: le scadenze delle fatture scritte a mano nei dati di sviluppo sono diventate fatture vere, con la loro scadenza collegata.
 - 06/11/2026: le esportazioni nuove (fatture, ordini, costi, rapportini, magazzino) seguono quelle esistenti: `…/export` con gli stessi filtri e ordinamento dell'elenco, al massimo 10 000 righe; ore e giacenze con la virgola decimale; i rapportini senza le righe delle ore (solo i totali), gli ordini senza le righe (solo numero di righe e totale). I movimenti di magazzino non si esportano: basta l'elenco filtrato.
+- 07/11/2026: la posizione del cantiere è `location: { latitude, longitude } | null` (stringhe in gradi decimali WGS 84, sei decimali, `numeric` nel database, entrambe o nessuna). Nell'input è facoltativa, a differenza degli altri campi: se manca, alla creazione vale null e alla modifica resta com'è, così i client già scritti non la cancellano. Niente geocodifica dell'indirizzo lato server (servirebbe un servizio esterno): le coordinate le manda il frontend, per esempio dal punto scelto sulla mappa.
 
 ## Registro dei giri
 

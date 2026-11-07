@@ -529,17 +529,17 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       await client.query('delete from public.sites where company_id = $1', [companyId])
       await client.query(
         `insert into public.sites (company_id, code, name, client_id, address, status, start_on,
-           end_on, budget_cents)
+           end_on, budget_cents, latitude, longitude)
          select $1, s.code, s.name, c.id, s.address, s.status, s.start_on::date, s.end_on::date,
-           s.budget
+           s.budget, s.latitude::numeric, s.longitude::numeric
          from (values
            ('2026-01', 'Rifacimento copertura condominio', 'Via Roma 1, Torino', 'active',
-             '2026-10-05', '2026-12-18', 6500000, 0),
+             '2026-10-05', '2026-12-18', 6500000, 0, '45.067700', '7.682400'),
            ('2026-02', 'Ristrutturazione bagno', 'Corso Francia 20, Torino', 'planned',
-             '2026-11-23', '2026-12-11', 1200000, 1),
+             '2026-11-23', '2026-12-11', 1200000, 1, '45.077000', '7.650000'),
            ('2025-07', 'Cappotto termico facciata nord', 'Via Po 3, Torino', 'completed',
-             '2025-05-12', '2025-09-30', null, 0)
-         ) as s (code, name, address, status, start_on, end_on, budget, n)
+             '2025-05-12', '2025-09-30', null, 0, null, null)
+         ) as s (code, name, address, status, start_on, end_on, budget, n, latitude, longitude)
          left join lateral (
            select id from public.clients where company_id = $1 and archived_at is null
            order by created_at offset s.n limit 1

@@ -318,8 +318,12 @@ describe('the API role cannot cross companies', () => {
       const u = await c.query("update public.sites set name = 'preso' where company_id = $1", [
         companyB.id,
       ])
+      const m = await c.query(
+        'update public.sites set latitude = 1, longitude = 1 where company_id = $1',
+        [companyB.id],
+      )
       const d = await c.query('delete from public.sites where company_id = $1', [companyB.id])
-      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+      return (u.rowCount ?? 0) + (m.rowCount ?? 0) + (d.rowCount ?? 0)
     })
     expect(changed).toBe(0)
     await expect(auth.query('select * from public.sites')).rejects.toThrow(/permission denied/)

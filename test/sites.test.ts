@@ -114,6 +114,73 @@ describe('sites', () => {
     expect(Object.keys(res.json<{ errors: object }>().errors)).toContain(field)
   })
 
+  it('keeps the position on the map, unchanged when an update leaves it out', async () => {
+    const { browser, base } = await scene()
+    const plain = await browser.call('POST', base, { body: siteBody() })
+    expect(plain.json()).toMatchObject({ location: null })
+
+    const created = await browser.call('POST', base, {
+      body: siteBody({ location: { latitude: '45.0703', longitude: '-7.686856' } }),
+    })
+    expect(created.statusCode).toBe(201)
+    expect(created.json()).toMatchObject({
+      location: { latitude: '45.070300', longitude: '-7.686856' },
+    })
+    const url = `${base}/${created.json<{ id: string }>().id}`
+    const kept = await browser.call('PUT', url, {
+      body: siteBody({ name: 'Altro nome' }),
+      headers: { 'if-match': '"1"' },
+    })
+    expect(kept.json()).toMatchObject({
+      name: 'Altro nome',
+      location: { latitude: '45.070300', longitude: '-7.686856' },
+    })
+    const moved = await browser.call('PUT', url, {
+      body: siteBody({ location: { latitude: '-90', longitude: '180.000000' } }),
+      headers: { 'if-match': '"2"' },
+    })
+    expect(moved.json()).toMatchObject({
+      location: { latitude: '-90.000000', longitude: '180.000000' },
+    })
+    const cleared = await browser.call('PUT', url, {
+      body: siteBody({ location: null }),
+      headers: { 'if-match': '"3"' },
+    })
+    expect(cleared.json()).toMatchObject({ location: null })
+    const listed = await browser.call('GET', base)
+    expect(listed.statusCode).toBe(200)
+  })
+
+  it.each([
+    ['a latitude over 90', { latitude: '90.000001', longitude: '7' }, 'location.latitude'],
+    ['a longitude over 180', { latitude: '45', longitude: '-181' }, 'location.longitude'],
+    ['a coordinate as a JSON number', { latitude: 45.07, longitude: '7' }, 'location.latitude'],
+    ['a comma', { latitude: '45', longitude: '7,68' }, 'location.longitude'],
+    ['too many decimals', { latitude: '45.0703121', longitude: '7' }, 'location.latitude'],
+    ['only one coordinate', { latitude: '45' }, 'location.longitude'],
+    ['a string', 'Torino', 'location'],
+  ])('refuses a location with %s', async (_label, location, field) => {
+    const { browser, base } = await scene()
+    const res = await browser.call('POST', base, { body: siteBody({ location }) })
+    expect(res.statusCode).toBe(422)
+    expect(Object.keys(res.json<{ errors: object }>().errors)).toContain(field)
+  })
+
+  it('the database refuses half a position or one out of range', async () => {
+    const { company } = await scene()
+    for (const [latitude, longitude] of [
+      ['45', null],
+      ['91', '7'],
+    ]) {
+      await expect(
+        ctx.owner.query(
+          "insert into public.sites (company_id, name, status, latitude, longitude) values ($1, 'X', 'planned', $2, $3)",
+          [company.id, latitude, longitude],
+        ),
+      ).rejects.toThrow()
+    }
+  })
+
   it('codes are unique in the company, ignoring case', async () => {
     const mine = await scene()
     const theirs = await scene()
