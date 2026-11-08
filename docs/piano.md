@@ -275,6 +275,7 @@ Aggiunta l'08/11/2026, con il piano tutto spuntato: l'ufficio e il titolare vogl
 
 - [x] Assenze di tutti i dipendenti in formato iCalendar (`exportAbsencesCalendar` su `…/absences/calendar`, file `assenze.ics`, con `employees.view`): eventi di giorni interi dal primo all'ultimo giorno, senza promemoria, «Cognome Nome – Tipo» con le ore del permesso, UID stabile, stessi filtri di `listCompanyAbsences`
 - [x] Assenze del periodo nel riepilogo ore del dipendente (`absences` in `getEmployeeWorkSummary`, schema `EmployeeWorkSummary`): giorni delle assenze di tutto il giorno, solo dentro le date del filtro, e ore dei permessi, per tipo
+- [x] Assenze nel registro delle modifiche (`employee_absence` in `AuditEntity`, migrazione 0062): chi ha registrato, cambiato o eliminato un'assenza, con i nomi dei campi e mai i valori
 
 ## Decisioni prese
 

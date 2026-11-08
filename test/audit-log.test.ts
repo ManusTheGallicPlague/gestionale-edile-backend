@@ -167,6 +167,67 @@ describe('audit log', () => {
     ])
   })
 
+  it('records the absences of the employees, with the names of the fields, not the values', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'employees.view',
+      'employees.update',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const employee = await ctx.owner.query<{ id: string }>(
+      "insert into public.employees (company_id, first_name, last_name) values ($1, 'Mario', 'Operaio') returning id",
+      [company.id],
+    )
+    const base = `/api/companies/${company.slug}/employees/${employee.rows[0]?.id}/absences`
+    const absence = { kind: 'vacation', starts_on: '2026-08-10', ends_on: '2026-08-14' }
+    const created = await browser.call('POST', base, {
+      body: { ...absence, hours: null, notes: null },
+    })
+    expect(created.statusCode).toBe(201)
+    const id = created.json<{ id: string }>().id
+    const changed = await browser.call('PUT', `${base}/${id}`, {
+      headers: { 'if-match': '"1"' },
+      body: { ...absence, kind: 'sick_leave', hours: null, notes: null },
+    })
+    expect(changed.statusCode).toBe(200)
+    const deleted = await browser.call('DELETE', `${base}/${id}`, {
+      headers: { 'if-match': '"2"' },
+    })
+    expect(deleted.statusCode).toBe(204)
+    // Another company with an absence: not in this log.
+    const other = await fx.company()
+    const theirs = await ctx.owner.query<{ id: string }>(
+      "insert into public.employees (company_id, first_name, last_name) values ($1, 'Anna', 'Bianchi') returning id",
+      [other.id],
+    )
+    await ctx.owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on)
+       values ($1, $2, 'injury', '2026-08-10', '2026-08-14')`,
+      [other.id, theirs.rows[0]?.id],
+    )
+
+    const author = { id: user.id, name: 'Utente di prova' }
+    const res = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/audit-log?filter[entity]=employee_absence`,
+    )
+    expect(res.statusCode).toBe(200)
+    const data = res.json<{ data: Entry[] }>().data
+    expect(data).toMatchObject([
+      { entity: 'employee_absence', entity_id: id, action: 'delete', user: author },
+      {
+        entity: 'employee_absence',
+        entity_id: id,
+        action: 'update',
+        fields: ['kind'],
+        user: author,
+      },
+      { entity: 'employee_absence', entity_id: id, action: 'create', user: author },
+    ])
+    expect(JSON.stringify(data)).not.toContain('sick_leave')
+  })
+
   it('needs audit.view and shows only the company of the URL', async () => {
     const reader = await fx.companyWithUser(['estimates.view', 'estimates.create'])
     const browser = new Browser(ctx.app)

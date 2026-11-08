@@ -6576,7 +6576,7 @@ paths:
       description: |
         Permesso: audit.view. Chi ha creato, modificato o eliminato clienti, fornitori,
         scadenze, computi, preventivi, cantieri e gli altri documenti di AuditEntity (anche SAL,
-        prezzari e attività del cronoprogramma), e quando; dal più recente. Di una modifica si
+        prezzari, attività del cronoprogramma e assenze dei dipendenti), e quando; dal più recente. Di una modifica si
         danno i nomi dei campi cambiati, non i valori. Con filter[entity] e filter[entity_id] si ha
         la storia di un solo documento.
       parameters:
@@ -8115,7 +8115,7 @@ components:
         daily_report: rapportino. site_cost: costo. site_document: documento o foto del cantiere.
         purchase_order: ordine a un fornitore. warehouse_item: articolo di magazzino.
         invoice: fattura. progress_statement: SAL. price_list: prezzario.
-        site_activity: attività del cronoprogramma.
+        site_activity: attività del cronoprogramma. employee_absence: assenza di un dipendente.
       enum:
         [
           client,
@@ -8135,6 +8135,7 @@ components:
           progress_statement,
           price_list,
           site_activity,
+          employee_absence,
         ]
     AuditEntry:
       type: object
