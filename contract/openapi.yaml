@@ -1636,6 +1636,14 @@ paths:
                   Cantieri con almeno un subappaltatore (con un costo o un ordine sul cantiere,
                   anche archiviato) nella condizione indicata, come filter[compliance] dei
                   fornitori e listSiteSubcontractors. Serve anche suppliers.view, altrimenti 403.
+              team_documents:
+                type: string
+                enum: [expired, expiring]
+                description: |
+                  Cantieri con almeno un dipendente della squadra (getSiteTeam) con un documento
+                  nella condizione indicata, come filter[documents] dei dipendenti. expired basta
+                  sites.view, come documents_expired della squadra; expiring vuole anche
+                  employees.view, altrimenti 403.
       responses:
         '200':
           description: Una pagina di cantieri
@@ -1711,6 +1719,14 @@ paths:
                   Cantieri con almeno un subappaltatore (con un costo o un ordine sul cantiere,
                   anche archiviato) nella condizione indicata, come filter[compliance] dei
                   fornitori e listSiteSubcontractors. Serve anche suppliers.view, altrimenti 403.
+              team_documents:
+                type: string
+                enum: [expired, expiring]
+                description: |
+                  Cantieri con almeno un dipendente della squadra (getSiteTeam) con un documento
+                  nella condizione indicata, come filter[documents] dei dipendenti. expired basta
+                  sites.view, come documents_expired della squadra; expiring vuole anche
+                  employees.view, altrimenti 403.
       responses:
         '200':
           description: Il file CSV
@@ -11689,7 +11705,7 @@ components:
                 Dipendenti attivi con documenti da rinnovare (idoneità sanitaria, corsi,
                 patentini), con employees.view: gli stessi di filter[documents] con
                 filter[active]=true in listEmployees. Giorno italiano.
-              required: [documents_expired, documents_expiring]
+              required: [documents_expired, documents_expiring, active_sites_expired]
               properties:
                 documents_expired:
                   type: integer
@@ -11699,6 +11715,13 @@ components:
                   type: integer
                   minimum: 0
                   description: Nessuno scaduto, almeno uno in scadenza entro 30 giorni.
+                active_sites_expired:
+                  type: [integer, 'null']
+                  minimum: 0
+                  description: |
+                    Cantieri in corso con almeno un dipendente della squadra (anche non attivo)
+                    con un documento scaduto: gli stessi di filter[team_documents]=expired con
+                    filter[status]=active in listSites. null senza sites.view.
             - type: 'null'
         activities:
           oneOf:

@@ -18,7 +18,9 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { formatQuoteNumber } from '../quotes/number.js'
+import { DOCUMENT_FILTERS, EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { onSite } from './site-subcontractors.js'
+import { teamHas } from './site-team.js'
 import { COMPLIANCE, COMPLIANCE_SQL } from './suppliers.js'
 
 export const SITE_STATUSES = ['planned', 'active', 'suspended', 'completed'] as const
@@ -303,6 +305,11 @@ function readList(query: Record<string, unknown>) {
   if (complianceValue !== undefined && !subcontractorCompliance) {
     errors['filter[subcontractor_compliance]'] = ['Vale expired, expiring oppure no_valid_durc.']
   }
+  const teamDocumentsValue = single('filter[team_documents]')
+  const teamDocuments = DOCUMENT_FILTERS.find((d) => d === teamDocumentsValue)
+  if (teamDocumentsValue !== undefined && !teamDocuments) {
+    errors['filter[team_documents]'] = ['Vale expired oppure expiring.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     page,
@@ -313,6 +320,7 @@ function readList(query: Record<string, unknown>) {
     clientId,
     reportMissing,
     subcontractorCompliance,
+    teamDocuments,
   }
 }
 
@@ -342,6 +350,10 @@ function listFilter(list: ReturnType<typeof readList>) {
       `exists (select 1 from public.suppliers
          where ${onSite('s.id')} and ${COMPLIANCE_SQL[list.subcontractorCompliance]})`,
     )
+  }
+  if (list.teamDocuments) {
+    // Sites with a team member in that state, as documents_expired in getSiteTeam.
+    where.push(teamHas('s.id', EMPLOYEE_DOCUMENTS_SQL[list.teamDocuments]))
   }
   if (list.search) {
     add(
@@ -373,6 +385,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('sites.view')) throw forbidden()
       if (list.subcontractorCompliance && !permissions.has('suppliers.view')) throw forbidden()
+      if (list.teamDocuments === 'expiring' && !permissions.has('employees.view')) throw forbidden()
       const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
@@ -402,6 +415,9 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('sites.view')) throw forbidden()
         if (list.subcontractorCompliance && !permissions.has('suppliers.view')) throw forbidden()
+        if (list.teamDocuments === 'expiring' && !permissions.has('employees.view')) {
+          throw forbidden()
+        }
         const { where, values } = listFilter(list)
         values.push(MAX_EXPORT_ROWS)
         const { rows } = await client.query<SiteRow>(

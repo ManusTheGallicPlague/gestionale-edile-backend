@@ -31,6 +31,11 @@ interface MemberRow {
   documents_expired: boolean
 }
 
+/** True if the team of the site `site` (a parameter or a column) has an employee `e` matching. */
+export const teamHas = (site: string, condition: string) =>
+  `exists (select 1 from public.site_team t join public.employees e on e.id = t.employee_id
+     where t.site_id = ${site} and ${condition})`
+
 /**
  * Only names and job titles: the team is visible with sites.view, hourly costs are not. Who
  * is away today, Italian date, for everybody; why (a sick leave, say) only with employees.view.

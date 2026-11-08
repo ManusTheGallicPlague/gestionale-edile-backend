@@ -286,3 +286,121 @@ describe('site team', () => {
     expect((await blind.browser.call('GET', blind.url)).statusCode).toBe(404)
   })
 })
+
+describe('sites by documents of their team', () => {
+  it('filters the list and the export; expiring only with employees.view', async () => {
+    const { browser, company, url, verdi, bassi } = await scene([...ALL, 'employees.view'])
+    await browser.call('PUT', url, { body: { employee_ids: [verdi] } })
+    const sites = await ctx.owner.query<{ id: string }>(
+      `insert into public.sites (company_id, name) values ($1, 'Altro'), ($1, 'Rinnovato'),
+         ($1, 'Vuoto') returning id`,
+      [company.id],
+    )
+    const [altro, rinnovato] = sites.rows.map((r) => r.id)
+    const people = await ctx.owner.query<{ id: string }>(
+      `insert into public.employees (company_id, first_name, last_name)
+       values ($1, 'Rita', 'Neri') returning id`,
+      [company.id],
+    )
+    const neri = people.rows[0]?.id ?? ''
+    await ctx.owner.query(
+      `insert into public.site_team (company_id, site_id, employee_id)
+       values ($1, $2, $3), ($1, $4, $5)`,
+      [company.id, altro, bassi, rinnovato, neri],
+    )
+    // Verdi (Villetta) expired yesterday; Bassi (Altro) expires in 30 days; Neri (Rinnovato)
+    // has an expired course renewed; Vuoto has no team.
+    await ctx.owner.query(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on)
+       select $1, x.employee_id, x.kind, (now() at time zone 'Europe/Rome')::date + x.days
+       from (values ($2::uuid, 'medical_check', -1),
+                    ($3::uuid, 'safety_training', 30),
+                    ($4::uuid, 'safety_training', -10),
+                    ($4::uuid, 'safety_training', 200)) as x (employee_id, kind, days)`,
+      [company.id, verdi, bassi, neri],
+    )
+    // Another company's site with an expired team member stays out.
+    const theirs = await scene()
+    await theirs.browser.call('PUT', theirs.url, { body: { employee_ids: [theirs.verdi] } })
+    await ctx.owner.query(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on)
+       values ($1, $2, 'medical_check', date '2026-01-16')`,
+      [theirs.company.id, theirs.verdi],
+    )
+
+    const base = `/api/companies/${company.slug}/sites`
+    const names = async (value: string) => {
+      const res = await browser.call('GET', `${base}?sort=name&filter[team_documents]=${value}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<{ data: { name: string }[] }>().data.map((s) => s.name)
+    }
+    expect(await names('expired')).toEqual(['Villetta'])
+    expect(await names('expiring')).toEqual(['Altro'])
+    const csv = await browser.call('GET', `${base}/export?filter[team_documents]=expiring`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body).toContain('Altro')
+    expect(csv.body).not.toContain('Villetta')
+
+    const bad = await browser.call('GET', `${base}?filter[team_documents]=scaduto`)
+    expect(bad.statusCode).toBe(422)
+    expect(bad.json()).toMatchObject({ errors: { 'filter[team_documents]': [expect.any(String)] } })
+
+    // A site chief sees the expired ones, as in the team, but not the expiring ones.
+    const chief = await scene(['sites.view'])
+    await ctx.owner.query(
+      `insert into public.site_team (company_id, site_id, employee_id) values ($1, $2, $3)`,
+      [chief.company.id, chief.siteId, chief.verdi],
+    )
+    await ctx.owner.query(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on)
+       values ($1, $2, 'medical_check', date '2026-01-16')`,
+      [chief.company.id, chief.verdi],
+    )
+    const chiefBase = `/api/companies/${chief.company.slug}/sites`
+    const seen = await chief.browser.call('GET', `${chiefBase}?filter[team_documents]=expired`)
+    expect(seen.statusCode).toBe(200)
+    expect(seen.json<{ data: { name: string }[] }>().data.map((s) => s.name)).toEqual(['Villetta'])
+    expect(
+      (await chief.browser.call('GET', `${chiefBase}?filter[team_documents]=expiring`)).statusCode,
+    ).toBe(403)
+    expect(
+      (await chief.browser.call('GET', `${chiefBase}/export?filter[team_documents]=expiring`))
+        .statusCode,
+    ).toBe(403)
+
+    // The dashboard counts the active sites with an expired team member; null without sites.view.
+    const dashboard = `/api/companies/${company.slug}/dashboard`
+    const counted = async () => {
+      const res = await browser.call('GET', dashboard)
+      expect(res.statusCode).toBe(200)
+      return res.json<{ employees: { active_sites_expired: number | null } }>().employees
+        .active_sites_expired
+    }
+    await ctx.owner.query("update public.sites set status = 'active' where company_id = $1", [
+      company.id,
+    ])
+    await ctx.owner.query("update public.sites set status = 'active' where company_id = $1", [
+      theirs.company.id,
+    ])
+    expect(await counted()).toBe(1)
+    await ctx.owner.query(
+      "update public.sites set status = 'suspended' where company_id = $1 and name = 'Villetta'",
+      [company.id],
+    )
+    expect(await counted()).toBe(0)
+    const office = await fx.user()
+    await fx.member(
+      office.id,
+      company.id,
+      await fx.role(company.id, 'Personale', ['employees.view']),
+    )
+    const officeBrowser = new Browser(ctx.app)
+    await officeBrowser.signIn(office.email)
+    const seenByOffice = await officeBrowser.call('GET', dashboard)
+    expect(seenByOffice.statusCode).toBe(200)
+    expect(
+      seenByOffice.json<{ employees: { active_sites_expired: number | null } }>().employees
+        .active_sites_expired,
+    ).toBeNull()
+  })
+})

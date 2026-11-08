@@ -390,6 +390,8 @@ describe('documents of an employee', () => {
     expect(d.json<{ employees: unknown }>().employees).toEqual({
       documents_expired: 1,
       documents_expiring: 2,
+      // Without sites.view, no count of the sites.
+      active_sites_expired: null,
     })
     const blind = await fx.user()
     await fx.member(

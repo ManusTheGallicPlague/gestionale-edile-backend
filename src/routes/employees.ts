@@ -215,7 +215,7 @@ function writeFailed(error: unknown): never {
   throw error
 }
 
-const DOCUMENT_FILTERS = ['expired', 'expiring'] as const
+export const DOCUMENT_FILTERS = ['expired', 'expiring'] as const
 
 const TODAY = "(now() at time zone 'Europe/Rome')::date"
 

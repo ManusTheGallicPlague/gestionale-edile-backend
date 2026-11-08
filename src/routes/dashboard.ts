@@ -11,6 +11,7 @@ import { FOLLOW_UPS as ORDER_FOLLOW_UPS } from './purchase-orders.js'
 import { FOLLOW_UPS } from './quotes.js'
 import { ACTIVITY_FOLLOW_UPS } from './site-activities.js'
 import { onSite } from './site-subcontractors.js'
+import { teamHas } from './site-team.js'
 import { COMPLIANCE_SQL } from './suppliers.js'
 import { BELOW_MIN } from './warehouse.js'
 import { DOCUMENTS_SQL } from './vehicles.js'
@@ -379,17 +380,29 @@ async function vehicleCounts(client: PoolClient, today: string) {
   }
 }
 
-/** Active employees with documents to renew, as filter[documents] in the employee list. */
-async function employeeCounts(client: PoolClient) {
+/**
+ * Active employees with documents to renew, as filter[documents] in the employee list, and
+ * active sites whose team has one expired, as filter[team_documents] in the site list.
+ */
+async function employeeCounts(client: PoolClient, sites: boolean) {
   const { rows } = await client.query<{ expired: number; expiring: number }>(
     `select count(*) filter (where ${EMPLOYEE_DOCUMENTS_SQL.expired})::int as expired,
        count(*) filter (where ${EMPLOYEE_DOCUMENTS_SQL.expiring})::int as expiring
      from public.employees e
      where e.active`,
   )
+  let activeSitesExpired: number | null = null
+  if (sites) {
+    const active = await client.query<{ n: number }>(
+      `select count(*)::int as n from public.sites s
+       where s.status = 'active' and ${teamHas('s.id', EMPLOYEE_DOCUMENTS_SQL.expired)}`,
+    )
+    activeSitesExpired = active.rows[0]?.n ?? 0
+  }
   return {
     documents_expired: rows[0]?.expired ?? 0,
     documents_expiring: rows[0]?.expiring ?? 0,
+    active_sites_expired: activeSitesExpired,
   }
 }
 
@@ -455,7 +468,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
           ? await subcontractorCounts(client, can('sites.view'))
           : null,
         vehicles: can('vehicles.view') ? await vehicleCounts(client, today) : null,
-        employees: can('employees.view') ? await employeeCounts(client) : null,
+        employees: can('employees.view') ? await employeeCounts(client, can('sites.view')) : null,
         activities: can('sites.view') ? await activityCounts(client) : null,
         absences: can('employees.view') ? await absenceCounts(client, today) : null,
       }
