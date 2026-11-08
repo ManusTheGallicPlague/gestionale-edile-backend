@@ -9,6 +9,7 @@ import { requireSession } from '../http/request-context.js'
 import { toCsv } from '../csv.js'
 import { italianQuantity } from '../quotes/pdf.js'
 import { workingDays } from '../holidays.js'
+import { UUID } from '../deadlines/input.js'
 import { ABSENCE_KINDS, ABSENCE_NAMES, type AbsenceKind } from './employee-absences.js'
 
 interface Row {
@@ -70,7 +71,33 @@ async function readYear(client: PoolClient, query: Record<string, unknown>): Pro
  * Absences of every active employee, and of the inactive ones with absences, in a calendar
  * year: whole-day absences as calendar days clipped to the year, leaves as hours.
  */
+function readFilters(query: Record<string, unknown>) {
+  const errors: Record<string, string[]> = {}
+  const single = (name: string): string | undefined => {
+    const value = query[name]
+    if (value === undefined) return undefined
+    if (typeof value !== 'string') {
+      errors[name] = ['Un solo valore.']
+      return undefined
+    }
+    return value
+  }
+  let employee: string | null = null
+  const employeeValue = single('filter[employee]')
+  if (employeeValue !== undefined) {
+    if (UUID.test(employeeValue)) employee = employeeValue.toLowerCase()
+    else errors['filter[employee]'] = ['Identificativo non valido.']
+  }
+  const vacationValue = single('filter[vacation]')
+  if (vacationValue !== undefined && vacationValue !== 'exceeded') {
+    errors['filter[vacation]'] = ['Valori ammessi: exceeded.']
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { employee, exceeded: vacationValue === 'exceeded' }
+}
+
 async function readTotals(client: PoolClient, query: Record<string, unknown>) {
+  const filters = readFilters(query)
   const year = await readYear(client, query)
   const from = `${year}-01-01`
   const to = `${year}-12-31`
@@ -88,12 +115,11 @@ async function readTotals(client: PoolClient, query: Record<string, unknown>) {
      from public.employees e
      left join clipped a on a.employee_id = e.id
      left join public.employee_leave_carryovers c on c.employee_id = e.id and c.year = $3
-     where e.active or a.employee_id is not null
+     where ($4::uuid is null and (e.active or a.employee_id is not null)) or e.id = $4::uuid
      order by lower(e.last_name), lower(e.first_name), e.id`,
-    [from, to, year],
+    [from, to, year, filters.employee],
   )
   const employees: { row: Row; tally: Tally }[] = []
-  const total = emptyTally()
   for (const row of rows) {
     let current = employees.at(-1)
     if (current?.row.id !== row.id) {
@@ -101,33 +127,47 @@ async function readTotals(client: PoolClient, query: Record<string, unknown>) {
       employees.push(current)
     }
     if (row.kind === null || row.starts_on === null || row.ends_on === null) continue
-    for (const tally of [current.tally[row.kind], total[row.kind]]) {
-      if (row.hours === null) {
-        tally.days += row.days ?? 0
-        tally.workingDays += workingDays(row.starts_on, row.ends_on)
-      } else {
-        tally.hundredths += BigInt(row.hours.replace('.', ''))
-      }
+    const tally = current.tally[row.kind]
+    if (row.hours === null) {
+      tally.days += row.days ?? 0
+      tally.workingDays += workingDays(row.starts_on, row.ends_on)
+    } else {
+      tally.hundredths += BigInt(row.hours.replace('.', ''))
+    }
+  }
+  const remaining = ({ row, tally }: { row: Row; tally: Tally }) =>
+    row.annual_leave_days === null
+      ? null
+      : row.annual_leave_days + (row.carried_over_days ?? 0) - tally.vacation.workingDays
+  const listed = filters.exceeded
+    ? employees.filter((e) => {
+        const left = remaining(e)
+        return left !== null && left < 0
+      })
+    : employees
+  const total = emptyTally()
+  for (const { tally } of listed) {
+    for (const kind of ABSENCE_KINDS) {
+      total[kind].days += tally[kind].days
+      total[kind].workingDays += tally[kind].workingDays
+      total[kind].hundredths += tally[kind].hundredths
     }
   }
   return {
     year,
     from,
     to,
-    employees: employees.map(({ row, tally }) => ({
+    employees: listed.map((e) => ({
       employee: {
-        id: row.id,
-        first_name: row.first_name,
-        last_name: row.last_name,
-        active: row.active,
+        id: e.row.id,
+        first_name: e.row.first_name,
+        last_name: e.row.last_name,
+        active: e.row.active,
       },
-      vacation_allowance: row.annual_leave_days,
-      vacation_carried_over: row.carried_over_days,
-      vacation_remaining:
-        row.annual_leave_days === null
-          ? null
-          : row.annual_leave_days + (row.carried_over_days ?? 0) - tally.vacation.workingDays,
-      ...present(tally),
+      vacation_allowance: e.row.annual_leave_days,
+      vacation_carried_over: e.row.carried_over_days,
+      vacation_remaining: remaining(e),
+      ...present(e.tally),
     })),
     totals: present(total),
   }

@@ -261,6 +261,106 @@ describe('absence totals of the year', () => {
     expect((await s.browser.call('GET', `${s.url}/export?year=x`)).statusCode).toBe(422)
   })
 
+  it('filters one employee, active or not, for the employee page', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    const only = async (id: string, year = 2026) => {
+      const res = await s.browser.call('GET', `${s.url}?year=${year}&filter[employee]=${id}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<Totals>()
+    }
+    const mario = await only(s.mario)
+    expect(mario.employees.map((e) => e.employee.id)).toEqual([s.mario])
+    // The total is the one of the listed employee, not of the company.
+    expect(mario.totals).toMatchObject({ days: 18, working_days: 15, hours: '3.75' })
+    // Not active and without absences in the year: still there, with zeros.
+    const idle = await only(s.idle)
+    expect(idle.employees).toHaveLength(1)
+    expect(idle.employees[0]).toMatchObject({
+      employee: { id: s.idle, active: false },
+      days: 0,
+      kinds: zero(),
+    })
+    expect(idle.totals).toMatchObject({ days: 0, working_days: 0, hours: '0.00' })
+    expect((await only(s.idle, 2025)).totals.days).toBe(5)
+    // An employee of another company, or one that does not exist: an empty list.
+    for (const id of [theirs.mario, '00000000-0000-4000-8000-000000000000']) {
+      const other = await only(id)
+      expect(other.employees).toEqual([])
+      expect(other.totals).toEqual({ days: 0, working_days: 0, hours: '0.00', kinds: zero() })
+    }
+    // Upper case ids are the same id.
+    expect((await only(s.mario.toUpperCase())).employees).toHaveLength(1)
+    const csv = await s.browser.call('GET', `${s.url}/export?year=2026&filter[employee]=${s.mario}`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      expect.stringMatching(/^Cognome;Nome;/),
+      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;;;',
+      'Totale;;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;;;',
+    ])
+  })
+
+  it('keeps only who took more vacation than allowed', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    const set = (id: string, days: number) =>
+      ctx.owner.query('update public.employees set annual_leave_days = $2 where id = $1', [
+        id,
+        days,
+      ])
+    await set(s.mario, 10) // 14 working days of vacation in 2026: -4
+    await set(s.anna, 0) // no vacation: exactly 0 left, not exceeded
+    await set(theirs.mario, 1) // another company
+    const exceeded = async (query = '') => {
+      const res = await s.browser.call(
+        'GET',
+        `${s.url}?year=2026&filter[vacation]=exceeded${query}`,
+      )
+      expect(res.statusCode).toBe(200)
+      return res.json<Totals>()
+    }
+    const body = await exceeded()
+    // Luca has no allowance at all: not counted as exceeded.
+    expect(body.employees.map((e) => [e.employee.id, e.vacation_remaining])).toEqual([
+      [s.mario, -4],
+    ])
+    expect(body.totals).toMatchObject({ days: 18, working_days: 15 })
+    // A carry-over can bring it back to zero.
+    await ctx.owner.query(
+      `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+       values ($1, $2, 2026, 4)`,
+      [s.company.id, s.mario],
+    )
+    expect((await exceeded()).employees).toEqual([])
+    // Vacation taken in advance last year, with no vacation this year: -1.
+    await ctx.owner.query(
+      `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+       values ($1, $2, 2026, -1)`,
+      [s.company.id, s.anna],
+    )
+    expect((await exceeded()).employees.map((e) => e.employee.id)).toEqual([s.anna])
+    // Both filters together.
+    expect((await exceeded(`&filter[employee]=${s.mario}`)).employees).toEqual([])
+    const csv = await s.browser.call('GET', `${s.url}/export?year=2026&filter[vacation]=exceeded`)
+    expect(csv.body.replace('﻿', '').trim().split('\r\n')).toHaveLength(3)
+  })
+
+  it('refuses wrong filters', async () => {
+    const s = await scene()
+    for (const [query, field] of [
+      ['filter[employee]=abc', 'filter[employee]'],
+      [`filter[employee]=${s.mario}&filter[employee]=${s.anna}`, 'filter[employee]'],
+      ['filter[vacation]=remaining', 'filter[vacation]'],
+      ['filter[vacation]=', 'filter[vacation]'],
+    ]) {
+      for (const path of [s.url, `${s.url}/export`]) {
+        const res = await s.browser.call('GET', `${path}?year=2026&${query}`)
+        expect(res.statusCode).toBe(422)
+        expect(Object.keys(res.json<{ errors: object }>().errors)).toEqual([field])
+      }
+    }
+  })
+
   it('needs employees.view, a session and a company of the user', async () => {
     const blind = await scene(['clients.view'])
     expect((await blind.browser.call('GET', blind.url)).statusCode).toBe(403)

@@ -4933,6 +4933,10 @@ paths:
         hanno assenze nell'anno, per cognome e nome. kinds ha sempre tutti i tipi, nell'ordine
         di EmployeeAbsenceKind, anche a zero. year è l'anno in corso (ora italiana) se non
         indicato.
+        Con filter[employee] solo quel dipendente, attivo o no, anche senza assenze (per la
+        scheda del dipendente); un dipendente che non c'è dà un elenco vuoto. Con
+        filter[vacation]=exceeded solo chi ha vacation_remaining sotto zero. totals somma i
+        dipendenti dell'elenco.
       parameters:
         - name: year
           in: query
@@ -4941,6 +4945,7 @@ paths:
             type: integer
             minimum: 2000
             maximum: 2100
+        - $ref: '#/components/parameters/AbsenceTotalsFilter'
       responses:
         '200':
           description: Le assenze dell'anno
@@ -4962,7 +4967,7 @@ paths:
         Permesso: employees.view. Le stesse righe di getAbsenceTotals, nello stesso formato
         dell'esportazione dei clienti: una riga per dipendente con giorni, giorni lavorativi e
         ore di ogni tipo (ore con la virgola) e una riga finale «Totale». Il file si chiama
-        assenze-AAAA.csv, con l'anno.
+        assenze-AAAA.csv, con l'anno. Gli stessi filtri di getAbsenceTotals.
       parameters:
         - name: year
           in: query
@@ -4971,6 +4976,7 @@ paths:
             type: integer
             minimum: 2000
             maximum: 2100
+        - $ref: '#/components/parameters/AbsenceTotalsFilter'
       responses:
         '200':
           description: Il file CSV
@@ -7564,6 +7570,20 @@ components:
         type: string
 
   parameters:
+    AbsenceTotalsFilter:
+      name: filter
+      in: query
+      description: Filtri, ad esempio filter[employee]=<id> oppure filter[vacation]=exceeded.
+      style: deepObject
+      explode: true
+      schema:
+        type: object
+        properties:
+          employee: { $ref: '#/components/schemas/Id' }
+          vacation:
+            type: string
+            enum: [exceeded]
+            description: exceeded tiene solo chi ha fatto più ferie di quelle spettanti e riportate.
     Company:
       name: company
       in: path
