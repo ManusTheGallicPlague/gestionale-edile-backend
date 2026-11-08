@@ -146,3 +146,90 @@ describe('documents of the subcontractors of a site', () => {
     expect((await new Browser(ctx.app).call('GET', mine.url)).statusCode).toBe(401)
   })
 })
+
+describe('subcontractors of a site', () => {
+  const listUrl = (slug: string, site: string) =>
+    `/api/companies/${slug}/sites/${site}/subcontractors`
+
+  async function documents(companyId: string, supplierId: string, docs: [string, number | null][]) {
+    for (const [kind, days] of docs) {
+      await ctx.owner.query(
+        `insert into public.supplier_documents (company_id, supplier_id, kind, issued_on, expires_on)
+         values ($1, $2, $3, date '2026-01-15',
+           (now() at time zone 'Europe/Rome')::date + $4::int)`,
+        [companyId, supplierId, kind, days],
+      )
+    }
+  }
+
+  it('lists the subcontractors on the site with their compliance', async () => {
+    const { browser, company, siteId, otherSiteId } = await scene()
+    const ok = await supplier(company.id, 'Bianchi Scavi', true, { cost: siteId })
+    const archived = await supplier(company.id, 'Archiviata', true, { order: siteId })
+    const late = await supplier(company.id, 'Colombo Impianti', true, { order: siteId })
+    const soon = await supplier(company.id, 'Damiani Ponteggi', true, { cost: siteId })
+    await supplier(company.id, 'Altrove', true, { cost: otherSiteId })
+    await supplier(company.id, 'Cementi', false, { cost: siteId })
+    await supplier(company.id, 'Nessun legame', true)
+    // The expired DURC was renewed: it does not count any more.
+    await documents(company.id, ok, [
+      ['durc', -40],
+      ['durc', 80],
+      ['insurance', 200],
+    ])
+    await documents(company.id, late, [
+      ['durc', -1],
+      ['insurance', 10],
+    ])
+    await documents(company.id, soon, [
+      ['durc', 0],
+      ['insurance', 30],
+    ])
+    const res = await browser.call('GET', listUrl(company.slug, siteId))
+    expect(res.statusCode).toBe(200)
+    const body = res.json<{ data: Record<string, unknown>[] }>()
+    expect(body.data.map((s) => [s.name, s.archived])).toEqual([
+      ['Archiviata', true],
+      ['Bianchi Scavi', false],
+      ['Colombo Impianti', false],
+      ['Damiani Ponteggi', false],
+    ])
+    const flags = (id: string) => {
+      const s = body.data.find((x) => x.supplier_id === id)
+      return [s?.documents_expired, s?.documents_expiring, s?.no_valid_durc]
+    }
+    expect(flags(archived)).toEqual([false, false, true])
+    expect(flags(ok)).toEqual([false, false, false])
+    expect(flags(late)).toEqual([true, false, true])
+    expect(flags(soon)).toEqual([false, true, false])
+    expect(body.data[1]?.vat_number).toMatch(/^IT\d+$/)
+    expect(res.body).not.toContain('1234')
+  })
+
+  it('needs suppliers.view; another company’s site is not found', async () => {
+    const chief = await scene(['sites.view'])
+    expect(
+      (await chief.browser.call('GET', listUrl(chief.company.slug, chief.siteId))).statusCode,
+    ).toBe(403)
+    const blind = await scene(['suppliers.view'])
+    expect(
+      (await blind.browser.call('GET', listUrl(blind.company.slug, blind.siteId))).statusCode,
+    ).toBe(404)
+
+    const mine = await scene()
+    const theirs = await scene()
+    await supplier(theirs.company.id, 'Loro', true, { cost: theirs.siteId })
+    expect(
+      (await mine.browser.call('GET', listUrl(mine.company.slug, theirs.siteId))).statusCode,
+    ).toBe(404)
+    expect(
+      (await mine.browser.call('GET', listUrl(theirs.company.slug, theirs.siteId))).statusCode,
+    ).toBe(404)
+    const own = await mine.browser.call('GET', listUrl(mine.company.slug, mine.siteId))
+    expect(own.json()).toEqual({ data: [] })
+    expect((await mine.browser.call('GET', listUrl(mine.company.slug, 'x'))).statusCode).toBe(404)
+    expect(
+      (await new Browser(ctx.app).call('GET', listUrl(mine.company.slug, mine.siteId))).statusCode,
+    ).toBe(401)
+  })
+})

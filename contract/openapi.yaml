@@ -1866,6 +1866,31 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/sites/{site}/subcontractors:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: listSiteSubcontractors
+      summary: Subappaltatori del cantiere
+      description: |
+        Permessi: sites.view e suppliers.view. Senza sites.view risponde 404, non 403; senza
+        suppliers.view 403. Per la scheda del cantiere: i subappaltatori (fornitori con
+        `subcontractor`) che hanno sul cantiere un costo o un ordine, anche archiviati, in ordine
+        di nome, gli stessi del CSV dei loro documenti. Per ognuno la regolarità con le stesse
+        condizioni di filter[compliance] dei fornitori: `documents_expired`, `documents_expiring`
+        (entro 30 giorni, senza nulla di scaduto) e `no_valid_durc`. Nessun importo. Senza
+        paginazione: sono pochi per cantiere.
+      responses:
+        '200':
+          description: I subappaltatori del cantiere
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteSubcontractorList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/sites/{site}/subcontractors/documents/export:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -10339,6 +10364,35 @@ components:
             Ha un documento scaduto (idoneità, attestato di un corso, patentino…), con le stesse
             condizioni di filter[documents]=expired dei dipendenti: un documento rinnovato non
             conta più. Lo vede anche chi non ha employees.view, senza sapere quale documento.
+    SiteSubcontractor:
+      type: object
+      required: [supplier_id, name, vat_number, archived, documents_expired,
+        documents_expiring, no_valid_durc]
+      properties:
+        supplier_id: { $ref: '#/components/schemas/Id' }
+        name: { type: string }
+        vat_number: { type: [string, 'null'] }
+        archived:
+          type: boolean
+          description: Il fornitore è archiviato.
+        documents_expired:
+          type: boolean
+          description: |
+            Per almeno un tipo di documento la scadenza più lontana è passata (come
+            filter[compliance]=expired): un documento rinnovato non conta più.
+        documents_expiring:
+          type: boolean
+          description: Niente di scaduto, ma qualcosa scade entro 30 giorni (filter[compliance]=expiring).
+        no_valid_durc:
+          type: boolean
+          description: Nessun DURC valido oggi (filter[compliance]=no_valid_durc).
+    SiteSubcontractorList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/SiteSubcontractor' }
     SiteTeam:
       type: object
       required: [data]

@@ -9,8 +9,25 @@ import { requireSession } from '../http/request-context.js'
 import { DOCUMENT_KINDS, type DocumentKind } from '../suppliers/documents.js'
 import { KIND_LABEL } from './supplier-documents.js'
 import { siteExists } from './site-team.js'
+import { COMPLIANCE_SQL } from './suppliers.js'
 
 type Params = { company: string; site: string }
+
+interface SubcontractorRow {
+  id: string
+  name: string
+  vat_number: string | null
+  archived_at: Date | null
+  documents_expired: boolean
+  documents_expiring: boolean
+  no_valid_durc: boolean
+}
+
+/** Subcontractors with a cost or an order on the site; the alias `suppliers` is for COMPLIANCE_SQL. */
+const ON_SITE = `suppliers.subcontractor
+  and (exists (select 1 from public.site_costs c where c.site_id = $1 and c.supplier_id = suppliers.id)
+    or exists (select 1 from public.purchase_orders o
+               where o.site_id = $1 and o.supplier_id = suppliers.id))`
 
 interface Row {
   name: string
@@ -30,6 +47,41 @@ interface Row {
  */
 export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
   const url = '/api/companies/:company/sites/:site/subcontractors/documents/export'
+
+  app.get<{ Params: Params }>(
+    '/api/companies/:company/sites/:site/subcontractors',
+    async (request) => {
+      const session = requireSession(request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('sites.view')) throw notFound()
+        const id = request.params.site
+        if (!UUID.test(id) || !(await siteExists(client, id))) throw notFound()
+        if (!permissions.has('suppliers.view')) throw forbidden()
+        const { rows } = await client.query<SubcontractorRow>(
+          `select id, name, vat_number, archived_at,
+             ${COMPLIANCE_SQL.expired} as documents_expired,
+             ${COMPLIANCE_SQL.expiring} as documents_expiring,
+             ${COMPLIANCE_SQL.no_valid_durc} as no_valid_durc
+           from public.suppliers
+           where ${ON_SITE}
+           order by lower(name), id`,
+          [id],
+        )
+        return {
+          data: rows.map((r) => ({
+            supplier_id: r.id,
+            name: r.name,
+            vat_number: r.vat_number,
+            archived: r.archived_at !== null,
+            documents_expired: r.documents_expired,
+            documents_expiring: r.documents_expiring,
+            no_valid_durc: r.no_valid_durc,
+          })),
+        }
+      })
+    },
+  )
 
   app.get<{ Params: Params }>(url, async (request, reply) => {
     const session = requireSession(request)
