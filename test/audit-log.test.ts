@@ -228,6 +228,73 @@ describe('audit log', () => {
     expect(JSON.stringify(data)).not.toContain('sick_leave')
   })
 
+  it('records the maintenance of the vehicles, with the names of the fields', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'vehicles.view',
+      'vehicles.update',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const vehicle = await ctx.owner.query<{ id: string }>(
+      "insert into public.vehicles (company_id, name, kind) values ($1, 'Furgone', 'vehicle') returning id",
+      [company.id],
+    )
+    const base = `/api/companies/${company.slug}/vehicles/${vehicle.rows[0]?.id}/maintenances`
+    const job = {
+      performed_on: '2026-10-15',
+      kind: 'service',
+      description: 'Tagliando',
+      supplier_id: null,
+      amount: '300',
+      meter_reading: 84500,
+      notes: null,
+    }
+    const created = await browser.call('POST', base, { body: job })
+    expect(created.statusCode).toBe(201)
+    const id = created.json<{ id: string }>().id
+    const changed = await browser.call('PUT', `${base}/${id}`, {
+      headers: { 'if-match': '"1"' },
+      body: { ...job, amount: '320.00' },
+    })
+    expect(changed.statusCode).toBe(200)
+    const deleted = await browser.call('DELETE', `${base}/${id}`, {
+      headers: { 'if-match': '"2"' },
+    })
+    expect(deleted.statusCode).toBe(204)
+    // Another company with a maintenance: not in this log.
+    const other = await fx.company()
+    const theirs = await ctx.owner.query<{ id: string }>(
+      "insert into public.vehicles (company_id, name, kind) values ($1, 'Gru', 'machine') returning id",
+      [other.id],
+    )
+    await ctx.owner.query(
+      `insert into public.vehicle_maintenances (company_id, vehicle_id, performed_on, kind, description)
+       values ($1, $2, '2026-10-01', 'repair', 'Loro')`,
+      [other.id, theirs.rows[0]?.id],
+    )
+
+    const author = { id: user.id, name: 'Utente di prova' }
+    const res = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/audit-log?filter[entity]=vehicle_maintenance`,
+    )
+    expect(res.statusCode).toBe(200)
+    const data = res.json<{ data: Entry[] }>().data
+    expect(data).toMatchObject([
+      { entity: 'vehicle_maintenance', entity_id: id, action: 'delete', user: author },
+      {
+        entity: 'vehicle_maintenance',
+        entity_id: id,
+        action: 'update',
+        fields: ['amount_cents'],
+        user: author,
+      },
+      { entity: 'vehicle_maintenance', entity_id: id, action: 'create', user: author },
+    ])
+    expect(data).toHaveLength(3)
+  })
+
   it('records the vacation carried over as a change of the employee, without the days', async () => {
     const { company, user } = await fx.companyWithUser([
       'audit.view',
