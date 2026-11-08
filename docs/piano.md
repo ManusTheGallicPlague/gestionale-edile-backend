@@ -259,7 +259,8 @@ Aggiunta il 07/11/2026, con il piano tutto spuntato: il titolare vuole vedere in
 Aggiunta l'08/11/2026, con il piano tutto spuntato: ferie, malattie e permessi servono al consulente del lavoro insieme alle ore dei rapportini, e al capo cantiere per sapere chi manca in squadra.
 
 - [x] Assenze di un dipendente (`listEmployeeAbsences`, `createEmployeeAbsence`, `updateEmployeeAbsence`, `deleteEmployeeAbsence` su `…/employees/{employee}/absences`, migrazione 0061): tipo (ferie, malattia, permesso, infortunio, altro), dal giorno al giorno, ore per un permesso di parte della giornata, note; niente sovrapposizioni; filtro per periodo per il calendario
-- [ ] Assenze nel foglio ore mensile (`exportMonthlyHours`) e nell'elenco di tutta l'azienda, per sapere chi manca oggi
+- [x] Assenze di tutti i dipendenti (`listCompanyAbsences` su `…/absences`, con `employees.view`): con il dipendente, dalla più recente, filtri per periodo (chi manca oggi), dipendente e tipo, paginato
+- [ ] Assenze nel foglio ore mensile (`exportMonthlyHours`): sigla dell'assenza nei giorni senza ore (FE, MA, PE, IN, AL), per il consulente del lavoro
 
 ## Decisioni prese
 

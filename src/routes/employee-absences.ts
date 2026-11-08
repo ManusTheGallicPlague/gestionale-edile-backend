@@ -39,9 +39,17 @@ interface AbsenceRow extends AbsenceInput {
 const HOURS = /^\d{1,2}(\.\d{1,2})?$/
 
 // Dates leave the database as text: a JavaScript Date would shift them with the time zone.
-const COLUMNS = `id, employee_id, kind, starts_on::text as starts_on, ends_on::text as ends_on,
-  hours::text as hours, notes, (ends_on - starts_on + 1)::int as days, version, created_at,
-  updated_at`
+const columns = (t = '') => `${t}id, ${t}employee_id, ${t}kind,
+  ${t}starts_on::text as starts_on, ${t}ends_on::text as ends_on, ${t}hours::text as hours,
+  ${t}notes, (${t}ends_on - ${t}starts_on + 1)::int as days, ${t}version, ${t}created_at,
+  ${t}updated_at`
+const COLUMNS = columns()
+
+interface CompanyAbsenceRow extends AbsenceRow {
+  first_name: string
+  last_name: string
+  active: boolean
+}
 
 type Params = { company: string; employee?: string; absence?: string }
 
@@ -124,26 +132,59 @@ export function parseAbsenceInput(
   return { input: { kind, starts_on, ends_on, hours, notes } }
 }
 
-function readPeriod(query: Record<string, unknown>) {
+function readFilters(query: Record<string, unknown>, company: boolean) {
   const errors: FieldErrors = {}
-  const date = (name: string): string | undefined => {
+  const single = (name: string): string | undefined => {
     const value = query[name]
     if (value === undefined) return undefined
     if (typeof value !== 'string') {
       errors[name] = ['Indicalo una volta sola.']
       return undefined
     }
+    return value
+  }
+  const date = (name: string): string | null => {
+    const value = single(name)
+    if (value === undefined) return null
     if (!isIsoDate(value)) {
       errors[name] = ['Data non valida (AAAA-MM-GG).']
-      return undefined
+      return null
     }
     return value
+  }
+  const integer = (name: string, fallback: number, max?: number): number => {
+    const value = single(name)
+    if (value === undefined) return fallback
+    const n = /^\d{1,6}$/.test(value) ? Number(value) : NaN
+    if (!Number.isInteger(n) || n < 1 || (max !== undefined && n > max)) {
+      errors[name] = [max ? `Un numero intero da 1 a ${max}.` : 'Un numero intero da 1 in su.']
+      return fallback
+    }
+    return n
   }
   const from = date('filter[from]')
   const to = date('filter[to]')
   if (from && to && to < from) errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
+  let employee: string | null = null
+  let kind: AbsenceKind | null = null
+  let page = 1
+  let perPage = 25
+  if (company) {
+    page = integer('page', 1)
+    perPage = integer('per_page', 25, 100)
+    const employeeValue = single('filter[employee]')
+    if (employeeValue !== undefined) {
+      if (UUID.test(employeeValue)) employee = employeeValue.toLowerCase()
+      else errors['filter[employee]'] = ['Identificativo non valido.']
+    }
+    const kindValue = single('filter[kind]')
+    if (kindValue !== undefined) {
+      kind = ABSENCE_KINDS.find((k) => k === kindValue) ?? null
+      if (!kind) errors['filter[kind]'] = [`Valori ammessi: ${ABSENCE_KINDS.join(', ')}.`]
+    }
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { from: from ?? null, to: to ?? null }
+  return { from, to, employee, kind, page, perPage }
 }
 
 function expectedVersion(header: string | string[] | undefined): number {
@@ -208,13 +249,54 @@ const FIELDS = ['kind', 'starts_on', 'ends_on', 'hours', 'notes'] as const
 export function employeeAbsenceRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/employees/:employee/absences'
 
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/absences',
+    async (request) => {
+      const session = requireSession(request)
+      const filters = readFilters(request.query, true)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('employees.view')) throw forbidden()
+        const where = `($1::date is null or a.ends_on >= $1) and ($2::date is null or a.starts_on <= $2)
+          and ($3::uuid is null or a.employee_id = $3) and ($4::text is null or a.kind = $4)`
+        const values = [filters.from, filters.to, filters.employee, filters.kind]
+        const { rows } = await client.query<CompanyAbsenceRow>(
+          `select ${columns('a.')},
+             e.first_name, e.last_name, e.active
+           from public.employee_absences a
+           join public.employees e on e.id = a.employee_id
+           where ${where}
+           order by a.starts_on desc, lower(e.last_name), lower(e.first_name), a.id
+           limit $5 offset $6`,
+          [...values, filters.perPage, (filters.page - 1) * filters.perPage],
+        )
+        const count = await client.query<{ total: number }>(
+          `select count(*)::int as total from public.employee_absences a where ${where}`,
+          values,
+        )
+        return {
+          data: rows.map((r) => ({
+            ...toContract(r),
+            employee: {
+              id: r.employee_id,
+              first_name: r.first_name,
+              last_name: r.last_name,
+              active: r.active,
+            },
+          })),
+          meta: { total: count.rows[0]?.total ?? 0, page: filters.page, per_page: filters.perPage },
+        }
+      })
+    },
+  )
+
   app.get<{ Params: Params; Querystring: Record<string, unknown> }>(base, async (request) => {
     const session = requireSession(request)
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('employees.view')) throw notFound()
       const employeeId = await visibleEmployee(client, request.params.employee)
-      const { from, to } = readPeriod(request.query)
+      const { from, to } = readFilters(request.query, false)
       const { rows } = await client.query<AbsenceRow>(
         `select ${COLUMNS} from public.employee_absences
          where employee_id = $1

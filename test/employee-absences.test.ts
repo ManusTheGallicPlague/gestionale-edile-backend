@@ -222,3 +222,83 @@ describe('employee absences', () => {
     expect(still.json<{ data: Absence[] }>().data.map((a) => a.id)).toEqual([id])
   })
 })
+
+describe('absences of the whole company', () => {
+  type Row = Absence & { employee: { id: string; last_name: string; active: boolean } }
+
+  async function company(permissions: Permission[] = ALL) {
+    const s = await scene(permissions)
+    const { rows } = await ctx.owner.query<{ id: string }>(
+      "insert into public.employees (company_id, first_name, last_name, active) values ($1, 'Anna', 'Bianchi', false) returning id",
+      [s.company.id],
+    )
+    const other = rows[0]?.id ?? ''
+    const add = (employee: string, kind: string, starts: string, ends: string) =>
+      ctx.owner.query(
+        `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on, notes)
+         values ($1, $2, $3, $4, $5, 'x')`,
+        [s.company.id, employee, kind, starts, ends],
+      )
+    await add(s.employee, 'vacation', '2026-08-10', '2026-08-21')
+    await add(s.employee, 'sick_leave', '2026-09-01', '2026-09-02')
+    await add(other, 'vacation', '2026-08-17', '2026-08-28')
+    return { ...s, other, list: `/api/companies/${s.company.slug}/absences` }
+  }
+
+  it('lists every absence with its employee, newest first, filtered and paged', async () => {
+    const { browser, list, employee, other } = await company()
+    const all = await browser.call('GET', list)
+    expect(all.statusCode).toBe(200)
+    const body = all.json<{ data: Row[]; meta: object }>()
+    expect(body.data.map((r) => [r.kind, r.employee.last_name, r.employee.active])).toEqual([
+      ['sick_leave', 'Operaio', true],
+      ['vacation', 'Bianchi', false],
+      ['vacation', 'Operaio', true],
+    ])
+    expect(body.meta).toEqual({ total: 3, page: 1, per_page: 25 })
+
+    const of = async (query: string) =>
+      (await browser.call('GET', `${list}?${query}`)).json<{
+        data: Row[]
+        meta: { total: number }
+      }>()
+    // Who is away on one day.
+    const day = await of('filter[from]=2026-08-21&filter[to]=2026-08-21')
+    expect(day.data.map((r) => r.employee.id)).toEqual([other, employee])
+    expect((await of('filter[from]=2026-08-22&filter[to]=2026-08-31')).meta.total).toBe(1)
+    expect((await of('filter[kind]=vacation')).meta.total).toBe(2)
+    expect((await of(`filter[employee]=${other}`)).data.map((r) => r.kind)).toEqual(['vacation'])
+    const paged = await of('per_page=2&page=2')
+    expect(paged.data).toHaveLength(1)
+    expect(paged.meta).toEqual({ total: 3, page: 2, per_page: 2 })
+  })
+
+  it.each([
+    ['filter[kind]=sciopero', 'filter[kind]'],
+    ['filter[employee]=abc', 'filter[employee]'],
+    ['filter[from]=2026-13-01', 'filter[from]'],
+    ['filter[from]=2026-09-02&filter[to]=2026-09-01', 'filter[to]'],
+    ['per_page=101', 'per_page'],
+  ])('refuses %s', async (query, field) => {
+    const { browser, list } = await company()
+    const res = await browser.call('GET', `${list}?${query}`)
+    expect(res.statusCode).toBe(422)
+    expect(Object.keys(res.json<{ errors: object }>().errors)).toContain(field)
+  })
+
+  it('shows only the absences of this company', async () => {
+    const mine = await company()
+    const theirs = await company()
+    const res = await mine.browser.call('GET', mine.list)
+    const ids = res.json<{ data: Row[] }>().data.map((r) => r.employee.id)
+    expect(new Set(ids)).toEqual(new Set([mine.employee, mine.other]))
+    const filtered = await mine.browser.call('GET', `${mine.list}?filter[employee]=${theirs.other}`)
+    expect(filtered.json<{ data: Row[] }>().data).toEqual([])
+  })
+
+  it('needs employees.view (403) and a session (401)', async () => {
+    const blind = await company(['clients.view'])
+    expect((await blind.browser.call('GET', blind.list)).statusCode).toBe(403)
+    expect((await new Browser(ctx.app).call('GET', blind.list)).statusCode).toBe(401)
+  })
+})

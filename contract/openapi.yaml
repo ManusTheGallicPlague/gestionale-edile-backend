@@ -4702,6 +4702,43 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/absences:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listCompanyAbsences
+      summary: Assenze di tutti i dipendenti
+      description: |
+        Permesso: employees.view. Le assenze di tutti i dipendenti, dalla più recente, con il
+        dipendente: per il calendario delle ferie e per sapere chi manca oggi
+        (filter[from] e filter[to] uguali a oggi). Con filter[from] e filter[to] (estremi
+        compresi) solo le assenze che toccano quel periodo, come in listEmployeeAbsences.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[from]=2026-08-01&filter[to]=2026-08-31&filter[kind]=vacation.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              employee: { $ref: '#/components/schemas/Id' }
+              kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
+      responses:
+        '200':
+          description: Una pagina di assenze
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyAbsenceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/vehicles:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8282,6 +8319,27 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/EmployeeAbsence' }
+    CompanyAbsenceList:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/EmployeeAbsence'
+              - type: object
+                required: [employee]
+                properties:
+                  employee:
+                    type: object
+                    required: [id, first_name, last_name, active]
+                    properties:
+                      id: { $ref: '#/components/schemas/Id' }
+                      first_name: { type: string }
+                      last_name: { type: string }
+                      active: { type: boolean }
+        meta: { $ref: '#/components/schemas/ListMeta' }
     SupplierDocumentList:
       type: object
       required: [data]
