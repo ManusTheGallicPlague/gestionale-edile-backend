@@ -8,6 +8,7 @@ import { UUID } from '../deadlines/input.js'
 import { ValidationFailed, forbidden, notFound } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import type { AbsenceKind } from './employee-absences.js'
+import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 
 const MAX_TEAM = 200
 
@@ -21,16 +22,19 @@ interface MemberRow {
   active: boolean
   absence: AbsenceKind | null
   absence_hours: string | null
+  documents_expired: boolean
 }
 
 /**
  * Only names and job titles: the team is visible with sites.view, hourly costs are not. Who
  * is away today, Italian date, for everybody; why (a sick leave, say) only with employees.view.
+ * Likewise who has an expired document, not which one.
  */
 async function readTeam(client: PoolClient, siteId: string, seesAbsences: boolean) {
   const { rows } = await client.query<MemberRow>(
     `select e.id as employee_id, e.first_name, e.last_name, e.job_title, e.active,
-       a.kind as absence, a.hours::text as absence_hours
+       a.kind as absence, a.hours::text as absence_hours,
+       ${EMPLOYEE_DOCUMENTS_SQL.expired} as documents_expired
      from public.site_team t
      join public.employees e on e.id = t.employee_id
      left join lateral (
@@ -53,6 +57,7 @@ async function readTeam(client: PoolClient, siteId: string, seesAbsences: boolea
       away: r.absence !== null && r.absence_hours === null,
       absence: seesAbsences ? r.absence : null,
       absence_hours: seesAbsences ? r.absence_hours : null,
+      documents_expired: r.documents_expired,
     })),
   }
 }

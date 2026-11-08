@@ -124,6 +124,42 @@ describe('site team', () => {
     expect(rows(free)).toEqual([['Verdi', false, null, null]])
   })
 
+  it('tells who has an expired document, not which one', async () => {
+    const { browser, company, url, verdi, bassi } = await scene()
+    await browser.call('PUT', url, { body: { employee_ids: [verdi, bassi] } })
+    // Verdi: the medical check expired yesterday. Bassi: a course expired, but the refresher is
+    // on file, and the first aid expires today (still valid).
+    await ctx.owner.query(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on, notes)
+       select $1, x.employee_id, x.kind, d.today + x.days, 'n. 81'
+       from (select (now() at time zone 'Europe/Rome')::date as today) d,
+         (values ($2::uuid, 'medical_check', -1),
+                 ($3::uuid, 'safety_training', -10),
+                 ($3::uuid, 'safety_training', 300),
+                 ($3::uuid, 'first_aid', 0)) as x (employee_id, kind, days)`,
+      [company.id, verdi, bassi],
+    )
+    type Members = { data: { last_name: string; documents_expired: boolean }[] }
+    const rows = (res: { json: <T>() => T }) =>
+      res.json<Members>().data.map((m) => [m.last_name, m.documents_expired])
+    const seen = await browser.call('GET', url)
+    expect(seen.statusCode).toBe(200)
+    expect(rows(seen)).toEqual([
+      ['Bassi', false],
+      ['Verdi', true],
+    ])
+    // Without employees.view nothing says which document, nor its notes.
+    expect(seen.body).not.toContain('medical_check')
+    expect(seen.body).not.toContain('n. 81')
+    const replaced = await browser.call('PUT', url, { body: { employee_ids: [verdi] } })
+    expect(rows(replaced)).toEqual([['Verdi', true]])
+
+    // Documents of another company never reach this team.
+    const other = await scene()
+    await other.browser.call('PUT', other.url, { body: { employee_ids: [other.verdi] } })
+    expect(rows(await other.browser.call('GET', other.url))).toEqual([['Verdi', false]])
+  })
+
   it('an employee of another company cannot join; another company’s site is not found', async () => {
     const mine = await scene()
     const theirs = await scene()

@@ -1797,7 +1797,8 @@ paths:
         mansione e stato dei dipendenti, senza costi: la vede anche chi non ha employees.view.
         In ordine di cognome e nome. Con le assenze di oggi, nel calendario italiano: `away`
         per chi è assente tutto il giorno; tipo dell'assenza e ore di un permesso solo con
-        employees.view.
+        employees.view. `documents_expired` per chi ha un documento scaduto (idoneità,
+        attestato di un corso…), senza dire quale.
       responses:
         '200':
           description: La squadra
@@ -10240,7 +10241,7 @@ components:
     SiteTeamMember:
       type: object
       required: [employee_id, first_name, last_name, job_title, active, away, absence,
-        absence_hours]
+        absence_hours, documents_expired]
       properties:
         employee_id: { $ref: '#/components/schemas/Id' }
         first_name: { type: string }
@@ -10262,6 +10263,12 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Hours'
             - type: 'null'
+        documents_expired:
+          type: boolean
+          description: |
+            Ha un documento scaduto (idoneità, attestato di un corso, patentino…), con le stesse
+            condizioni di filter[documents]=expired dei dipendenti: un documento rinnovato non
+            conta più. Lo vede anche chi non ha employees.view, senza sapere quale documento.
     SiteTeam:
       type: object
       required: [data]
