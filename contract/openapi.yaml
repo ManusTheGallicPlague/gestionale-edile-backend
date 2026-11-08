@@ -9726,6 +9726,7 @@ components:
           warehouse,
           subcontractors,
           activities,
+          absences,
         ]
       properties:
         today: { $ref: '#/components/schemas/Date' }
@@ -9862,6 +9863,10 @@ components:
         activities:
           oneOf:
             - $ref: '#/components/schemas/DashboardActivities'
+            - type: 'null'
+        absences:
+          oneOf:
+            - $ref: '#/components/schemas/DashboardAbsences'
             - type: 'null'
     SubjectAccount:
       type: object
@@ -10350,6 +10355,21 @@ components:
           type: integer
           minimum: 0
           description: Attività non iniziate che iniziano entro 7 giorni da oggi, oggi compreso.
+    DashboardAbsences:
+      type: object
+      description: |
+        Assenze dei dipendenti attivi (listCompanyAbsences), con employees.view, sulla data
+        italiana: per sapere chi manca in squadra.
+      required: [away_today, starting_soon]
+      properties:
+        away_today:
+          type: integer
+          minimum: 0
+          description: Dipendenti attivi con un'assenza che comprende oggi.
+        starting_soon:
+          type: integer
+          minimum: 0
+          description: Assenze di dipendenti attivi che iniziano nei prossimi 7 giorni, da domani.
     SiteActivityList:
       type: object
       required: [data]

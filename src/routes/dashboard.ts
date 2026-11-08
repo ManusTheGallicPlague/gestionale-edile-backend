@@ -337,6 +337,20 @@ async function activityCounts(client: PoolClient) {
   return { late: rows[0]?.late ?? 0, starting_soon: rows[0]?.starting_soon ?? 0 }
 }
 
+/** Absences of the active employees: who is away today, and who will be in the next week. */
+async function absenceCounts(client: PoolClient, today: string) {
+  const { rows } = await client.query<{ away_today: number; starting_soon: number }>(
+    `select count(distinct a.employee_id)
+         filter (where a.starts_on <= $1::date and a.ends_on >= $1::date)::int as away_today,
+       count(*) filter (where a.starts_on > $1::date and a.starts_on <= $1::date + 7)::int
+         as starting_soon
+     from public.employee_absences a
+     join public.employees e on e.id = a.employee_id and e.active`,
+    [today],
+  )
+  return { away_today: rows[0]?.away_today ?? 0, starting_soon: rows[0]?.starting_soon ?? 0 }
+}
+
 /** The company dashboard: each section only for those who may see its data. */
 export function dashboardRoutes(app: FastifyInstance, db: Db): void {
   app.get<{ Params: { company: string } }>('/api/companies/:company/dashboard', async (request) => {
@@ -364,6 +378,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         warehouse: can('warehouse.view') ? await warehouseCounts(client) : null,
         subcontractors: can('suppliers.view') ? await subcontractorCounts(client) : null,
         activities: can('sites.view') ? await activityCounts(client) : null,
+        absences: can('employees.view') ? await absenceCounts(client, today) : null,
       }
     })
   })

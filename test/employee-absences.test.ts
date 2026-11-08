@@ -367,3 +367,57 @@ describe('absences in the monthly timesheet', () => {
     expect(await read(`&filter[site]=${site}`)).toEqual([row('Operaio', 'Mario', { 3: '6' }, '6')])
   })
 })
+
+describe('absences in the dashboard', () => {
+  /** An ISO day, counted from today in Italy. */
+  function day(offset: number): string {
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome' }).format(new Date())
+    const date = new Date(`${today}T12:00:00Z`)
+    date.setUTCDate(date.getUTCDate() + offset)
+    return date.toISOString().slice(0, 10)
+  }
+
+  it('counts who is away today and the absences of the next 7 days, active employees only', async () => {
+    const s = await scene()
+    const employee = async (active: boolean) =>
+      (
+        await ctx.owner.query<{ id: string }>(
+          "insert into public.employees (company_id, first_name, last_name, active) values ($1, 'X', 'Y', $2) returning id",
+          [s.company.id, active],
+        )
+      ).rows[0]?.id
+    const second = await employee(true)
+    const inactive = await employee(false)
+    const add = (who: unknown, from: number, to: number) =>
+      ctx.owner.query(
+        `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on)
+         values ($1, $2, 'vacation', $3, $4)`,
+        [s.company.id, who, day(from), day(to)],
+      )
+    await add(s.employee, -2, 0) // away today, ends today
+    await add(s.employee, 3, 4) // starts within the week
+    await add(second, 0, 5) // away today, starts today: not "starting soon"
+    await add(second, 7, 7) // starts on the seventh day
+    await add(second, 8, 9) // too far
+    await add(second, -5, -1) // already over
+    await add(inactive, 0, 3) // not active: left out
+    await add(inactive, 2, 2)
+    const theirs = await scene()
+    await ctx.owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on)
+       values ($1, $2, 'vacation', $3, $3)`,
+      [theirs.company.id, theirs.employee, day(1)],
+    )
+    const res = await s.browser.call('GET', `/api/companies/${s.company.slug}/dashboard`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json<{ absences: unknown }>().absences).toEqual({ away_today: 2, starting_soon: 2 })
+    const none = await theirs.browser.call('GET', `/api/companies/${theirs.company.slug}/dashboard`)
+    expect(none.json<{ absences: unknown }>().absences).toEqual({ away_today: 0, starting_soon: 1 })
+  })
+
+  it('is null without employees.view', async () => {
+    const blind = await scene(['clients.view'])
+    const res = await blind.browser.call('GET', `/api/companies/${blind.company.slug}/dashboard`)
+    expect(res.json<{ absences: unknown }>().absences).toBeNull()
+  })
+})
