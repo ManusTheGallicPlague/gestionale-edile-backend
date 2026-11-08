@@ -9101,6 +9101,7 @@ components:
         site_activity: attività del cronoprogramma. employee_absence: assenza di un dipendente.
         vehicle_maintenance: manutenzione di un mezzo. vehicle_refueling: rifornimento di un mezzo.
         vehicle_document: documento di un mezzo (assicurazione, bollo...).
+        employee_document: documento di un dipendente (idoneità, attestati dei corsi...).
       enum:
         [
           client,
@@ -9124,6 +9125,7 @@ components:
           vehicle_maintenance,
           vehicle_refueling,
           vehicle_document,
+          employee_document,
         ]
     AuditEntry:
       type: object
