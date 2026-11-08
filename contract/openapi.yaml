@@ -5295,6 +5295,116 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/vehicles/{vehicle}/maintenances:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/VehicleId'
+    get:
+      operationId: listVehicleMaintenances
+      summary: Manutenzioni di un mezzo
+      description: |
+        Permesso: vehicles.view (senza, 404 come per la scheda). Tagliandi, riparazioni,
+        revisioni e gomme del mezzo, senza paginazione, dalla più recente, con la spesa totale
+        dell'elenco. Con filter[from] e filter[to] (estremi compresi) solo quelle del periodo.
+      parameters:
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[from]=2026-01-01&filter[to]=2026-12-31.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Le manutenzioni
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleMaintenanceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createVehicleMaintenance
+      summary: Nuova manutenzione
+      description: 'Permesso: vehicles.update. Il fornitore, se indicato, deve essere dell''azienda.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleMaintenanceInput' }
+      responses:
+        '201':
+          description: Manutenzione registrata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleMaintenance' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/vehicles/{vehicle}/maintenances/{maintenance}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/VehicleId'
+      - name: maintenance
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    put:
+      operationId: updateVehicleMaintenance
+      summary: Modifica di una manutenzione
+      description: 'Permesso: vehicles.update. Si inviano tutti i campi. If-Match come per i mezzi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleMaintenanceInput' }
+      responses:
+        '200':
+          description: Manutenzione aggiornata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleMaintenance' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteVehicleMaintenance
+      summary: Eliminazione di una manutenzione
+      description: 'Permesso: vehicles.update. If-Match come per i mezzi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Manutenzione eliminata
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/estimates:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8585,6 +8695,70 @@ components:
         vacation: ferie. sick_leave: malattia. leave: permesso. injury: infortunio.
         other: altra assenza (note obbligatorie).
       enum: [vacation, sick_leave, leave, injury, other]
+    VehicleMaintenanceKind:
+      type: string
+      description: |
+        service = tagliando, repair = riparazione, inspection = revisione, tires = gomme,
+        other = altro.
+      enum: [service, repair, inspection, tires, other]
+    VehicleMaintenanceInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [performed_on, kind, description, supplier_id, amount, meter_reading, notes]
+      properties:
+        performed_on: { $ref: '#/components/schemas/Date' }
+        kind: { $ref: '#/components/schemas/VehicleMaintenanceKind' }
+        description:
+          type: string
+          minLength: 1
+          maxLength: 300
+        supplier_id:
+          description: Officina o fornitore che ha fatto il lavoro, dell'azienda.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        amount:
+          description: Spesa senza IVA, non negativa; null se non ancora nota.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        meter_reading:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 9999999
+          description: Chilometri o ore motore segnati al momento della manutenzione.
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    VehicleMaintenance:
+      allOf:
+        - $ref: '#/components/schemas/VehicleMaintenanceInput'
+        - type: object
+          required: [id, vehicle_id, supplier, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            vehicle_id: { $ref: '#/components/schemas/Id' }
+            supplier:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    VehicleMaintenanceList:
+      type: object
+      required: [data, total_amount]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/VehicleMaintenance' }
+        total_amount:
+          description: Somma delle spese dell'elenco (quelle senza importo contano zero).
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
     EmployeeAbsenceInput:
       type: object
       description: I campi facoltativi si inviano comunque, con null se vuoti.

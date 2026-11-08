@@ -367,6 +367,10 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
     for (const company of COMPANIES) {
       const companyId = companyIds[company.slug]
       await client.query('delete from public.deadlines where company_id = $1', [companyId])
+      // Maintenance jobs point to suppliers (the workshop): they go first.
+      await client.query('delete from public.vehicle_maintenances where company_id = $1', [
+        companyId,
+      ])
       await client.query('delete from public.supplier_documents where company_id = $1', [companyId])
       await client.query('delete from public.suppliers where company_id = $1', [companyId])
       for (const s of devSuppliers(company.seed)) {
@@ -536,6 +540,21 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            ('Miniescavatore 3,5 t', 'machine', null, 4500),
            ('Betoniera 350 l', 'equipment', null, 300)
          ) as v (name, kind, plate, cost)`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.vehicle_maintenances (company_id, vehicle_id, performed_on, kind,
+           description, supplier_id, amount_cents, meter_reading)
+         select $1, v.id, current_date - m.ago, m.kind, m.description,
+           (select id from public.suppliers where company_id = $1 order by name limit 1),
+           m.cents, m.meter
+         from (values
+           ('AA000AA', 200, 'service', 'Tagliando con cambio olio e filtri', 38000, 84500),
+           ('AA000AA', 40, 'tires', 'Quattro gomme invernali', 52000, 91200),
+           (null, 90, 'repair', 'Sostituzione tubo idraulico del braccio', 21550, 1340)
+         ) as m (plate, ago, kind, description, cents, meter)
+         join public.vehicles v on v.company_id = $1
+           and (v.plate = m.plate or (m.plate is null and v.kind = 'machine'))`,
         [companyId],
       )
       await client.query('delete from public.employees where company_id = $1', [companyId])

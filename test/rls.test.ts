@@ -579,6 +579,70 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('vehicle maintenances: cannot read or write across companies', async () => {
+    const vehicle = async (companyId: string) => {
+      const { rows } = await owner.query<{ id: string }>(
+        "insert into public.vehicles (company_id, name, kind) values ($1, 'M', 'machine') returning id",
+        [companyId],
+      )
+      return rows[0]?.id
+    }
+    const vehicleB = await vehicle(companyB.id)
+    const vehicleA = await vehicle(companyA.id)
+    const { rows } = await owner.query<{ id: string }>(
+      "insert into public.suppliers (company_id, name) values ($1, 'Officina B') returning id",
+      [companyB.id],
+    )
+    const supplierB = rows[0]?.id
+    await owner.query(
+      `insert into public.vehicle_maintenances (company_id, vehicle_id, performed_on, kind, description)
+       values ($1, $2, '2026-10-01', 'repair', 'B')`,
+      [companyB.id, vehicleB],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.vehicle_maintenances where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.vehicle_maintenances (company_id, vehicle_id, performed_on, kind, description)
+           values ($1, $2, '2026-10-02', 'repair', 'X')`,
+          [companyB.id, vehicleB],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    // A maintenance of my company cannot point at their vehicle or their workshop either.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.vehicle_maintenances (company_id, vehicle_id, performed_on, kind, description)
+           values ($1, $2, '2026-10-02', 'repair', 'X')`,
+          [companyA.id, vehicleB],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.vehicle_maintenances
+             (company_id, vehicle_id, performed_on, kind, description, supplier_id)
+           values ($1, $2, '2026-10-02', 'repair', 'X', $3)`,
+          [companyA.id, vehicleA, supplierB],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.vehicle_maintenances set notes = 'x'")
+      const d = await c.query('delete from public.vehicle_maintenances')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.vehicle_maintenances')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('employee leave carry-overs: cannot read or write across companies', async () => {
     const { rows } = await owner.query<{ id: string }>(
       "insert into public.employees (company_id, first_name, last_name) values ($1, 'C', 'C') returning id",

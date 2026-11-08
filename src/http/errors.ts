@@ -106,6 +106,9 @@ export const messages = {
   vehicleStale:
     'Il mezzo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   vehicleMissingIfMatch: 'Manca la versione del mezzo: ricarica la pagina e riprova.',
+  maintenanceStale:
+    'La manutenzione è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  maintenanceMissingIfMatch: 'Manca la versione della manutenzione: ricarica la pagina e riprova.',
   chapterStale:
     'Il capitolo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   itemStale:
