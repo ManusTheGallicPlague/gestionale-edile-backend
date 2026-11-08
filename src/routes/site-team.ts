@@ -139,7 +139,7 @@ async function teamDocuments(client: PoolClient, siteId: string) {
   )
 }
 
-async function siteExists(client: PoolClient, id: string): Promise<boolean> {
+export async function siteExists(client: PoolClient, id: string): Promise<boolean> {
   const { rowCount } = await client.query('select 1 from public.sites where id = $1', [id])
   return (rowCount ?? 0) > 0
 }

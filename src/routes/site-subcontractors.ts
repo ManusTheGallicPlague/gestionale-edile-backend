@@ -1,0 +1,99 @@
+import type { FastifyInstance } from 'fastify'
+import type { Db } from '../db.js'
+import { withIdentity } from '../db.js'
+import { enterCompany } from '../company.js'
+import { italianDate, toCsv } from '../csv.js'
+import { UUID } from '../deadlines/input.js'
+import { forbidden, notFound } from '../http/errors.js'
+import { requireSession } from '../http/request-context.js'
+import { DOCUMENT_KINDS, type DocumentKind } from '../suppliers/documents.js'
+import { KIND_LABEL } from './supplier-documents.js'
+import { siteExists } from './site-team.js'
+
+type Params = { company: string; site: string }
+
+interface Row {
+  name: string
+  vat_number: string | null
+  kind: DocumentKind | null
+  description: string | null
+  issued_on: string | null
+  expires_on: string | null
+  notes: string | null
+  status: string
+  has_file: boolean
+}
+
+/**
+ * The subcontractors that worked on the site (a cost or an order on it) with every document,
+ * for the safety coordinator, as the documents of the team. No amounts: only who they are.
+ */
+export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
+  const url = '/api/companies/:company/sites/:site/subcontractors/documents/export'
+
+  app.get<{ Params: Params }>(url, async (request, reply) => {
+    const session = requireSession(request)
+    const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('sites.view')) throw notFound()
+      const id = request.params.site
+      if (!UUID.test(id) || !(await siteExists(client, id))) throw notFound()
+      if (!permissions.has('suppliers.view')) throw forbidden()
+      const { rows } = await client.query<Row>(
+        `select s.name, s.vat_number, d.kind, d.description,
+           d.issued_on::text as issued_on, d.expires_on::text as expires_on, d.notes,
+           case
+             when d.id is null then 'Nessun documento'
+             when d.expires_on is null then 'Senza scadenza'
+             when exists (
+               select 1 from public.supplier_documents n
+               where n.supplier_id = d.supplier_id and n.kind = d.kind
+                 and n.expires_on > d.expires_on
+             ) then 'Rinnovato'
+             when d.expires_on < (now() at time zone 'Europe/Rome')::date then 'Scaduto'
+             when d.expires_on <= (now() at time zone 'Europe/Rome')::date + 30 then 'In scadenza'
+             else 'Valido'
+           end as status,
+           exists (select 1 from public.supplier_document_files f where f.document_id = d.id)
+             as has_file
+         from public.suppliers s
+         left join public.supplier_documents d on d.supplier_id = s.id
+         where s.subcontractor
+           and (exists (select 1 from public.site_costs c where c.site_id = $1 and c.supplier_id = s.id)
+             or exists (select 1 from public.purchase_orders o
+                        where o.site_id = $1 and o.supplier_id = s.id))
+         order by lower(s.name), s.id, array_position($2::text[], d.kind),
+           d.expires_on desc nulls first, d.id`,
+        [id, DOCUMENT_KINDS],
+      )
+      return toCsv(
+        [
+          'Subappaltatore',
+          'Partita IVA',
+          'Documento',
+          'Descrizione',
+          'Rilascio',
+          'Scadenza',
+          'Stato',
+          'Note',
+          'File',
+        ],
+        rows.map((r) => [
+          r.name,
+          r.vat_number,
+          r.kind && KIND_LABEL[r.kind],
+          r.description,
+          r.issued_on && italianDate(r.issued_on),
+          r.expires_on && italianDate(r.expires_on),
+          r.status,
+          r.notes,
+          r.kind && (r.has_file ? 'Sì' : 'No'),
+        ]),
+      )
+    })
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', 'attachment; filename="documenti-subappaltatori.csv"')
+      .send(csv)
+  })
+}

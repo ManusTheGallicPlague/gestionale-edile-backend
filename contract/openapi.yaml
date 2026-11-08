@@ -1866,6 +1866,40 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/sites/{site}/subcontractors/documents/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: exportSiteSubcontractorDocuments
+      summary: Documenti dei subappaltatori del cantiere in CSV
+      description: |
+        Permessi: sites.view e suppliers.view. Senza sites.view risponde 404, non 403; senza
+        suppliers.view 403. Per il coordinatore della sicurezza, come i documenti della squadra:
+        i subappaltatori (fornitori con `subcontractor`) che hanno sul cantiere un costo o un
+        ordine, anche archiviati, in ordine di nome; una riga per ogni loro documento (DURC,
+        visura camerale, assicurazione), poi di tipo e di scadenza; chi non ha documenti ha una
+        riga con lo stato «Nessun documento». Colonne: Subappaltatore, Partita IVA, Documento (il
+        tipo per esteso), Descrizione, Rilascio, Scadenza (come 30/11/2026), Stato, Note, File
+        (Sì se c'è la scansione). Stati come nei documenti della squadra: Valido, In scadenza
+        (entro 30 giorni), Scaduto, Senza scadenza, Rinnovato. Nessun importo. Il file si chiama
+        documenti-subappaltatori.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/daily-reports:
     parameters:
       - $ref: '#/components/parameters/Company'

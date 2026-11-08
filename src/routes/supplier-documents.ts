@@ -88,7 +88,7 @@ async function missingOrStale(client: PoolClient, id: string, supplierId: string
   throw new ApiError(412, messages.documentStale, 'stale_record')
 }
 
-const KIND_LABEL = {
+export const KIND_LABEL = {
   durc: 'DURC',
   chamber_extract: 'Visura camerale',
   insurance: 'Assicurazione',
