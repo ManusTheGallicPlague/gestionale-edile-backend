@@ -317,19 +317,19 @@ describe('absences of the whole company', () => {
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="assenze.csv"')
     expect(res.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
-      'Cognome;Nome;Tipo;Sigla;Dal;Al;Giorni;Ore;Note',
-      'Operaio;Mario;Permesso;PE;03/09/2026;03/09/2026;1;2,5;"\'=HYPERLINK(""x"")"',
-      'Operaio;Mario;Malattia;MA;01/09/2026;02/09/2026;2;;x',
-      'Bianchi;Anna;Ferie;FE;17/08/2026;28/08/2026;12;;x',
-      'Operaio;Mario;Ferie;FE;10/08/2026;21/08/2026;12;;x',
+      'Cognome;Nome;Tipo;Sigla;Dal;Al;Giorni;Giorni lavorativi;Ore;Note',
+      'Operaio;Mario;Permesso;PE;03/09/2026;03/09/2026;1;;2,5;"\'=HYPERLINK(""x"")"',
+      'Operaio;Mario;Malattia;MA;01/09/2026;02/09/2026;2;2;;x',
+      'Bianchi;Anna;Ferie;FE;17/08/2026;28/08/2026;12;10;;x',
+      'Operaio;Mario;Ferie;FE;10/08/2026;21/08/2026;12;10;;x',
     ])
     const filtered = await s.browser.call(
       'GET',
       `${s.list}/export?filter[kind]=vacation&filter[from]=2026-08-22`,
     )
     expect(filtered.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
-      'Cognome;Nome;Tipo;Sigla;Dal;Al;Giorni;Ore;Note',
-      'Bianchi;Anna;Ferie;FE;17/08/2026;28/08/2026;12;;x',
+      'Cognome;Nome;Tipo;Sigla;Dal;Al;Giorni;Giorni lavorativi;Ore;Note',
+      'Bianchi;Anna;Ferie;FE;17/08/2026;28/08/2026;12;10;;x',
     ])
     expect((await s.browser.call('GET', `${s.list}/export?filter[kind]=x`)).statusCode).toBe(422)
     const blind = await company(['clients.view'])
@@ -388,7 +388,7 @@ describe('absences in the calendar', () => {
       'SUMMARY:Operaio Mario – Permesso 2\\,5 h',
     ])
     expect(lines).toContain(
-      'DESCRIPTION:Tipo: Ferie (FE)\\nDal 28/12/2026 al 04/01/2027\\nGiorni: 8\\n\\nNatale\\; al mare\\, forse',
+      'DESCRIPTION:Tipo: Ferie (FE)\\nDal 28/12/2026 al 04/01/2027\\nGiorni: 8 (lavorativi 5)\\n\\nNatale\\; al mare\\, forse',
     )
     expect(lines).toContain('DESCRIPTION:Tipo: Permesso (PE)\\nIl 03/09/2026\\nOre: 2\\,5')
 

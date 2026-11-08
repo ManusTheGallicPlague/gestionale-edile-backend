@@ -309,7 +309,9 @@ function absenceDescription(r: CompanyAbsenceRow): string {
     r.starts_on === r.ends_on
       ? `Il ${italianDate(r.starts_on)}`
       : `Dal ${italianDate(r.starts_on)} al ${italianDate(r.ends_on)}`,
-    r.hours === null ? `Giorni: ${r.days}` : `Ore: ${italianQuantity(r.hours)}`,
+    r.hours === null
+      ? `Giorni: ${r.days} (lavorativi ${workingDays(r.starts_on, r.ends_on)})`
+      : `Ore: ${italianQuantity(r.hours)}`,
   ]
   if (r.notes) lines.push('', r.notes)
   return lines.join('\n')
@@ -358,7 +360,18 @@ export function employeeAbsenceRoutes(app: FastifyInstance, config: Config, db: 
         if (!permissions.has('employees.view')) throw forbidden()
         const { rows } = await readCompanyAbsences(client, filters, MAX_EXPORT_ROWS, 0)
         return toCsv(
-          ['Cognome', 'Nome', 'Tipo', 'Sigla', 'Dal', 'Al', 'Giorni', 'Ore', 'Note'],
+          [
+            'Cognome',
+            'Nome',
+            'Tipo',
+            'Sigla',
+            'Dal',
+            'Al',
+            'Giorni',
+            'Giorni lavorativi',
+            'Ore',
+            'Note',
+          ],
           rows.map((r) => [
             r.last_name,
             r.first_name,
@@ -367,6 +380,7 @@ export function employeeAbsenceRoutes(app: FastifyInstance, config: Config, db: 
             italianDate(r.starts_on),
             italianDate(r.ends_on),
             r.days,
+            r.hours === null ? workingDays(r.starts_on, r.ends_on) : null,
             r.hours === null ? null : italianQuantity(r.hours),
             r.notes,
           ]),
