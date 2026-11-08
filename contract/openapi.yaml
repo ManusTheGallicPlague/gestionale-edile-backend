@@ -10329,13 +10329,19 @@ components:
       allOf:
         - $ref: '#/components/schemas/SiteInput'
         - type: object
-          required: [id, client, location, quote, created_at, updated_at]
+          required: [id, client, location, quote, team_documents_expired, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             client:
               oneOf:
                 - $ref: '#/components/schemas/SubjectRef'
                 - type: 'null'
+            team_documents_expired:
+              type: boolean
+              description: |
+                Vero se almeno un dipendente della squadra ha un documento scaduto, come
+                documents_expired di getSiteTeam e filter[team_documents]=expired. Calcolato:
+                non cambia l'ETag e si ignora se arriva nel corpo.
             quote:
               description: Il preventivo da cui è nato il cantiere (createSiteFromQuote), o null.
               oneOf:

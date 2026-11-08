@@ -72,6 +72,7 @@ interface SiteRow extends SiteValues {
   quote_year: number | null
   quote_seq: number | null
   quote_revision: number | null
+  team_documents_expired: boolean
   version: number
   created_at: Date
   updated_at: Date
@@ -82,7 +83,8 @@ type Params = { company: string; site?: string }
 const SELECT = `select s.id, s.code, s.name, s.client_id, s.address, s.status,
     s.start_on::text as start_on, s.end_on::text as end_on, s.budget_cents::text as budget_cents,
     s.notes, s.latitude::text as latitude, s.longitude::text as longitude, s.version, s.created_at, s.updated_at, c.name as client_name,
-    s.quote_id, q.number_year as quote_year, q.number_seq as quote_seq, q.revision as quote_revision
+    s.quote_id, q.number_year as quote_year, q.number_seq as quote_seq, q.revision as quote_revision,
+    ${teamHas('s.id', EMPLOYEE_DOCUMENTS_SQL.expired)} as team_documents_expired
   from public.sites s
   left join public.clients c on c.id = s.client_id
   left join public.quotes q on q.id = s.quote_id`
@@ -121,6 +123,7 @@ function toContract(row: SiteRow) {
           number: formatQuoteNumber(row.quote_year, row.quote_seq, row.quote_revision),
         }
       : null,
+    team_documents_expired: row.team_documents_expired,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }

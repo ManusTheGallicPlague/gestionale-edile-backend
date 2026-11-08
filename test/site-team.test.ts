@@ -403,4 +403,53 @@ describe('sites by documents of their team', () => {
         .active_sites_expired,
     ).toBeNull()
   })
+
+  it('marks the sites with an expired team document, without changing the ETag', async () => {
+    const { browser, company, siteId, url, verdi } = await scene(['sites.view', 'sites.update'])
+    const site = `/api/companies/${company.slug}/sites/${siteId}`
+    type Flag = { name: string; team_documents_expired: boolean }
+    const before = await browser.call('GET', site)
+    expect(before.json<Flag>().team_documents_expired).toBe(false)
+    const etag = before.headers.etag
+    await browser.call('PUT', url, { body: { employee_ids: [verdi] } })
+    await ctx.owner.query(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on)
+       values ($1, $2, 'medical_check', (now() at time zone 'Europe/Rome')::date - 1)`,
+      [company.id, verdi],
+    )
+    const after = await browser.call('GET', site)
+    expect(after.statusCode).toBe(200)
+    expect(after.json<Flag>().team_documents_expired).toBe(true)
+    expect(after.headers.etag).toBe(etag)
+    const list = await browser.call('GET', `/api/companies/${company.slug}/sites`)
+    expect(
+      list.json<{ data: Flag[] }>().data.map((s) => [s.name, s.team_documents_expired]),
+    ).toEqual([['Villetta', true]])
+    // Sent back in the body it is ignored, and stays computed.
+    const updated = await browser.call('PUT', site, {
+      body: {
+        code: null,
+        name: 'Villetta 2',
+        client_id: null,
+        address: null,
+        status: 'planned',
+        start_on: null,
+        end_on: null,
+        budget: null,
+        notes: null,
+        team_documents_expired: false,
+      },
+      headers: { 'if-match': String(etag) },
+    })
+    expect(updated.statusCode).toBe(200)
+    expect(updated.json<Flag>().team_documents_expired).toBe(true)
+
+    // Another company's site never sees this team.
+    const other = await scene()
+    const theirs = await other.browser.call(
+      'GET',
+      `/api/companies/${other.company.slug}/sites/${other.siteId}`,
+    )
+    expect(theirs.json<Flag>().team_documents_expired).toBe(false)
+  })
 })
