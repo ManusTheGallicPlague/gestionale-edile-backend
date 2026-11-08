@@ -312,3 +312,59 @@ describe('sites by compliance of their subcontractors', () => {
     expect((await chief.browser.call('GET', chiefBase)).statusCode).toBe(200)
   })
 })
+
+describe('active sites with irregular subcontractors in the dashboard', () => {
+  it('counts active sites only, once each, with sites.view and suppliers.view', async () => {
+    const { browser, company } = await scene()
+    const sites = await ctx.owner.query<{ id: string; name: string }>(
+      `insert into public.sites (company_id, name, status) values
+         ($1, 'Due scaduti', 'active'), ($1, 'Senza DURC', 'active'), ($1, 'Regolare', 'active'),
+         ($1, 'Chiuso', 'completed')
+       returning id, name`,
+      [company.id],
+    )
+    const site = (name: string) => sites.rows.find((r) => r.name === name)?.id ?? ''
+    const doc = (id: string, kind: string, days: number) =>
+      ctx.owner.query(
+        `insert into public.supplier_documents (company_id, supplier_id, kind, issued_on, expires_on)
+         values ($1, $2, $3, date '2026-01-15', (now() at time zone 'Europe/Rome')::date + $4::int)`,
+        [company.id, id, kind, days],
+      )
+    // Two subcontractors with an expired DURC on the same site: the site counts once.
+    for (const name of ['Uno', 'Due']) {
+      await doc(await supplier(company.id, name, true, { cost: site('Due scaduti') }), 'durc', -3)
+    }
+    // No DURC at all: not expired, but without a valid DURC.
+    await supplier(company.id, 'Nuova', true, { order: site('Senza DURC') })
+    await doc(await supplier(company.id, 'Ok', true, { cost: site('Regolare') }), 'durc', 60)
+    await doc(await supplier(company.id, 'Chiusa', true, { cost: site('Chiuso') }), 'durc', -3)
+
+    const dashboard = `/api/companies/${company.slug}/dashboard`
+    const res = await browser.call('GET', dashboard)
+    expect(res.statusCode).toBe(200)
+    expect(res.json<{ subcontractors: unknown }>().subcontractors).toMatchObject({
+      active_sites_expired: 1,
+      active_sites_no_valid_durc: 2,
+    })
+    // The same sites as the list with the filter.
+    const listed = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/sites?sort=name&filter[status]=active&filter[subcontractor_compliance]=no_valid_durc`,
+    )
+    expect(listed.json<{ data: { name: string }[] }>().data.map((s) => s.name)).toEqual([
+      'Due scaduti',
+      'Senza DURC',
+    ])
+
+    // Another company does not see these sites.
+    const theirs = await scene()
+    const other = await theirs.browser.call(
+      'GET',
+      `/api/companies/${theirs.company.slug}/dashboard`,
+    )
+    expect(other.json<{ subcontractors: unknown }>().subcontractors).toMatchObject({
+      active_sites_expired: 0,
+      active_sites_no_valid_durc: 0,
+    })
+  })
+})

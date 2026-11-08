@@ -228,6 +228,9 @@ describe('list', () => {
       expired: 2,
       expiring: 1,
       no_valid_durc: 1,
+      // Without sites.view the sites are not counted.
+      active_sites_expired: null,
+      active_sites_no_valid_durc: null,
     })
     const blind = await signedIn(['clients.view'])
     await fx.member(

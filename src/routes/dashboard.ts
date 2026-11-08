@@ -10,6 +10,7 @@ import { statementTotals } from './progress-statements.js'
 import { FOLLOW_UPS as ORDER_FOLLOW_UPS } from './purchase-orders.js'
 import { FOLLOW_UPS } from './quotes.js'
 import { ACTIVITY_FOLLOW_UPS } from './site-activities.js'
+import { onSite } from './site-subcontractors.js'
 import { COMPLIANCE_SQL } from './suppliers.js'
 import { BELOW_MIN } from './warehouse.js'
 import { DOCUMENTS_SQL } from './vehicles.js'
@@ -315,7 +316,7 @@ async function warehouseCounts(client: PoolClient) {
  * Active (not archived) subcontractors to check before they enter a site, with the same
  * conditions as filter[compliance] in the supplier list.
  */
-async function subcontractorCounts(client: PoolClient) {
+async function subcontractorCounts(client: PoolClient, sites: boolean) {
   const { rows } = await client.query<{ expired: number; expiring: number; no_valid_durc: number }>(
     `select count(*) filter (where ${COMPLIANCE_SQL.expired})::int as expired,
        count(*) filter (where ${COMPLIANCE_SQL.expiring})::int as expiring,
@@ -323,10 +324,25 @@ async function subcontractorCounts(client: PoolClient) {
      from public.suppliers
      where subcontractor and archived_at is null`,
   )
+  // Active sites with a subcontractor on them (archived ones too) to check, as
+  // filter[subcontractor_compliance] with filter[status]=active in listSites.
+  const onActiveSites = async () => {
+    const irregular = (state: 'expired' | 'no_valid_durc') =>
+      `count(*) filter (where exists (select 1 from public.suppliers
+         where ${onSite('s.id')} and ${COMPLIANCE_SQL[state]}))::int`
+    const result = await client.query<{ expired: number; no_valid_durc: number }>(
+      `select ${irregular('expired')} as expired, ${irregular('no_valid_durc')} as no_valid_durc
+       from public.sites s where s.status = 'active'`,
+    )
+    return result.rows[0]
+  }
+  const active = sites ? await onActiveSites() : undefined
   return {
     expired: rows[0]?.expired ?? 0,
     expiring: rows[0]?.expiring ?? 0,
     no_valid_durc: rows[0]?.no_valid_durc ?? 0,
+    active_sites_expired: sites ? (active?.expired ?? 0) : null,
+    active_sites_no_valid_durc: sites ? (active?.no_valid_durc ?? 0) : null,
   }
 }
 
@@ -435,7 +451,9 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         quotes: can('quotes.view') ? await quoteTotals(client) : null,
         purchase_orders: can('purchases.view') ? await purchaseOrderTotals(client) : null,
         warehouse: can('warehouse.view') ? await warehouseCounts(client) : null,
-        subcontractors: can('suppliers.view') ? await subcontractorCounts(client) : null,
+        subcontractors: can('suppliers.view')
+          ? await subcontractorCounts(client, can('sites.view'))
+          : null,
         vehicles: can('vehicles.view') ? await vehicleCounts(client, today) : null,
         employees: can('employees.view') ? await employeeCounts(client) : null,
         activities: can('sites.view') ? await activityCounts(client) : null,

@@ -11619,7 +11619,8 @@ components:
                 Subappaltatori non archiviati da controllare prima di farli entrare in cantiere,
                 con suppliers.view: gli stessi di filter[compliance] con
                 filter[subcontractor]=true in listSuppliers.
-              required: [expired, expiring, no_valid_durc]
+              required: [expired, expiring, no_valid_durc, active_sites_expired,
+                active_sites_no_valid_durc]
               properties:
                 expired:
                   type: integer
@@ -11633,6 +11634,20 @@ components:
                   type: integer
                   minimum: 0
                   description: Senza un DURC valido oggi.
+                active_sites_expired:
+                  type: [integer, 'null']
+                  minimum: 0
+                  description: |
+                    Cantieri in corso con almeno un subappaltatore (con un costo o un ordine sul
+                    cantiere, anche archiviato) con un documento scaduto: gli stessi di
+                    filter[subcontractor_compliance]=expired con filter[status]=active in
+                    listSites. null senza sites.view.
+                active_sites_no_valid_durc:
+                  type: [integer, 'null']
+                  minimum: 0
+                  description: |
+                    Cantieri in corso con almeno un subappaltatore senza un DURC valido oggi
+                    (filter[subcontractor_compliance]=no_valid_durc). null senza sites.view.
             - type: 'null'
         vehicles:
           oneOf:
