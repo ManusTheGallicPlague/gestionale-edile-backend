@@ -8,6 +8,14 @@ import { UUID } from '../deadlines/input.js'
 import { DOCUMENT_FIELDS, parseDocumentInput, type DocumentInput } from '../suppliers/documents.js'
 import { ApiError, ValidationFailed, forbidden, messages, notFound } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import {
+  ATTACHMENT_JSON,
+  ATTACHMENT_TYPES,
+  sendAttachment,
+  uploadScope,
+  type AttachmentInfo,
+} from '../http/files.js'
+import { cleanFileName, matchesType } from './site-documents.js'
 
 export const VEHICLE_DOCUMENT_KINDS = [
   'insurance',
@@ -31,6 +39,7 @@ interface DocumentRow extends DocumentInput<VehicleDocumentKind> {
   id: string
   vehicle_id: string
   status: 'valid' | 'expiring' | 'expired' | 'no_expiry'
+  file: AttachmentInfo | null
   version: number
   created_at: Date
   updated_at: Date
@@ -45,7 +54,10 @@ const COLUMNS = `id, vehicle_id, kind, description, issued_on::text as issued_on
     when expires_on < (now() at time zone 'Europe/Rome')::date then 'expired'
     when expires_on <= (now() at time zone 'Europe/Rome')::date + 30 then 'expiring'
     else 'valid'
-  end as status`
+  end as status,
+  (select ${ATTACHMENT_JSON}
+   from public.vehicle_document_files f
+   where f.document_id = vehicle_documents.id) as file`
 
 type Params = { company: string; vehicle?: string; document?: string }
 
@@ -59,6 +71,7 @@ function toContract(row: DocumentRow) {
     expires_on: row.expires_on,
     notes: row.notes,
     status: row.status,
+    file: row.file,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -222,5 +235,124 @@ export function vehicleDocumentRoutes(app: FastifyInstance, config: Config, db: 
       if (!rowCount) await missingOrStale(client, id, vehicleId)
     })
     return reply.code(204).send()
+  })
+
+  const readOne = async (client: PoolClient, id: string) => {
+    const { rows } = await client.query<DocumentRow>(
+      `select ${COLUMNS} from public.vehicle_documents where id = $1`,
+      [id],
+    )
+    if (!rows[0]) throw new Error('document vanished inside its transaction')
+    return rows[0]
+  }
+
+  /** Takes the next version of the document, or answers 404/412 as the other writes do. */
+  const bumpVersion = async (
+    client: PoolClient,
+    id: string,
+    vehicleId: string,
+    version: number,
+  ): Promise<void> => {
+    const { rowCount } = await client.query(
+      `update public.vehicle_documents set version = version + 1, updated_at = now()
+       where id = $1 and vehicle_id = $2 and version = $3`,
+      [id, vehicleId, version],
+    )
+    if (!rowCount) await missingOrStale(client, id, vehicleId)
+  }
+
+  app.get<{ Params: Params }>(`${base}/:document/file`, async (request, reply) => {
+    const session = requireSession(request)
+    const file = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('vehicles.view')) throw notFound()
+      const vehicleId = await visibleVehicle(client, request.params.vehicle)
+      const id = request.params.document ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const { rows } = await client.query<{
+        file_name: string
+        content_type: string
+        data: Buffer
+        version: number
+      }>(
+        `select f.file_name, f.content_type, f.data, d.version
+         from public.vehicle_document_files f
+         join public.vehicle_documents d on d.id = f.document_id
+         where d.id = $1 and d.vehicle_id = $2`,
+        [id, vehicleId],
+      )
+      if (!rows[0]) throw notFound()
+      return rows[0]
+    })
+    return sendAttachment(reply, file)
+  })
+
+  app.delete<{ Params: Params }>(`${base}/:document/file`, async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('vehicles.update')) throw forbidden()
+      const vehicleId = await visibleVehicle(client, request.params.vehicle)
+      const id = request.params.document ?? ''
+      if (!UUID.test(id)) throw notFound()
+      const version = expectedVersion(request.headers['if-match'])
+      await bumpVersion(client, id, vehicleId, version)
+      const { rowCount } = await client.query(
+        'delete from public.vehicle_document_files where document_id = $1',
+        [id],
+      )
+      // No file: the error rolls the version back.
+      if (!rowCount) throw notFound()
+      return readOne(client, id)
+    })
+    return send(reply, row)
+  })
+
+  uploadScope(app, config, (scope) => {
+    scope.put<{ Params: Params; Querystring: Record<string, unknown> }>(
+      `${base}/:document/file`,
+      async (request, reply) => {
+        const session = requireSession(request)
+        checkCsrf(config, request)
+        const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+          const permissions = await enterCompany(client, request.params.company)
+          if (!permissions.has('vehicles.update')) throw forbidden()
+          const vehicleId = await visibleVehicle(client, request.params.vehicle)
+          const id = request.params.document ?? ''
+          if (!UUID.test(id)) throw notFound()
+          const version = expectedVersion(request.headers['if-match'])
+          const rawName = request.query.file_name
+          const fileName = typeof rawName === 'string' ? cleanFileName(rawName) : null
+          if (fileName === null || fileName.length > 200) {
+            throw new ValidationFailed({
+              file_name: [
+                fileName === null ? 'Indica il nome del file.' : 'Al massimo 200 caratteri.',
+              ],
+            })
+          }
+          const body = request.body
+          const declared = (request.headers['content-type'] ?? '').split(';')[0]?.trim()
+          const type = ATTACHMENT_TYPES.find((t) => t === declared)
+          if (!Buffer.isBuffer(body) || body.length === 0 || !type || !matchesType(body, type)) {
+            throw new ValidationFailed({
+              file: ['Il file non corrisponde al suo tipo, oppure è vuoto.'],
+            })
+          }
+          await bumpVersion(client, id, vehicleId, version)
+          await client.query('delete from public.vehicle_document_files where document_id = $1', [
+            id,
+          ])
+          await client.query(
+            `insert into public.vehicle_document_files
+               (document_id, company_id, file_name, content_type, size_bytes, data)
+             values ($1, app.current_company_id(), $2, $3, $4, $5)`,
+            [id, fileName, type, body.length, body],
+          )
+          return readOne(client, id)
+        })
+        return send(reply, row)
+      },
+    )
   })
 }
