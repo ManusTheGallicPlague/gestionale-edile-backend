@@ -15,6 +15,8 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
+import { italianQuantity } from '../quotes/pdf.js'
 
 export const ABSENCE_KINDS = ['vacation', 'sick_leave', 'leave', 'injury', 'other'] as const
 export type AbsenceKind = (typeof ABSENCE_KINDS)[number]
@@ -26,6 +28,15 @@ export const ABSENCE_CODES: Record<AbsenceKind, string> = {
   leave: 'PE',
   injury: 'IN',
   other: 'AL',
+}
+
+/** Names of the absences in the CSV files. */
+const ABSENCE_NAMES: Record<AbsenceKind, string> = {
+  vacation: 'Ferie',
+  sick_leave: 'Malattia',
+  leave: 'Permesso',
+  injury: 'Infortunio',
+  other: 'Altro',
 }
 
 interface AbsenceInput {
@@ -255,6 +266,35 @@ async function missingOrStale(client: PoolClient, id: string, employeeId: string
 
 const FIELDS = ['kind', 'starts_on', 'ends_on', 'hours', 'notes'] as const
 
+type CompanyFilters = ReturnType<typeof readFilters>
+
+/** Absences of the whole company, newest first, with the employee. */
+async function readCompanyAbsences(
+  client: PoolClient,
+  filters: CompanyFilters,
+  limit: number,
+  offset: number,
+) {
+  const where = `($1::date is null or a.ends_on >= $1) and ($2::date is null or a.starts_on <= $2)
+    and ($3::uuid is null or a.employee_id = $3) and ($4::text is null or a.kind = $4)`
+  const values = [filters.from, filters.to, filters.employee, filters.kind]
+  const { rows } = await client.query<CompanyAbsenceRow>(
+    `select ${columns('a.')},
+       e.first_name, e.last_name, e.active
+     from public.employee_absences a
+     join public.employees e on e.id = a.employee_id
+     where ${where}
+     order by a.starts_on desc, lower(e.last_name), lower(e.first_name), a.id
+     limit $5 offset $6`,
+    [...values, limit, offset],
+  )
+  const count = await client.query<{ total: number }>(
+    `select count(*)::int as total from public.employee_absences a where ${where}`,
+    values,
+  )
+  return { rows, total: count.rows[0]?.total ?? 0 }
+}
+
 export function employeeAbsenceRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/employees/:employee/absences'
 
@@ -266,22 +306,11 @@ export function employeeAbsenceRoutes(app: FastifyInstance, config: Config, db: 
       return withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('employees.view')) throw forbidden()
-        const where = `($1::date is null or a.ends_on >= $1) and ($2::date is null or a.starts_on <= $2)
-          and ($3::uuid is null or a.employee_id = $3) and ($4::text is null or a.kind = $4)`
-        const values = [filters.from, filters.to, filters.employee, filters.kind]
-        const { rows } = await client.query<CompanyAbsenceRow>(
-          `select ${columns('a.')},
-             e.first_name, e.last_name, e.active
-           from public.employee_absences a
-           join public.employees e on e.id = a.employee_id
-           where ${where}
-           order by a.starts_on desc, lower(e.last_name), lower(e.first_name), a.id
-           limit $5 offset $6`,
-          [...values, filters.perPage, (filters.page - 1) * filters.perPage],
-        )
-        const count = await client.query<{ total: number }>(
-          `select count(*)::int as total from public.employee_absences a where ${where}`,
-          values,
+        const { rows, total } = await readCompanyAbsences(
+          client,
+          filters,
+          filters.perPage,
+          (filters.page - 1) * filters.perPage,
         )
         return {
           data: rows.map((r) => ({
@@ -293,9 +322,40 @@ export function employeeAbsenceRoutes(app: FastifyInstance, config: Config, db: 
               active: r.active,
             },
           })),
-          meta: { total: count.rows[0]?.total ?? 0, page: filters.page, per_page: filters.perPage },
+          meta: { total, page: filters.page, per_page: filters.perPage },
         }
       })
+    },
+  )
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/absences/export',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const filters = readFilters(request.query, true)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('employees.view')) throw forbidden()
+        const { rows } = await readCompanyAbsences(client, filters, MAX_EXPORT_ROWS, 0)
+        return toCsv(
+          ['Cognome', 'Nome', 'Tipo', 'Sigla', 'Dal', 'Al', 'Giorni', 'Ore', 'Note'],
+          rows.map((r) => [
+            r.last_name,
+            r.first_name,
+            ABSENCE_NAMES[r.kind],
+            ABSENCE_CODES[r.kind],
+            italianDate(r.starts_on),
+            italianDate(r.ends_on),
+            r.days,
+            r.hours === null ? null : italianQuantity(r.hours),
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="assenze.csv"')
+        .send(csv)
     },
   )
 

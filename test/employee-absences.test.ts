@@ -301,6 +301,39 @@ describe('absences of the whole company', () => {
     expect((await blind.browser.call('GET', blind.list)).statusCode).toBe(403)
     expect((await new Browser(ctx.app).call('GET', blind.list)).statusCode).toBe(401)
   })
+
+  it('exports the same absences as CSV, with the same filters, for the payroll office', async () => {
+    const s = await company()
+    await ctx.owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on, hours, notes)
+       values ($1, $2, 'leave', '2026-09-03', '2026-09-03', 2.5, '=HYPERLINK("x")')`,
+      [s.company.id, s.employee],
+    )
+    await company() // another company with the same absences
+    const res = await s.browser.call('GET', `${s.list}/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="assenze.csv"')
+    expect(res.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Cognome;Nome;Tipo;Sigla;Dal;Al;Giorni;Ore;Note',
+      'Operaio;Mario;Permesso;PE;03/09/2026;03/09/2026;1;2,5;"\'=HYPERLINK(""x"")"',
+      'Operaio;Mario;Malattia;MA;01/09/2026;02/09/2026;2;;x',
+      'Bianchi;Anna;Ferie;FE;17/08/2026;28/08/2026;12;;x',
+      'Operaio;Mario;Ferie;FE;10/08/2026;21/08/2026;12;;x',
+    ])
+    const filtered = await s.browser.call(
+      'GET',
+      `${s.list}/export?filter[kind]=vacation&filter[from]=2026-08-22`,
+    )
+    expect(filtered.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Cognome;Nome;Tipo;Sigla;Dal;Al;Giorni;Ore;Note',
+      'Bianchi;Anna;Ferie;FE;17/08/2026;28/08/2026;12;;x',
+    ])
+    expect((await s.browser.call('GET', `${s.list}/export?filter[kind]=x`)).statusCode).toBe(422)
+    const blind = await company(['clients.view'])
+    expect((await blind.browser.call('GET', `${blind.list}/export`)).statusCode).toBe(403)
+    expect((await new Browser(ctx.app).call('GET', `${blind.list}/export`)).statusCode).toBe(401)
+  })
 })
 
 describe('absences in the monthly timesheet', () => {

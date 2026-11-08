@@ -4753,6 +4753,47 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/absences/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportCompanyAbsences
+      summary: Esportazione in CSV delle assenze di tutti i dipendenti
+      description: |
+        Permesso: employees.view. Stessi filtri e ordinamento di listCompanyAbsences, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti: per il consulente del
+        lavoro. Tipo per esteso (Ferie, Malattia, Permesso, Infortunio, Altro) e sigla del foglio
+        ore (FE, MA, PE, IN, AL), date come 30/11/2026, ore di un permesso con la virgola.
+        Il file si chiama assenze.csv.
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              employee: { $ref: '#/components/schemas/Id' }
+              kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/vehicles:
     parameters:
       - $ref: '#/components/parameters/Company'
