@@ -302,4 +302,76 @@ describe('documents of a vehicle', () => {
       { company_id: mine.company.id, title: 'Taratura del tachigrafo – Furgone' },
     ])
   })
+
+  it('filters the vehicles and their export by expired or expiring documents', async () => {
+    const { browser, company, vehicle: renewed } = await scene()
+    const add = async (name: string, docs: [string, number | null][]) => {
+      const { rows } = await ctx.owner.query<{ id: string }>(
+        "insert into public.vehicles (company_id, name, kind) values ($1, $2, 'vehicle') returning id",
+        [company.id, name],
+      )
+      for (const [kind, days] of docs) {
+        await ctx.owner.query(
+          `insert into public.vehicle_documents (company_id, vehicle_id, kind, expires_on)
+           values ($1, $2, $3, ${days === null ? 'null' : `$4::date`})`,
+          days === null
+            ? [company.id, rows[0]?.id, kind]
+            : [company.id, rows[0]?.id, kind, isoDay(days)],
+        )
+      }
+    }
+    // The first vehicle: an old insurance expired, but renewed far away. Not listed.
+    await ctx.owner.query(
+      `insert into public.vehicle_documents (company_id, vehicle_id, kind, expires_on)
+       values ($1, $2, 'insurance', $3), ($1, $2, 'insurance', $4)`,
+      [company.id, renewed, isoDay(-30), isoDay(200)],
+    )
+    await add('Autocarro scaduto', [
+      ['road_tax', -1],
+      ['insurance', 10],
+    ])
+    await add('Gru in scadenza', [
+      ['insurance', 30],
+      ['registration', null],
+    ])
+    await add('Pala oggi', [['tachograph', 0]])
+    await add('Ruspa tranquilla', [
+      ['insurance', 31],
+      ['registration', null],
+    ])
+    // Another company with an expired document: never in this list.
+    const other = await scene()
+    await ctx.owner.query(
+      `insert into public.vehicle_documents (company_id, vehicle_id, kind, expires_on)
+       values ($1, $2, 'road_tax', $3)`,
+      [other.company.id, other.vehicle, isoDay(-5)],
+    )
+
+    const names = async (value: string) => {
+      const res = await browser.call(
+        'GET',
+        `/api/companies/${company.slug}/vehicles?filter[documents]=${value}`,
+      )
+      expect(res.statusCode).toBe(200)
+      return res.json<{ data: { name: string }[] }>().data.map((v) => v.name)
+    }
+    expect(await names('expired')).toEqual(['Autocarro scaduto'])
+    expect(await names('expiring')).toEqual(['Gru in scadenza', 'Pala oggi'])
+
+    const csv = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/vehicles/export?filter[documents]=expiring`,
+    )
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body).toContain('Gru in scadenza')
+    expect(csv.body).not.toContain('Autocarro scaduto')
+    expect(csv.body).not.toContain('Ruspa tranquilla')
+
+    const wrong = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/vehicles?filter[documents]=valid`,
+    )
+    expect(wrong.statusCode).toBe(422)
+    expect(Object.keys(wrong.json<{ errors: object }>().errors)).toEqual(['filter[documents]'])
+  })
 })

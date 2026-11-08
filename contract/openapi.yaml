@@ -5051,7 +5051,10 @@ paths:
             default: name
         - name: filter
           in: query
-          description: 'Filtri: filter[kind]=machine; filter[active]=true solo i mezzi in uso, false solo i dismessi.'
+          description: |
+            Filtri: filter[kind]=machine; filter[active]=true solo i mezzi in uso, false solo i
+            dismessi; filter[documents]=expired i mezzi con un documento scaduto, expiring quelli
+            con un documento in scadenza.
           style: deepObject
           explode: true
           schema:
@@ -5059,6 +5062,13 @@ paths:
             properties:
               kind: { $ref: '#/components/schemas/VehicleKind' }
               active: { type: boolean }
+              documents:
+                type: string
+                description: |
+                  Documenti del mezzo (assicurazione, bollo...), contando per ogni tipo solo
+                  quello con la scadenza più lontana. expired: almeno uno scaduto. expiring:
+                  nessuno scaduto e almeno uno che scade entro 30 giorni (ora italiana).
+                enum: [expired, expiring]
       responses:
         '200':
           description: Una pagina di mezzi
@@ -5177,6 +5187,13 @@ paths:
             properties:
               kind: { $ref: '#/components/schemas/VehicleKind' }
               active: { type: boolean }
+              documents:
+                type: string
+                description: |
+                  Documenti del mezzo (assicurazione, bollo...), contando per ogni tipo solo
+                  quello con la scadenza più lontana. expired: almeno uno scaduto. expiring:
+                  nessuno scaduto e almeno uno che scade entro 30 giorni (ora italiana).
+                enum: [expired, expiring]
       responses:
         '200':
           description: Il file CSV

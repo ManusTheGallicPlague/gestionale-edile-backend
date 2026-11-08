@@ -194,6 +194,24 @@ function writeFailed(error: unknown): never {
   throw error
 }
 
+const DOCUMENT_FILTERS = ['expired', 'expiring'] as const
+
+const TODAY = "(now() at time zone 'Europe/Rome')::date"
+
+/**
+ * The latest expiry of each kind of document of the vehicle: an old insurance that expired
+ * does not count once the renewal is on file. Documents without expiry are left out.
+ */
+const LATEST_EXPIRIES = `
+  select max(d.expires_on) as expires_on from public.vehicle_documents d
+  where d.vehicle_id = v.id and d.expires_on is not null group by d.kind`
+
+const DOCUMENTS_SQL: Record<(typeof DOCUMENT_FILTERS)[number], string> = {
+  expired: `exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${TODAY})`,
+  expiring: `not exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${TODAY})
+    and exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on <= ${TODAY} + 30)`,
+}
+
 function readList(query: Record<string, unknown>) {
   const errors: FieldErrors = {}
   const single = (name: string): string | undefined => {
@@ -229,9 +247,14 @@ function readList(query: Record<string, unknown>) {
   const kindValue = single('filter[kind]')
   const kind = VEHICLE_KINDS.find((k) => k === kindValue)
   if (kindValue !== undefined && !kind) errors['filter[kind]'] = ['Tipo non valido.']
+  const documentsValue = single('filter[documents]')
+  const documents = DOCUMENT_FILTERS.find((d) => d === documentsValue)
+  if (documentsValue !== undefined && !documents) {
+    errors['filter[documents]'] = ['Vale expired oppure expiring.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   const active = activeValue === undefined ? undefined : activeValue === 'true'
-  return { page, perPage, sort: sort ?? 'name', search, active, kind }
+  return { page, perPage, sort: sort ?? 'name', search, active, kind, documents }
 }
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -245,6 +268,7 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.active !== undefined) add((p) => `v.active = ${p}`, list.active)
   if (list.kind) add((p) => `v.kind = ${p}`, list.kind)
+  if (list.documents) where.push(DOCUMENTS_SQL[list.documents])
   if (list.search) {
     add(
       (p) => `(v.name ilike ${p} or v.plate ilike ${p} or v.model ilike ${p})`,
