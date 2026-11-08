@@ -96,7 +96,7 @@ function readFilters(query: Record<string, unknown>) {
   return { employee, exceeded: vacationValue === 'exceeded' }
 }
 
-async function readTotals(client: PoolClient, query: Record<string, unknown>) {
+export async function readTotals(client: PoolClient, query: Record<string, unknown>) {
   const filters = readFilters(query)
   const year = await readYear(client, query)
   const from = `${year}-01-01`

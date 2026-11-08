@@ -10752,7 +10752,7 @@ components:
       description: |
         Assenze dei dipendenti attivi (listCompanyAbsences), con employees.view, sulla data
         italiana: per sapere chi manca in squadra.
-      required: [away_today, starting_soon]
+      required: [away_today, starting_soon, vacation_exceeded]
       properties:
         away_today:
           type: integer
@@ -10762,6 +10762,12 @@ components:
           type: integer
           minimum: 0
           description: Assenze di dipendenti attivi che iniziano nei prossimi 7 giorni, da domani.
+        vacation_exceeded:
+          type: integer
+          minimum: 0
+          description: |
+            Dipendenti attivi che nell'anno in corso hanno fatto più ferie di quelle spettanti e
+            riportate (getAbsenceTotals con filter[vacation]=exceeded).
     SiteActivityList:
       type: object
       required: [data]

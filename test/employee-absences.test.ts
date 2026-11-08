@@ -536,9 +536,56 @@ describe('absences in the dashboard', () => {
     )
     const res = await s.browser.call('GET', `/api/companies/${s.company.slug}/dashboard`)
     expect(res.statusCode).toBe(200)
-    expect(res.json<{ absences: unknown }>().absences).toEqual({ away_today: 2, starting_soon: 2 })
+    expect(res.json<{ absences: unknown }>().absences).toEqual({
+      away_today: 2,
+      starting_soon: 2,
+      vacation_exceeded: 0,
+    })
     const none = await theirs.browser.call('GET', `/api/companies/${theirs.company.slug}/dashboard`)
-    expect(none.json<{ absences: unknown }>().absences).toEqual({ away_today: 0, starting_soon: 1 })
+    expect(none.json<{ absences: unknown }>().absences).toEqual({
+      away_today: 0,
+      starting_soon: 1,
+      vacation_exceeded: 0,
+    })
+  })
+
+  it('counts the active employees over their vacation in the current year', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    const year = day(0).slice(0, 4)
+    const employee = async (company: string, active: boolean, allowance: number | null) =>
+      (
+        await ctx.owner.query<{ id: string }>(
+          `insert into public.employees (company_id, first_name, last_name, active, annual_leave_days)
+           values ($1, 'X', 'Y', $2, $3) returning id`,
+          [company, active, allowance],
+        )
+      ).rows[0]?.id
+    const carry = (company: string, who: unknown, y: string, days: number) =>
+      ctx.owner.query(
+        `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+         values ($1, $2, $3, $4)`,
+        [company, who, Number(y), days],
+      )
+    const counted = async () =>
+      (await s.browser.call('GET', `/api/companies/${s.company.slug}/dashboard`)).json<{
+        absences: { vacation_exceeded: number }
+      }>().absences.vacation_exceeded
+    expect(await counted()).toBe(0)
+    await carry(s.company.id, await employee(s.company.id, true, 0), year, -2) // over by 2
+    await carry(s.company.id, await employee(s.company.id, true, 0), year, 0) // exactly zero
+    await carry(s.company.id, await employee(s.company.id, false, 0), year, -1) // not active
+    await carry(s.company.id, await employee(s.company.id, true, null), year, -5) // no allowance
+    await carry(s.company.id, await employee(s.company.id, true, 0), String(Number(year) - 1), -3)
+    await carry(theirs.company.id, await employee(theirs.company.id, true, 0), year, -1)
+    expect(await counted()).toBe(1)
+    const other = await theirs.browser.call(
+      'GET',
+      `/api/companies/${theirs.company.slug}/dashboard`,
+    )
+    expect(
+      other.json<{ absences: { vacation_exceeded: number } }>().absences.vacation_exceeded,
+    ).toBe(1)
   })
 
   it('is null without employees.view', async () => {

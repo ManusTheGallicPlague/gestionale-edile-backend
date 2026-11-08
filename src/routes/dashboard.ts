@@ -12,6 +12,7 @@ import { FOLLOW_UPS } from './quotes.js'
 import { ACTIVITY_FOLLOW_UPS } from './site-activities.js'
 import { COMPLIANCE_SQL } from './suppliers.js'
 import { BELOW_MIN } from './warehouse.js'
+import { readTotals } from './absence-totals.js'
 
 /**
  * Every cost of a site, one row each: labour and vehicles of approved daily reports at
@@ -348,7 +349,15 @@ async function absenceCounts(client: PoolClient, today: string) {
      join public.employees e on e.id = a.employee_id and e.active`,
     [today],
   )
-  return { away_today: rows[0]?.away_today ?? 0, starting_soon: rows[0]?.starting_soon ?? 0 }
+  const exceeded = await readTotals(client, {
+    year: today.slice(0, 4),
+    'filter[vacation]': 'exceeded',
+  })
+  return {
+    away_today: rows[0]?.away_today ?? 0,
+    starting_soon: rows[0]?.starting_soon ?? 0,
+    vacation_exceeded: exceeded.employees.filter((e) => e.employee.active).length,
+  }
 }
 
 /** The company dashboard: each section only for those who may see its data. */
