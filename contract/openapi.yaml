@@ -1795,7 +1795,9 @@ paths:
       description: |
         Permesso: sites.view. Senza permesso risponde 404, non 403. Solo nome, cognome,
         mansione e stato dei dipendenti, senza costi: la vede anche chi non ha employees.view.
-        In ordine di cognome e nome.
+        In ordine di cognome e nome. Con le assenze di oggi, nel calendario italiano: `away`
+        per chi è assente tutto il giorno; tipo dell'assenza e ore di un permesso solo con
+        employees.view.
       responses:
         '200':
           description: La squadra
@@ -8666,13 +8668,29 @@ components:
           items: { $ref: '#/components/schemas/Id' }
     SiteTeamMember:
       type: object
-      required: [employee_id, first_name, last_name, job_title, active]
+      required: [employee_id, first_name, last_name, job_title, active, away, absence,
+        absence_hours]
       properties:
         employee_id: { $ref: '#/components/schemas/Id' }
         first_name: { type: string }
         last_name: { type: string }
         job_title: { type: [string, 'null'] }
         active: { type: boolean }
+        away:
+          type: boolean
+          description: Assente oggi tutto il giorno (ferie, malattia…, un'assenza senza ore).
+        absence:
+          description: |
+            Tipo dell'assenza di oggi, se c'è, anche un permesso a ore. Solo con
+            employees.view, altrimenti null.
+          oneOf:
+            - $ref: '#/components/schemas/EmployeeAbsenceKind'
+            - type: 'null'
+        absence_hours:
+          description: Ore del permesso di oggi; null per tutto il giorno o senza employees.view.
+          oneOf:
+            - $ref: '#/components/schemas/Hours'
+            - type: 'null'
     SiteTeam:
       type: object
       required: [data]

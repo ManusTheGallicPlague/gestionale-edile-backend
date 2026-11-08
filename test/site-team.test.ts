@@ -65,6 +65,65 @@ describe('site team', () => {
     expect(res.json()).toMatchObject({ errors: { employee_ids: [expect.any(String)] } })
   })
 
+  it('tells who is away today; why only with employees.view', async () => {
+    const { browser, company, url, verdi, bassi } = await scene([...ALL, 'employees.view'])
+    await browser.call('PUT', url, { body: { employee_ids: [verdi, bassi] } })
+    // Verdi sick from yesterday to today, Bassi with two hours of leave today and a holiday
+    // starting tomorrow. Today is the Italian date.
+    await ctx.owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on, hours)
+       select $1, x.employee_id, x.kind, d.today + x.from_day, d.today + x.to_day, x.hours
+       from (select (now() at time zone 'Europe/Rome')::date as today) d,
+         (values ($2::uuid, 'sick_leave', -1, 0, null::numeric),
+                 ($3::uuid, 'leave', 0, 0, 2),
+                 ($3::uuid, 'vacation', 1, 5, null)) as x (employee_id, kind, from_day, to_day, hours)`,
+      [company.id, verdi, bassi],
+    )
+    type Members = {
+      data: {
+        last_name: string
+        away: boolean
+        absence: string | null
+        absence_hours: string | null
+      }[]
+    }
+    const rows = (res: { json: <T>() => T }) =>
+      res.json<Members>().data.map((m) => [m.last_name, m.away, m.absence, m.absence_hours])
+    const seen = await browser.call('GET', url)
+    expect(seen.statusCode).toBe(200)
+    expect(rows(seen)).toEqual([
+      ['Bassi', false, 'leave', '2.00'],
+      ['Verdi', true, 'sick_leave', null],
+    ])
+
+    // A capo cantiere with sites.view only knows who is away, not why.
+    const chief = new Browser(ctx.app)
+    const role = await fx.role(company.id, 'Capo cantiere', ['sites.view', 'sites.update'])
+    const person = await fx.user()
+    await fx.member(person.id, company.id, role)
+    await chief.signIn(person.email)
+    const hidden = await chief.call('GET', url)
+    expect(rows(hidden)).toEqual([
+      ['Bassi', false, null, null],
+      ['Verdi', true, null, null],
+    ])
+    expect(hidden.body).not.toContain('sick_leave')
+    const replaced = await chief.call('PUT', url, { body: { employee_ids: [verdi] } })
+    expect(rows(replaced)).toEqual([['Verdi', true, null, null]])
+
+    // Ended absences, or of another company, do not count.
+    const other = await scene()
+    await other.browser.call('PUT', other.url, { body: { employee_ids: [other.verdi] } })
+    await ctx.owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on)
+       select $1, $2, 'vacation', d - 10, d - 1
+       from (select (now() at time zone 'Europe/Rome')::date as d) x`,
+      [other.company.id, other.verdi],
+    )
+    const free = await other.browser.call('GET', other.url)
+    expect(rows(free)).toEqual([['Verdi', false, null, null]])
+  })
+
   it('an employee of another company cannot join; another company’s site is not found', async () => {
     const mine = await scene()
     const theirs = await scene()

@@ -7,6 +7,7 @@ import { enterCompany } from '../company.js'
 import { UUID } from '../deadlines/input.js'
 import { ValidationFailed, forbidden, notFound } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import type { AbsenceKind } from './employee-absences.js'
 
 const MAX_TEAM = 200
 
@@ -18,19 +19,42 @@ interface MemberRow {
   last_name: string
   job_title: string | null
   active: boolean
+  absence: AbsenceKind | null
+  absence_hours: string | null
 }
 
-/** Only names and job titles: the team is visible with sites.view, hourly costs are not. */
-async function readTeam(client: PoolClient, siteId: string) {
+/**
+ * Only names and job titles: the team is visible with sites.view, hourly costs are not. Who
+ * is away today, Italian date, for everybody; why (a sick leave, say) only with employees.view.
+ */
+async function readTeam(client: PoolClient, siteId: string, seesAbsences: boolean) {
   const { rows } = await client.query<MemberRow>(
-    `select e.id as employee_id, e.first_name, e.last_name, e.job_title, e.active
+    `select e.id as employee_id, e.first_name, e.last_name, e.job_title, e.active,
+       a.kind as absence, a.hours::text as absence_hours
      from public.site_team t
      join public.employees e on e.id = t.employee_id
+     left join lateral (
+       select x.kind, x.hours from public.employee_absences x
+       where x.employee_id = e.id
+         and (now() at time zone 'Europe/Rome')::date between x.starts_on and x.ends_on
+       order by x.starts_on limit 1
+     ) a on true
      where t.site_id = $1
      order by lower(e.last_name), lower(e.first_name), e.id`,
     [siteId],
   )
-  return { data: rows }
+  return {
+    data: rows.map((r) => ({
+      employee_id: r.employee_id,
+      first_name: r.first_name,
+      last_name: r.last_name,
+      job_title: r.job_title,
+      active: r.active,
+      away: r.absence !== null && r.absence_hours === null,
+      absence: seesAbsences ? r.absence : null,
+      absence_hours: seesAbsences ? r.absence_hours : null,
+    })),
+  }
 }
 
 async function siteExists(client: PoolClient, id: string): Promise<boolean> {
@@ -65,7 +89,7 @@ export function siteTeamRoutes(app: FastifyInstance, config: Config, db: Db): vo
       if (!permissions.has('sites.view')) throw notFound()
       const id = request.params.site
       if (!UUID.test(id) || !(await siteExists(client, id))) throw notFound()
-      return readTeam(client, id)
+      return readTeam(client, id, permissions.has('employees.view'))
     })
   })
 
@@ -96,7 +120,7 @@ export function siteTeamRoutes(app: FastifyInstance, config: Config, db: Db): vo
           }
           throw error
         })
-      return readTeam(client, id)
+      return readTeam(client, id, permissions.has('employees.view'))
     })
   })
 }
