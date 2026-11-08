@@ -44,10 +44,10 @@ describe('employee import', () => {
   it('adds the employees with Italian dates and amounts', async () => {
     const s = await scene()
     const file =
-      'Cognome;Nome;Codice fiscale;Mansione;Assunzione;Costo orario;Attivo\n' +
-      `Rossi;Mario;${cf('RSSMRA80A01H501')};Muratore;01/03/2020;"28,50";Sì\n` +
-      `Bianchi;Luca;;Manovale;2021-09-15;1.234,00;no\n` +
-      'Verdi;Anna;;;;;\n'
+      'Cognome;Nome;Codice fiscale;Mansione;Assunzione;Costo orario;Attivo;Ferie annue\n' +
+      `Rossi;Mario;${cf('RSSMRA80A01H501')};Muratore;01/03/2020;"28,50";Sì;26\n` +
+      `Bianchi;Luca;;Manovale;2021-09-15;1.234,00;no;0\n` +
+      'Verdi;Anna;;;;;;\n'
     const res = await s.browser.call('POST', `${s.base}/import`, csv(file))
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ created: 3 })
@@ -57,6 +57,7 @@ describe('employee import', () => {
         hired_on: '2021-09-15',
         hourly_cost: '1234.00',
         active: false,
+        annual_leave_days: 0,
       }),
       expect.objectContaining({
         last_name: 'Rossi',
@@ -64,8 +65,14 @@ describe('employee import', () => {
         hired_on: '2020-03-01',
         hourly_cost: '28.50',
         active: true,
+        annual_leave_days: 26,
       }),
-      expect.objectContaining({ last_name: 'Verdi', hourly_cost: null, active: true }),
+      expect.objectContaining({
+        last_name: 'Verdi',
+        hourly_cost: null,
+        active: true,
+        annual_leave_days: null,
+      }),
     ])
 
     // Its own export goes into another company unchanged.
@@ -86,16 +93,27 @@ describe('employee import', () => {
   it('changes nothing when a row is wrong, duplicates included', async () => {
     const s = await scene()
     const file =
-      'cognome;nome;codice fiscale;assunzione;costo orario;attivo\n' +
-      'Buono;Uno;;;;\n' +
-      'Data;Due;;31/02/2020;;\n' +
-      'Costo;Tre;;;-5;\n' +
-      'Stato;Quattro;;;;forse\n' +
-      ';Cinque;RSSMRA80A01H501A;;;\n'
+      'cognome;nome;codice fiscale;assunzione;costo orario;attivo;ferie\n' +
+      'Buono;Uno;;;;;\n' +
+      'Data;Due;;31/02/2020;;;\n' +
+      'Costo;Tre;;;-5;;\n' +
+      'Stato;Quattro;;;;forse;\n' +
+      ';Cinque;RSSMRA80A01H501A;;;;\n' +
+      'Ferie;Sei;;;;;26,5\n' +
+      'Ferie;Sette;;;;;400\n'
     const res = await s.browser.call('POST', `${s.base}/import`, csv(file))
     expect(res.statusCode).toBe(422)
     const errors = res.json<{ errors: Record<string, string[]> }>().errors
-    expect(Object.keys(errors).sort()).toEqual(['row.3', 'row.4', 'row.5', 'row.6'])
+    expect(Object.keys(errors).sort()).toEqual([
+      'row.3',
+      'row.4',
+      'row.5',
+      'row.6',
+      'row.7',
+      'row.8',
+    ])
+    expect(errors['row.7']).toEqual(['ferie annue: un numero intero di giorni (es. 26).'])
+    expect(errors['row.8']).toEqual(['ferie annue: Un numero intero di giorni da 0 a 366.'])
     expect(errors['row.3']?.[0]).toMatch(/^assunzione: /)
     expect(errors['row.4']).toEqual(['costo orario: importo non valido (es. 28,50).'])
     expect(errors['row.5']).toEqual(['attivo: sì oppure no.'])

@@ -539,14 +539,15 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       await client.query('delete from public.employees where company_id = $1', [companyId])
       await client.query(
         `insert into public.employees (company_id, first_name, last_name, job_title, hired_on,
-           hourly_cost_cents, active)
-         select $1, e.first_name, e.last_name, e.job_title, e.hired_on::date, e.cost, e.active
+           hourly_cost_cents, active, annual_leave_days)
+         select $1, e.first_name, e.last_name, e.job_title, e.hired_on::date, e.cost, e.active,
+           e.leave
          from (values
-           ('Marco', 'Ferri', 'Capo squadra', '2015-04-01', 3400, true),
-           ('Luca', 'Galli', 'Muratore', '2019-09-16', 2850, true),
-           ('Paolo', 'Riva', 'Carpentiere', '2021-02-01', 2700, true),
-           ('Andrea', 'Conti', 'Manovale', '2018-06-04', 2400, false)
-         ) as e (first_name, last_name, job_title, hired_on, cost, active)`,
+           ('Marco', 'Ferri', 'Capo squadra', '2015-04-01', 3400, true, 26),
+           ('Luca', 'Galli', 'Muratore', '2019-09-16', 2850, true, 26),
+           ('Paolo', 'Riva', 'Carpentiere', '2021-02-01', 2700, true, 20),
+           ('Andrea', 'Conti', 'Manovale', '2018-06-04', 2400, false, null::smallint)
+         ) as e (first_name, last_name, job_title, hired_on, cost, active, leave)`,
         [companyId],
       )
       // Absences of the employees: a week of holiday, a sick day and two hours of leave.

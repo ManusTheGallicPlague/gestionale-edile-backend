@@ -18,6 +18,7 @@ const FIELDS = [
   'hourly_cost',
   'active',
   'notes',
+  'annual_leave_days',
 ] as const
 type Field = (typeof FIELDS)[number]
 
@@ -49,6 +50,11 @@ const HEADERS: Record<string, Field> = {
   active: 'active',
   note: 'notes',
   notes: 'notes',
+  ferieannue: 'annual_leave_days',
+  ferie: 'annual_leave_days',
+  giorniferie: 'annual_leave_days',
+  feriespettanti: 'annual_leave_days',
+  annualleavedays: 'annual_leave_days',
 }
 
 const FIELD_NAMES: Record<Field, string> = {
@@ -62,6 +68,7 @@ const FIELD_NAMES: Record<Field, string> = {
   hourly_cost: 'costo orario',
   active: 'attivo',
   notes: 'note',
+  annual_leave_days: 'ferie annue',
 }
 
 /** "codice fiscale: message" for each field error of parseEmployeeInput. */
@@ -138,6 +145,10 @@ export function parseEmployeesCsv<T>(
       if (cents === null) problems.push('costo orario: importo non valido (es. 28,50).')
       else input.hourly_cost = centsToAmount(cents)
     }
+    const leave = cell('annual_leave_days')
+    if (leave === '') input.annual_leave_days = null
+    else if (/^\d{1,3}$/.test(leave)) input.annual_leave_days = Number(leave)
+    else problems.push('ferie annue: un numero intero di giorni (es. 26).')
     const active = readYesNo(cell('active'), true)
     if (active === null) problems.push('attivo: sì oppure no.')
     else input.active = active

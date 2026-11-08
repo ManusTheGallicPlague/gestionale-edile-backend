@@ -8549,7 +8549,8 @@ components:
           type: array
           items:
             type: object
-            required: [employee, days, working_days, hours, kinds]
+            required:
+              [employee, days, working_days, hours, kinds, vacation_allowance, vacation_remaining]
             properties:
               employee:
                 type: object
@@ -8559,6 +8560,14 @@ components:
                   first_name: { type: string }
                   last_name: { type: string }
                   active: { type: boolean }
+              vacation_allowance:
+                type: [integer, 'null']
+                description: Giorni di ferie spettanti nell'anno (annual_leave_days), null se non indicati.
+              vacation_remaining:
+                type: [integer, 'null']
+                description: |
+                  Ferie spettanti meno i giorni lavorativi di ferie dell'anno; negativo se ne ha
+                  fatte di più, null senza ferie spettanti.
               days: { type: integer }
               working_days: { type: integer }
               hours: { $ref: '#/components/schemas/WorkHours' }
@@ -10848,11 +10857,19 @@ components:
         notes:
           type: [string, 'null']
           maxLength: 2000
+        annual_leave_days:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 366
+          description: |
+            Giorni lavorativi di ferie spettanti in un anno, per le ferie residue di
+            getAbsenceTotals; null se non si tiene il conto. Facoltativo: se manca, alla
+            creazione vale null e alla modifica resta quello che c'era.
     Employee:
       allOf:
         - $ref: '#/components/schemas/EmployeeInput'
         - type: object
-          required: [id, created_at, updated_at]
+          required: [id, annual_leave_days, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             created_at:

@@ -93,11 +93,44 @@ describe('employees', () => {
     ['a negative cost', { hourly_cost: '-1' }, 'hourly_cost'],
     ['active as text', { active: 'true' }, 'active'],
     ['a missing field', { notes: undefined }, 'notes'],
+    ['vacation days as text', { annual_leave_days: '26' }, 'annual_leave_days'],
+    ['half a vacation day', { annual_leave_days: 26.5 }, 'annual_leave_days'],
+    ['negative vacation days', { annual_leave_days: -1 }, 'annual_leave_days'],
+    ['more vacation days than a year', { annual_leave_days: 367 }, 'annual_leave_days'],
   ])('refuses %s', async (_label, overrides, field) => {
     const { browser, base } = await scene()
     const res = await browser.call('POST', base, { body: employeeBody(overrides) })
     expect(res.statusCode).toBe(422)
     expect(Object.keys(res.json<{ errors: object }>().errors)).toContain(field)
+  })
+
+  it('keeps the yearly vacation days when an update leaves them out', async () => {
+    const { browser, base } = await scene()
+    const without = await browser.call('POST', base, { body: employeeBody() })
+    expect(without.statusCode).toBe(201)
+    expect(without.json()).toMatchObject({ annual_leave_days: null })
+    const created = await browser.call('POST', base, {
+      body: employeeBody({ last_name: 'Verdi', annual_leave_days: 26 }),
+    })
+    expect(created.json()).toMatchObject({ annual_leave_days: 26 })
+    const url = `${base}/${created.json<{ id: string }>().id}`
+    const put = (version: number, overrides: Record<string, unknown>) =>
+      browser.call('PUT', url, {
+        body: employeeBody({ last_name: 'Verdi', ...overrides }),
+        headers: { 'if-match': `"${version}"` },
+      })
+    const kept = await put(1, { job_title: 'Capo squadra' })
+    expect(kept.statusCode).toBe(200)
+    expect(kept.json()).toMatchObject({ job_title: 'Capo squadra', annual_leave_days: 26 })
+    expect((await put(2, { annual_leave_days: 0 })).json()).toMatchObject({
+      annual_leave_days: 0,
+    })
+    expect((await put(3, { annual_leave_days: null })).json()).toMatchObject({
+      annual_leave_days: null,
+    })
+    // A wrong value changes nothing.
+    expect((await put(4, { annual_leave_days: 400 })).statusCode).toBe(422)
+    expect((await browser.call('GET', url)).headers.etag).toBe('"4"')
   })
 
   it('a tax code is unique in the company, not across companies', async () => {

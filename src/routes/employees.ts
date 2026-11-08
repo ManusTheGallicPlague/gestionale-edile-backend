@@ -36,6 +36,8 @@ interface EmployeeValues {
   hourly_cost_cents: string | null
   active: boolean
   notes: string | null
+  /** Absent from the input: null on create, unchanged on update. */
+  annual_leave_days?: number | null
 }
 const COLUMNS = [
   'first_name',
@@ -51,6 +53,7 @@ const COLUMNS = [
 ] as const
 
 interface EmployeeRow extends EmployeeValues {
+  annual_leave_days: number | null
   id: string
   version: number
   created_at: Date
@@ -61,7 +64,7 @@ type Params = { company: string; employee?: string }
 
 const SELECT = `select e.id, e.first_name, e.last_name, e.tax_code, e.job_title, e.phone, e.email,
     e.hired_on::text as hired_on, e.hourly_cost_cents::text as hourly_cost_cents, e.active,
-    e.notes, e.version, e.created_at, e.updated_at
+    e.notes, e.annual_leave_days, e.version, e.created_at, e.updated_at
   from public.employees e`
 
 const SORTS = {
@@ -86,6 +89,7 @@ function toContract(row: EmployeeRow) {
     hourly_cost: row.hourly_cost_cents === null ? null : centsToAmount(row.hourly_cost_cents),
     active: row.active,
     notes: row.notes,
+    annual_leave_days: row.annual_leave_days,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -156,6 +160,14 @@ export function parseEmployeeInput(
   }
   if (typeof raw.active !== 'boolean') add('active', 'Vale true oppure false.')
   const notes = text('notes', 2000)
+  const leave = raw.annual_leave_days
+  if (
+    leave !== undefined &&
+    leave !== null &&
+    !(typeof leave === 'number' && Number.isInteger(leave) && leave >= 0 && leave <= 366)
+  ) {
+    add('annual_leave_days', 'Un numero intero di giorni da 0 a 366.')
+  }
   if (Object.keys(errors).length > 0 || !first_name || !last_name) return { errors }
   return {
     input: {
@@ -169,9 +181,16 @@ export function parseEmployeeInput(
       hourly_cost_cents,
       active: raw.active === true,
       notes,
+      ...(leave === undefined ? {} : { annual_leave_days: leave as number | null }),
     },
   }
 }
+
+/** The columns to write: annual_leave_days only when the input has it. */
+const columnsOf = (input: EmployeeValues): (keyof EmployeeValues)[] =>
+  input.annual_leave_days === undefined ? [...COLUMNS] : [...COLUMNS, 'annual_leave_days']
+
+const placeholders = (columns: readonly string[]) => columns.map((_, i) => `$${i + 1}`).join(', ')
 
 function writeFailed(error: unknown): never {
   if (isUniqueViolation(error)) {
@@ -298,14 +317,14 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
         }
         // One savepoint per row, so a duplicate tax code is reported on its row.
         const errors = new RowErrors()
-        const placeholders = COLUMNS.map((_, i) => `$${i + 1}`).join(', ')
         for (const { line, input } of employees) {
+          const columns = columnsOf(input)
           await client.query('savepoint import_row')
           try {
             await client.query(
-              `insert into public.employees (company_id, ${COLUMNS.join(', ')})
-               values (app.current_company_id(), ${placeholders})`,
-              COLUMNS.map((f) => input[f]),
+              `insert into public.employees (company_id, ${columns.join(', ')})
+               values (app.current_company_id(), ${placeholders(columns)})`,
+              columns.map((f) => input[f]),
             )
             await client.query('release savepoint import_row')
           } catch (error) {
@@ -352,6 +371,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
             'Costo orario',
             'Attivo',
             'Note',
+            'Ferie annue',
           ],
           rows.map((r) => [
             r.last_name,
@@ -364,6 +384,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
             r.hourly_cost_cents && italianAmount(r.hourly_cost_cents),
             r.active ? 'Sì' : 'No',
             r.notes,
+            r.annual_leave_days,
           ]),
         )
       })
@@ -395,12 +416,13 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
       if (!permissions.has('employees.create')) throw forbidden()
       const parsed = parseEmployeeInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
+      const columns = columnsOf(parsed.input)
       const { rows } = await client
         .query<{ id: string }>(
-          `insert into public.employees (company_id, ${COLUMNS.join(', ')})
-           values (app.current_company_id(), ${COLUMNS.map((_, i) => `$${i + 1}`).join(', ')})
+          `insert into public.employees (company_id, ${columns.join(', ')})
+           values (app.current_company_id(), ${placeholders(columns)})
            returning id`,
-          COLUMNS.map((f) => parsed.input[f]),
+          columns.map((f) => parsed.input[f]),
         )
         .catch(writeFailed)
       return readOne(client, rows[0]?.id ?? '')
@@ -420,12 +442,13 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
       const version = expectedVersion(request.headers['if-match'])
       const parsed = parseEmployeeInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
-      const values: unknown[] = COLUMNS.map((f) => parsed.input[f])
+      const columns = columnsOf(parsed.input)
+      const values: unknown[] = columns.map((f) => parsed.input[f])
       values.push(id, version)
       const { rowCount } = await client
         .query(
           `update public.employees
-           set ${COLUMNS.map((f, i) => `${f} = $${i + 1}`).join(', ')},
+           set ${columns.map((f, i) => `${f} = $${i + 1}`).join(', ')},
                version = version + 1, updated_at = now()
            where id = $${values.length - 1} and version = $${values.length}`,
           values,

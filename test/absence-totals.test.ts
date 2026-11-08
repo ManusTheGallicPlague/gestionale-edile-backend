@@ -18,6 +18,8 @@ type Totals = {
   to: string
   employees: {
     employee: { id: string; first_name: string; last_name: string; active: boolean }
+    vacation_allowance: number | null
+    vacation_remaining: number | null
     days: number
     working_days: number
     hours: string
@@ -81,6 +83,8 @@ describe('absence totals of the year', () => {
     }
     expect(body.employees[0]).toEqual({
       employee: { id: s.anna, first_name: 'Anna', last_name: 'Bianchi', active: true },
+      vacation_allowance: null,
+      vacation_remaining: null,
       days: 0,
       working_days: 0,
       hours: '0.00',
@@ -128,6 +132,46 @@ describe('absence totals of the year', () => {
     ])
   })
 
+  it('counts the remaining vacation from the yearly allowance', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    const set = (id: string, days: number | null) =>
+      ctx.owner.query('update public.employees set annual_leave_days = $2 where id = $1', [
+        id,
+        days,
+      ])
+    await set(s.mario, 26)
+    await set(s.anna, 20)
+    await set(s.gone, 10)
+    await set(theirs.mario, 1) // another company: its allowance does not count here
+    const year = (y: number) =>
+      s.browser
+        .call('GET', `${s.url}?year=${y}`)
+        .then((r) => r.json<Totals>())
+        .then((t) =>
+          t.employees.map((e) => [e.employee.id, e.vacation_allowance, e.vacation_remaining]),
+        )
+    // Mario: 14 working days of vacation in 2026, only 1 (04/01) in 2027; the injury of
+    // Luca and the sick leave of Mario are not vacation.
+    expect(await year(2026)).toEqual([
+      [s.anna, 20, 20],
+      [s.mario, 26, 12],
+      [s.gone, 10, 10],
+    ])
+    expect(await year(2027)).toEqual([
+      [s.anna, 20, 20],
+      [s.mario, 26, 25],
+    ])
+    // More vacation than allowed goes below zero; no allowance, no count.
+    await set(s.mario, 10)
+    await set(s.anna, null)
+    expect(await year(2026)).toEqual([
+      [s.anna, null, null],
+      [s.mario, 10, -4],
+      [s.gone, 10, 10],
+    ])
+  })
+
   it('takes the current year in Italy without a year, and refuses a wrong one', async () => {
     const s = await scene()
     const { rows } = await ctx.owner.query<{ year: number }>(
@@ -149,16 +193,19 @@ describe('absence totals of the year', () => {
     await ctx.owner.query("update public.employees set last_name = '=SUM(A1)' where id = $1", [
       s.anna,
     ])
+    await ctx.owner.query('update public.employees set annual_leave_days = 26 where id = $1', [
+      s.mario,
+    ])
     const res = await s.browser.call('GET', `${s.url}/export?year=2026`)
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="assenze-2026.csv"')
     expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Cognome;Nome;Ferie giorni;Ferie giorni lavorativi;Ferie ore;Malattia giorni;Malattia giorni lavorativi;Malattia ore;Permesso giorni;Permesso giorni lavorativi;Permesso ore;Infortunio giorni;Infortunio giorni lavorativi;Infortunio ore;Altro giorni;Altro giorni lavorativi;Altro ore;Totale giorni;Totale giorni lavorativi;Totale ore',
-      "'=SUM(A1);Anna;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0",
-      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75',
-      'Verdi;Luca;0;0;0;0;0;0;0;0;0;5;5;0;0;0;0;5;5;0',
-      'Totale;;16;14;0;2;1;0;0;0;3,75;5;5;0;0;0;0;23;20;3,75',
+      'Cognome;Nome;Ferie giorni;Ferie giorni lavorativi;Ferie ore;Malattia giorni;Malattia giorni lavorativi;Malattia ore;Permesso giorni;Permesso giorni lavorativi;Permesso ore;Infortunio giorni;Infortunio giorni lavorativi;Infortunio ore;Altro giorni;Altro giorni lavorativi;Altro ore;Totale giorni;Totale giorni lavorativi;Totale ore;Ferie spettanti;Ferie residue',
+      "'=SUM(A1);Anna;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;;",
+      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;26;12',
+      'Verdi;Luca;0;0;0;0;0;0;0;0;0;5;5;0;0;0;0;5;5;0;;',
+      'Totale;;16;14;0;2;1;0;0;0;3,75;5;5;0;0;0;0;23;20;3,75;;',
     ])
     expect((await s.browser.call('GET', `${s.url}/export?year=x`)).statusCode).toBe(422)
   })

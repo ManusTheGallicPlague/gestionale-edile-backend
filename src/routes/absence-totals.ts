@@ -16,6 +16,7 @@ interface Row {
   first_name: string
   last_name: string
   active: boolean
+  annual_leave_days: number | null
   kind: AbsenceKind | null
   /** The absence clipped to the year. */
   starts_on: string | null
@@ -79,7 +80,7 @@ async function readTotals(client: PoolClient, query: Record<string, unknown>) {
        from public.employee_absences
        where ends_on >= $1::date and starts_on <= $2::date
      )
-     select e.id, e.first_name, e.last_name, e.active, a.kind,
+     select e.id, e.first_name, e.last_name, e.active, e.annual_leave_days, a.kind,
        a.starts_on::text as starts_on, a.ends_on::text as ends_on,
        (a.ends_on - a.starts_on + 1)::int as days, a.hours::numeric(10, 2)::text as hours
      from public.employees e
@@ -117,6 +118,9 @@ async function readTotals(client: PoolClient, query: Record<string, unknown>) {
         last_name: row.last_name,
         active: row.active,
       },
+      vacation_allowance: row.annual_leave_days,
+      vacation_remaining:
+        row.annual_leave_days === null ? null : row.annual_leave_days - tally.vacation.workingDays,
       ...present(tally),
     })),
     totals: present(total),
@@ -144,10 +148,18 @@ function totalsCsv(totals: Totals): string {
       'Totale giorni',
       'Totale giorni lavorativi',
       'Totale ore',
+      'Ferie spettanti',
+      'Ferie residue',
     ],
     [
-      ...totals.employees.map((e) => [e.employee.last_name, e.employee.first_name, ...cells(e)]),
-      ['Totale', null, ...cells(totals.totals)],
+      ...totals.employees.map((e) => [
+        e.employee.last_name,
+        e.employee.first_name,
+        ...cells(e),
+        e.vacation_allowance,
+        e.vacation_remaining,
+      ]),
+      ['Totale', null, ...cells(totals.totals), null, null],
     ],
   )
 }
