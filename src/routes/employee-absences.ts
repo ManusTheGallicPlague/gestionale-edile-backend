@@ -18,6 +18,7 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 import { italianQuantity } from '../quotes/pdf.js'
 import { toICalendar } from '../deadlines/ical.js'
+import { workingDays } from '../holidays.js'
 
 export const ABSENCE_KINDS = ['vacation', 'sick_leave', 'leave', 'injury', 'other'] as const
 export type AbsenceKind = (typeof ABSENCE_KINDS)[number]
@@ -84,6 +85,7 @@ function toContract(row: AbsenceRow) {
     hours: row.hours,
     notes: row.notes,
     days: row.days,
+    working_days: row.hours === null ? workingDays(row.starts_on, row.ends_on) : null,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }

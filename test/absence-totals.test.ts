@@ -11,7 +11,7 @@ beforeAll(async () => {
 })
 afterAll(() => ctx.close())
 
-type Kinds = { kind: string; days: number; hours: string }[]
+type Kinds = { kind: string; days: number; working_days: number; hours: string }[]
 type Totals = {
   year: number
   from: string
@@ -19,16 +19,17 @@ type Totals = {
   employees: {
     employee: { id: string; first_name: string; last_name: string; active: boolean }
     days: number
+    working_days: number
     hours: string
     kinds: Kinds
   }[]
-  totals: { days: number; hours: string; kinds: Kinds }
+  totals: { days: number; working_days: number; hours: string; kinds: Kinds }
 }
 
-const zero = (overrides: Record<string, [number, string]> = {}): Kinds =>
+const zero = (overrides: Record<string, [number, number, string]> = {}): Kinds =>
   ['vacation', 'sick_leave', 'leave', 'injury', 'other'].map((kind) => {
-    const [days, hours] = overrides[kind] ?? [0, '0.00']
-    return { kind, days, hours }
+    const [days, working_days, hours] = overrides[kind] ?? [0, 0, '0.00']
+    return { kind, days, working_days, hours }
   })
 
 async function scene(permissions: Permission[] = ['employees.view']) {
@@ -81,40 +82,49 @@ describe('absence totals of the year', () => {
     expect(body.employees[0]).toEqual({
       employee: { id: s.anna, first_name: 'Anna', last_name: 'Bianchi', active: true },
       days: 0,
+      working_days: 0,
       hours: '0.00',
       kinds: zero(),
     })
     expect(body.employees[1]).toMatchObject({
       days: 18,
+      // 28–31/12 and 10–21/08 (15/08 is a Saturday); 01/01 is a holiday.
+      working_days: 15,
       hours: '3.75',
-      kinds: zero({ vacation: [16, '0.00'], sick_leave: [2, '0.00'], leave: [0, '3.75'] }),
+      kinds: zero({
+        vacation: [16, 14, '0.00'],
+        sick_leave: [2, 1, '0.00'],
+        leave: [0, 0, '3.75'],
+      }),
     })
     expect(body.employees[2]).toMatchObject({
       employee: { active: false },
       days: 5,
-      kinds: zero({ injury: [5, '0.00'] }),
+      working_days: 5,
+      kinds: zero({ injury: [5, 5, '0.00'] }),
     })
     expect(body.totals).toEqual({
       days: 23,
+      working_days: 20,
       hours: '3.75',
       kinds: zero({
-        vacation: [16, '0.00'],
-        sick_leave: [2, '0.00'],
-        leave: [0, '3.75'],
-        injury: [5, '0.00'],
+        vacation: [16, 14, '0.00'],
+        sick_leave: [2, 1, '0.00'],
+        leave: [0, 0, '3.75'],
+        injury: [5, 5, '0.00'],
       }),
     })
 
     const next = (await s.browser.call('GET', `${s.url}?year=2027`)).json<Totals>()
-    expect(next.employees.map((e) => [e.employee.id, e.days])).toEqual([
-      [s.anna, 0],
-      [s.mario, 4],
+    expect(next.employees.map((e) => [e.employee.id, e.days, e.working_days])).toEqual([
+      [s.anna, 0, 0],
+      [s.mario, 4, 1],
     ])
     const before = (await s.browser.call('GET', `${s.url}?year=2025`)).json<Totals>()
-    expect(before.employees.map((e) => [e.employee.id, e.days])).toEqual([
-      [s.anna, 0],
-      [s.idle, 5],
-      [s.mario, 2],
+    expect(before.employees.map((e) => [e.employee.id, e.days, e.working_days])).toEqual([
+      [s.anna, 0, 0],
+      [s.idle, 5, 5],
+      [s.mario, 2, 2],
     ])
   })
 
@@ -144,11 +154,11 @@ describe('absence totals of the year', () => {
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="assenze-2026.csv"')
     expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Cognome;Nome;Ferie giorni;Ferie ore;Malattia giorni;Malattia ore;Permesso giorni;Permesso ore;Infortunio giorni;Infortunio ore;Altro giorni;Altro ore;Totale giorni;Totale ore',
-      "'=SUM(A1);Anna;0;0;0;0;0;0;0;0;0;0;0;0",
-      'Rossi;Mario;16;0;2;0;0;3,75;0;0;0;0;18;3,75',
-      'Verdi;Luca;0;0;0;0;0;0;5;0;0;0;5;0',
-      'Totale;;16;0;2;0;0;3,75;5;0;0;0;23;3,75',
+      'Cognome;Nome;Ferie giorni;Ferie giorni lavorativi;Ferie ore;Malattia giorni;Malattia giorni lavorativi;Malattia ore;Permesso giorni;Permesso giorni lavorativi;Permesso ore;Infortunio giorni;Infortunio giorni lavorativi;Infortunio ore;Altro giorni;Altro giorni lavorativi;Altro ore;Totale giorni;Totale giorni lavorativi;Totale ore',
+      "'=SUM(A1);Anna;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0",
+      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75',
+      'Verdi;Luca;0;0;0;0;0;0;0;0;0;5;5;0;0;0;0;5;5;0',
+      'Totale;;16;14;0;2;1;0;0;0;3,75;5;5;0;0;0;0;23;20;3,75',
     ])
     expect((await s.browser.call('GET', `${s.url}/export?year=x`)).statusCode).toBe(422)
   })

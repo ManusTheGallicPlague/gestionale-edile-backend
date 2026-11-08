@@ -59,12 +59,14 @@ describe('employee absences', () => {
       ends_on: '2026-08-21',
       hours: null,
       days: 12,
+      // Two weeks from Monday to Friday; 15/08 is a Saturday.
+      working_days: 10,
     })
     const leave = await browser.call('POST', base, {
       body: body({ kind: 'leave', starts_on: '2026-09-03', ends_on: '2026-09-03', hours: '2.5' }),
     })
     expect(leave.statusCode).toBe(201)
-    expect(leave.json()).toMatchObject({ hours: '2.50', days: 1 })
+    expect(leave.json()).toMatchObject({ hours: '2.50', days: 1, working_days: null })
 
     const list = await browser.call('GET', base)
     expect(list.statusCode).toBe(200)

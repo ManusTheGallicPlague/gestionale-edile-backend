@@ -4851,7 +4851,9 @@ paths:
         Permesso: employees.view. Quante assenze ha fatto ogni dipendente in un anno solare, per
         tipo: per il titolare che controlla le ferie godute e per il consulente del lavoro.
         days: giorni di calendario delle assenze di tutto il giorno, solo quelli dentro l'anno
-        (le ferie a cavallo di Capodanno si dividono tra i due anni); hours: ore dei permessi.
+        (le ferie a cavallo di Capodanno si dividono tra i due anni); working_days: gli stessi
+        giorni senza sabati, domeniche e festività nazionali, come working_days dell'assenza;
+        hours: ore dei permessi.
         Ci sono tutti i dipendenti attivi, anche senza assenze, e quelli non più attivi che
         hanno assenze nell'anno, per cognome e nome. kinds ha sempre tutti i tipi, nell'ordine
         di EmployeeAbsenceKind, anche a zero. year è l'anno in corso (ora italiana) se non
@@ -4883,8 +4885,8 @@ paths:
       summary: Esportazione in CSV delle assenze dell'anno per dipendente
       description: |
         Permesso: employees.view. Le stesse righe di getAbsenceTotals, nello stesso formato
-        dell'esportazione dei clienti: una riga per dipendente con giorni e ore di ogni tipo
-        (ore con la virgola) e una riga finale «Totale». Il file si chiama
+        dell'esportazione dei clienti: una riga per dipendente con giorni, giorni lavorativi e
+        ore di ogni tipo (ore con la virgola) e una riga finale «Totale». Il file si chiama
         assenze-AAAA.csv, con l'anno.
       parameters:
         - name: year
@@ -8471,7 +8473,7 @@ components:
       allOf:
         - $ref: '#/components/schemas/EmployeeAbsenceInput'
         - type: object
-          required: [id, employee_id, days, created_at, updated_at]
+          required: [id, employee_id, days, working_days, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             employee_id: { $ref: '#/components/schemas/Id' }
@@ -8479,6 +8481,14 @@ components:
               type: integer
               minimum: 1
               description: Giorni di calendario da starts_on a ends_on, estremi compresi.
+            working_days:
+              type: [integer, 'null']
+              minimum: 0
+              description: |
+                Giorni lavorativi da starts_on a ends_on, estremi compresi: dal lunedì al venerdì,
+                senza le festività nazionali (1° e 6 gennaio, lunedì dell'Angelo, 25 aprile,
+                1° maggio, 2 giugno, 15 agosto, 1° novembre, 8, 25 e 26 dicembre). Il santo
+                patrono non si toglie. null per un'assenza a ore.
             created_at:
               type: string
               format: date-time
@@ -8518,10 +8528,13 @@ components:
       description: Tutti i tipi, nell'ordine di EmployeeAbsenceKind, anche a zero.
       items:
         type: object
-        required: [kind, days, hours]
+        required: [kind, days, working_days, hours]
         properties:
           kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
           days: { type: integer }
+          working_days:
+            type: integer
+            description: Giorni lavorativi delle assenze di tutto il giorno, dentro l'anno.
           hours: { $ref: '#/components/schemas/WorkHours' }
     AbsenceTotals:
       type: object
@@ -8534,7 +8547,7 @@ components:
           type: array
           items:
             type: object
-            required: [employee, days, hours, kinds]
+            required: [employee, days, working_days, hours, kinds]
             properties:
               employee:
                 type: object
@@ -8545,13 +8558,15 @@ components:
                   last_name: { type: string }
                   active: { type: boolean }
               days: { type: integer }
+              working_days: { type: integer }
               hours: { $ref: '#/components/schemas/WorkHours' }
               kinds: { $ref: '#/components/schemas/AbsenceTotalsKinds' }
         totals:
           type: object
-          required: [days, hours, kinds]
+          required: [days, working_days, hours, kinds]
           properties:
             days: { type: integer }
+            working_days: { type: integer }
             hours: { $ref: '#/components/schemas/WorkHours' }
             kinds: { $ref: '#/components/schemas/AbsenceTotalsKinds' }
     SupplierDocumentList:
