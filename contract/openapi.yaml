@@ -4743,6 +4743,29 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/employees/{employee}/sites:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      operationId: listEmployeeSites
+      summary: Cantieri di un dipendente
+      description: |
+        Permessi: employees.view e sites.view. Senza employees.view il dipendente è «non
+        trovato» (404), come nella scheda; senza sites.view 403. Per la scheda del dipendente,
+        al contrario di getSiteTeam: i cantieri nella cui squadra è il dipendente, attivo o no,
+        di qualunque stato, prima quelli in corso, poi da iniziare, sospesi e chiusi, e a parità
+        in ordine di nome. Senza paginazione, come listSupplierSites.
+      responses:
+        '200':
+          description: I cantieri del dipendente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeSiteList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/employees/{employee}/work-summary:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -10487,6 +10510,21 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/SupplierSite' }
+    EmployeeSite:
+      type: object
+      required: [site_id, code, name, status]
+      properties:
+        site_id: { $ref: '#/components/schemas/Id' }
+        code: { type: [string, 'null'] }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/SiteStatus' }
+    EmployeeSiteList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/EmployeeSite' }
     SiteTeam:
       type: object
       required: [data]

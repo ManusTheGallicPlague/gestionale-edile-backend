@@ -33,7 +33,11 @@ export const onSite = (site: string) => `suppliers.subcontractor
     or exists (select 1 from public.purchase_orders o
                where o.site_id = ${site} and o.supplier_id = suppliers.id))`
 
-interface SupplierSiteRow {
+/** Sites of a supplier or an employee: in progress first, then planned, suspended, closed. */
+export const SITES_ORDER = `array_position(array['active', 'planned', 'suspended', 'completed'],
+  s.status::text), lower(s.name), s.id`
+
+export interface SupplierSiteRow {
   id: string
   code: string | null
   name: string
@@ -114,8 +118,7 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
                          where c.site_id = s.id and c.supplier_id = $1)
               or exists (select 1 from public.purchase_orders o
                          where o.site_id = s.id and o.supplier_id = $1)
-           order by array_position(array['active', 'planned', 'suspended', 'completed'],
-             s.status::text), lower(s.name), s.id`,
+           order by ${SITES_ORDER}`,
           [id],
         )
         return {

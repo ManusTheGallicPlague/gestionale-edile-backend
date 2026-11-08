@@ -10,6 +10,7 @@ import { ValidationFailed, forbidden, notFound } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import type { AbsenceKind } from './employee-absences.js'
 import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
+import { SITES_ORDER, type SupplierSiteRow } from './site-subcontractors.js'
 import {
   EMPLOYEE_DOCUMENT_KINDS,
   KIND_LABEL,
@@ -195,6 +196,34 @@ export function siteTeamRoutes(app: FastifyInstance, config: Config, db: Db): vo
       .header('Content-Disposition', 'attachment; filename="documenti-squadra.csv"')
       .send(csv)
   })
+
+  // The other way round: the sites whose team has the employee, for the employee's page.
+  app.get<{ Params: { company: string; employee: string } }>(
+    '/api/companies/:company/employees/:employee/sites',
+    async (request) => {
+      const session = requireSession(request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('employees.view')) throw notFound()
+        const id = request.params.employee
+        if (!UUID.test(id)) throw notFound()
+        const found = await client.query('select 1 from public.employees where id = $1', [id])
+        if (found.rowCount === 0) throw notFound()
+        if (!permissions.has('sites.view')) throw forbidden()
+        const { rows } = await client.query<SupplierSiteRow>(
+          `select s.id, s.code, s.name, s.status
+           from public.sites s
+           where exists (select 1 from public.site_team t
+                         where t.site_id = s.id and t.employee_id = $1)
+           order by ${SITES_ORDER}`,
+          [id],
+        )
+        return {
+          data: rows.map((r) => ({ site_id: r.id, code: r.code, name: r.name, status: r.status })),
+        }
+      })
+    },
+  )
 
   app.put<{ Params: Params }>(url, async (request) => {
     const session = requireSession(request)
