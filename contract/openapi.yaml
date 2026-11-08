@@ -4719,6 +4719,77 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/employees/{employee}/leave-carryovers:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      operationId: listLeaveCarryovers
+      summary: Ferie residue riportate dagli anni precedenti
+      description: |
+        Permesso: employees.view (senza, 404 come per la scheda). Per ogni anno, i giorni di
+        ferie non godute riportati dall'anno prima (come nella busta paga), dal più recente,
+        senza paginazione.
+      responses:
+        '200':
+          description: I riporti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaveCarryoverList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/companies/{company}/employees/{employee}/leave-carryovers/{year}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+      - name: year
+        in: path
+        required: true
+        description: Anno in cui le ferie si riportano, da 2000 a 2100.
+        schema:
+          type: integer
+          minimum: 2000
+          maximum: 2100
+    put:
+      operationId: setLeaveCarryover
+      summary: Ferie riportate dall'anno precedente
+      description: |
+        Permesso: employees.update. Imposta i giorni di ferie riportati nell'anno indicato
+        (crea il riporto se manca). Senza If-Match: il valore è assoluto. Un anno fuori
+        dall'intervallo è 404, come un indirizzo che non esiste.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LeaveCarryoverInput' }
+      responses:
+        '200':
+          description: Riporto salvato
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LeaveCarryover' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    delete:
+      operationId: deleteLeaveCarryover
+      summary: Eliminazione del riporto di un anno
+      description: 'Permesso: employees.update. 404 se il riporto non c''è.'
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Riporto eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/absences:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8525,6 +8596,36 @@ components:
                       last_name: { type: string }
                       active: { type: boolean }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    LeaveCarryoverInput:
+      type: object
+      additionalProperties: false
+      required: [days]
+      properties:
+        days:
+          type: integer
+          minimum: -366
+          maximum: 366
+          description: |
+            Giorni lavorativi di ferie non godute riportati dall'anno prima; negativo se il
+            dipendente ne ha anticipate.
+    LeaveCarryover:
+      type: object
+      required: [year, days, updated_at]
+      properties:
+        year: { type: integer }
+        days:
+          type: integer
+          description: Giorni riportati, come in LeaveCarryoverInput.
+        updated_at:
+          type: string
+          format: date-time
+    LeaveCarryoverList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/LeaveCarryover' }
     AbsenceTotalsKinds:
       type: array
       description: Tutti i tipi, nell'ordine di EmployeeAbsenceKind, anche a zero.
@@ -8550,7 +8651,7 @@ components:
           items:
             type: object
             required:
-              [employee, days, working_days, hours, kinds, vacation_allowance, vacation_remaining]
+              [employee, days, working_days, hours, kinds, vacation_allowance, vacation_carried_over, vacation_remaining]
             properties:
               employee:
                 type: object
@@ -8563,11 +8664,14 @@ components:
               vacation_allowance:
                 type: [integer, 'null']
                 description: Giorni di ferie spettanti nell'anno (annual_leave_days), null se non indicati.
+              vacation_carried_over:
+                type: [integer, 'null']
+                description: Giorni di ferie riportati dall'anno prima (setLeaveCarryover), null se non indicati.
               vacation_remaining:
                 type: [integer, 'null']
                 description: |
-                  Ferie spettanti meno i giorni lavorativi di ferie dell'anno; negativo se ne ha
-                  fatte di più, null senza ferie spettanti.
+                  Ferie spettanti più quelle riportate dall'anno prima, meno i giorni lavorativi
+                  di ferie dell'anno; negativo se ne ha fatte di più, null senza ferie spettanti.
               days: { type: integer }
               working_days: { type: integer }
               hours: { $ref: '#/components/schemas/WorkHours' }

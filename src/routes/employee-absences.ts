@@ -222,7 +222,7 @@ function expectedVersion(header: string | string[] | undefined): number {
  * The employee in the path, if this company can see it; 404 otherwise. With `lock` the row is
  * locked until the commit, so two writes cannot both pass the overlap check.
  */
-async function visibleEmployee(
+export async function visibleEmployee(
   client: PoolClient,
   id: string | undefined,
   lock = false,

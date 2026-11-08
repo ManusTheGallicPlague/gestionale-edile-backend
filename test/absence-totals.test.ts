@@ -19,6 +19,7 @@ type Totals = {
   employees: {
     employee: { id: string; first_name: string; last_name: string; active: boolean }
     vacation_allowance: number | null
+    vacation_carried_over: number | null
     vacation_remaining: number | null
     days: number
     working_days: number
@@ -84,6 +85,7 @@ describe('absence totals of the year', () => {
     expect(body.employees[0]).toEqual({
       employee: { id: s.anna, first_name: 'Anna', last_name: 'Bianchi', active: true },
       vacation_allowance: null,
+      vacation_carried_over: null,
       vacation_remaining: null,
       days: 0,
       working_days: 0,
@@ -172,6 +174,50 @@ describe('absence totals of the year', () => {
     ])
   })
 
+  it('adds the vacation carried over into the year, only of that year and company', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    await ctx.owner.query('update public.employees set annual_leave_days = 26 where id = $1', [
+      s.mario,
+    ])
+    const carry = (company: string, id: string, year: number, days: number) =>
+      ctx.owner.query(
+        `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+         values ($1, $2, $3, $4)`,
+        [company, id, year, days],
+      )
+    await carry(s.company.id, s.mario, 2026, 5)
+    await carry(s.company.id, s.mario, 2027, -3) // taken in advance
+    await carry(s.company.id, s.anna, 2026, 4) // no allowance: nothing remains to count
+    await carry(theirs.company.id, theirs.mario, 2026, 100)
+    const year = (y: number) =>
+      s.browser
+        .call('GET', `${s.url}?year=${y}`)
+        .then((r) => r.json<Totals>())
+        .then((t) =>
+          t.employees.map((e) => [
+            e.employee.id,
+            e.vacation_carried_over,
+            e.vacation_allowance,
+            e.vacation_remaining,
+          ]),
+        )
+    expect(await year(2026)).toEqual([
+      [s.anna, 4, null, null],
+      [s.mario, 5, 26, 17],
+      [s.gone, null, null, null],
+    ])
+    expect(await year(2027)).toEqual([
+      [s.anna, null, null, null],
+      [s.mario, -3, 26, 22],
+    ])
+    // Another year without a carry-over counts only the allowance.
+    expect(await year(2028)).toEqual([
+      [s.anna, null, null, null],
+      [s.mario, null, 26, 26],
+    ])
+  })
+
   it('takes the current year in Italy without a year, and refuses a wrong one', async () => {
     const s = await scene()
     const { rows } = await ctx.owner.query<{ year: number }>(
@@ -196,16 +242,21 @@ describe('absence totals of the year', () => {
     await ctx.owner.query('update public.employees set annual_leave_days = 26 where id = $1', [
       s.mario,
     ])
+    await ctx.owner.query(
+      `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+       values ($1, $2, 2026, -2)`,
+      [s.company.id, s.mario],
+    )
     const res = await s.browser.call('GET', `${s.url}/export?year=2026`)
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="assenze-2026.csv"')
     expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Cognome;Nome;Ferie giorni;Ferie giorni lavorativi;Ferie ore;Malattia giorni;Malattia giorni lavorativi;Malattia ore;Permesso giorni;Permesso giorni lavorativi;Permesso ore;Infortunio giorni;Infortunio giorni lavorativi;Infortunio ore;Altro giorni;Altro giorni lavorativi;Altro ore;Totale giorni;Totale giorni lavorativi;Totale ore;Ferie spettanti;Ferie residue',
-      "'=SUM(A1);Anna;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;;",
-      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;26;12',
-      'Verdi;Luca;0;0;0;0;0;0;0;0;0;5;5;0;0;0;0;5;5;0;;',
-      'Totale;;16;14;0;2;1;0;0;0;3,75;5;5;0;0;0;0;23;20;3,75;;',
+      'Cognome;Nome;Ferie giorni;Ferie giorni lavorativi;Ferie ore;Malattia giorni;Malattia giorni lavorativi;Malattia ore;Permesso giorni;Permesso giorni lavorativi;Permesso ore;Infortunio giorni;Infortunio giorni lavorativi;Infortunio ore;Altro giorni;Altro giorni lavorativi;Altro ore;Totale giorni;Totale giorni lavorativi;Totale ore;Ferie anno precedente;Ferie spettanti;Ferie residue',
+      "'=SUM(A1);Anna;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;;;",
+      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;-2;26;10',
+      'Verdi;Luca;0;0;0;0;0;0;0;0;0;5;5;0;0;0;0;5;5;0;;;',
+      'Totale;;16;14;0;2;1;0;0;0;3,75;5;5;0;0;0;0;23;20;3,75;;;',
     ])
     expect((await s.browser.call('GET', `${s.url}/export?year=x`)).statusCode).toBe(422)
   })

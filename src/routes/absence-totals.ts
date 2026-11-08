@@ -17,6 +17,7 @@ interface Row {
   last_name: string
   active: boolean
   annual_leave_days: number | null
+  carried_over_days: number | null
   kind: AbsenceKind | null
   /** The absence clipped to the year. */
   starts_on: string | null
@@ -80,14 +81,16 @@ async function readTotals(client: PoolClient, query: Record<string, unknown>) {
        from public.employee_absences
        where ends_on >= $1::date and starts_on <= $2::date
      )
-     select e.id, e.first_name, e.last_name, e.active, e.annual_leave_days, a.kind,
+     select e.id, e.first_name, e.last_name, e.active, e.annual_leave_days,
+       c.days::int as carried_over_days, a.kind,
        a.starts_on::text as starts_on, a.ends_on::text as ends_on,
        (a.ends_on - a.starts_on + 1)::int as days, a.hours::numeric(10, 2)::text as hours
      from public.employees e
      left join clipped a on a.employee_id = e.id
+     left join public.employee_leave_carryovers c on c.employee_id = e.id and c.year = $3
      where e.active or a.employee_id is not null
      order by lower(e.last_name), lower(e.first_name), e.id`,
-    [from, to],
+    [from, to, year],
   )
   const employees: { row: Row; tally: Tally }[] = []
   const total = emptyTally()
@@ -119,8 +122,11 @@ async function readTotals(client: PoolClient, query: Record<string, unknown>) {
         active: row.active,
       },
       vacation_allowance: row.annual_leave_days,
+      vacation_carried_over: row.carried_over_days,
       vacation_remaining:
-        row.annual_leave_days === null ? null : row.annual_leave_days - tally.vacation.workingDays,
+        row.annual_leave_days === null
+          ? null
+          : row.annual_leave_days + (row.carried_over_days ?? 0) - tally.vacation.workingDays,
       ...present(tally),
     })),
     totals: present(total),
@@ -148,6 +154,7 @@ function totalsCsv(totals: Totals): string {
       'Totale giorni',
       'Totale giorni lavorativi',
       'Totale ore',
+      'Ferie anno precedente',
       'Ferie spettanti',
       'Ferie residue',
     ],
@@ -156,10 +163,11 @@ function totalsCsv(totals: Totals): string {
         e.employee.last_name,
         e.employee.first_name,
         ...cells(e),
+        e.vacation_carried_over,
         e.vacation_allowance,
         e.vacation_remaining,
       ]),
-      ['Totale', null, ...cells(totals.totals), null, null],
+      ['Totale', null, ...cells(totals.totals), null, null, null],
     ],
   )
 }

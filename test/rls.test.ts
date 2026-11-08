@@ -579,6 +579,53 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('employee leave carry-overs: cannot read or write across companies', async () => {
+    const { rows } = await owner.query<{ id: string }>(
+      "insert into public.employees (company_id, first_name, last_name) values ($1, 'C', 'C') returning id",
+      [companyB.id],
+    )
+    const employeeB = rows[0]?.id
+    await owner.query(
+      `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+       values ($1, $2, 2026, 5)`,
+      [companyB.id, employeeB],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.employee_leave_carryovers where company_id = $1', [
+        companyB.id,
+      ]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+           values ($1, $2, 2027, 1)`,
+          [companyB.id, employeeB],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    // A carry-over of my company cannot point at their employee either.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+           values ($1, $2, 2027, 1)`,
+          [companyA.id, employeeB],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query('update public.employee_leave_carryovers set days = 0')
+      const d = await c.query('delete from public.employee_leave_carryovers')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.employee_leave_carryovers')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('vehicles: cannot read or write across companies', async () => {
     await owner.query(
       "insert into public.vehicles (company_id, name, kind) values ($1, 'B', 'vehicle')",

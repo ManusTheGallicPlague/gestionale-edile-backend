@@ -564,6 +564,14 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          join public.employees e on e.company_id = $1 and e.last_name = a.last_name`,
         [companyId],
       )
+      // Vacation carried over from last year, as the payslip shows it.
+      await client.query(
+        `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+         select $1, e.id, extract(year from current_date)::int, c.days
+         from (values ('Ferri', 4), ('Riva', -1)) as c (last_name, days)
+         join public.employees e on e.company_id = $1 and e.last_name = c.last_name`,
+        [companyId],
+      )
       await client.query('delete from public.sites where company_id = $1', [companyId])
       await client.query(
         `insert into public.sites (company_id, code, name, client_id, address, status, start_on,
