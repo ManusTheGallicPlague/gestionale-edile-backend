@@ -47,6 +47,7 @@ interface VehicleRow extends VehicleValues {
   last_maintenance_on: string | null
   last_maintenance_kind: MaintenanceKind | null
   last_meter_reading: number | null
+  last_next_due_on: string | null
   version: number
   created_at: Date
   updated_at: Date
@@ -57,10 +58,11 @@ type Params = { company: string; vehicle?: string }
 const SELECT = `select v.id, v.name, v.kind, v.plate, v.model,
     v.hourly_cost_cents::text as hourly_cost_cents, v.active, v.notes, v.version, v.created_at,
     v.updated_at, m.id as last_maintenance_id, m.performed_on::text as last_maintenance_on,
-    m.kind as last_maintenance_kind, m.meter_reading as last_meter_reading
+    m.kind as last_maintenance_kind, m.meter_reading as last_meter_reading,
+    m.next_due_on::text as last_next_due_on
   from public.vehicles v
   left join lateral (
-    select vm.id, vm.performed_on, vm.kind, vm.meter_reading
+    select vm.id, vm.performed_on, vm.kind, vm.meter_reading, vm.next_due_on
     from public.vehicle_maintenances vm
     where vm.vehicle_id = v.id and vm.company_id = v.company_id
     order by vm.performed_on desc, vm.created_at desc, vm.id desc
@@ -92,6 +94,7 @@ function toContract(row: VehicleRow) {
             performed_on: row.last_maintenance_on,
             kind: row.last_maintenance_kind,
             meter_reading: row.last_meter_reading,
+            next_due_on: row.last_next_due_on,
           },
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),

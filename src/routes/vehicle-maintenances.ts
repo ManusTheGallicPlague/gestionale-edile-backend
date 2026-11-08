@@ -329,7 +329,7 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
         >(
           `select m.performed_on::text as performed_on, m.kind, m.description,
              s.name as supplier_name, m.amount_cents::text as amount_cents, m.meter_reading,
-             m.notes, v.name as vehicle_name, v.plate
+             m.notes, m.next_due_on::text as next_due_on, v.name as vehicle_name, v.plate
            from public.vehicle_maintenances m
            join public.vehicles v on v.id = m.vehicle_id
            left join public.suppliers s on s.id = m.supplier_id
@@ -351,6 +351,7 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
             'Km o ore',
             'Spesa',
             'Note',
+            'Prossima manutenzione',
           ],
           rows.map((r) => [
             italianDate(r.performed_on),
@@ -362,6 +363,7 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
             r.meter_reading,
             r.amount_cents === null ? null : italianAmount(r.amount_cents),
             r.notes,
+            r.next_due_on && italianDate(r.next_due_on),
           ]),
         )
       })

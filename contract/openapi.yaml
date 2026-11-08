@@ -5421,7 +5421,9 @@ paths:
         stesso formato dell'esportazione dei clienti: per il commercialista. Tipo per esteso
         (Tagliando, Riparazione, Revisione, Gomme, Altro), date come 30/11/2026, spesa con la
         virgola, vuota se manca. Con filter[from] e filter[to] (estremi compresi) solo quelle del
-        periodo, con filter[vehicle] solo quelle di un mezzo. Il file si chiama manutenzioni.csv.
+        periodo, con filter[vehicle] solo quelle di un mezzo. L'ultima colonna, «Prossima
+        manutenzione», è la data di `next_due_on`, vuota se manca. Il file si chiama
+        manutenzioni.csv.
       parameters:
         - name: filter
           in: query
@@ -11600,7 +11602,7 @@ components:
               format: date-time
     VehicleLastMaintenance:
       type: object
-      required: [id, performed_on, kind, meter_reading]
+      required: [id, performed_on, kind, meter_reading, next_due_on]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         performed_on: { $ref: '#/components/schemas/Date' }
@@ -11610,6 +11612,11 @@ components:
           description: Contachilometri o contaore registrato in quell'intervento.
           minimum: 0
           maximum: 9999999
+        next_due_on:
+          description: Prossima manutenzione indicata in quell'intervento, se c'è.
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
     VehicleList:
       type: object
       required: [data, meta]

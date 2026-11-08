@@ -209,7 +209,7 @@ describe('maintenance of vehicles', () => {
     const truck = await vehicleOf(company.id, 'Furgone')
     await ctx.owner.query("update public.vehicles set plate = 'AB123CD' where id = $1", [truck])
     const truckBase = base.replace(/vehicles\/[^/]+/, `vehicles/${truck}`)
-    await browser.call('POST', base, { body: job({ notes: '=1+1' }) })
+    await browser.call('POST', base, { body: job({ notes: '=1+1', next_due_on: '2027-04-15' }) })
     await browser.call('POST', truckBase, {
       body: job({
         performed_on: '2026-11-02',
@@ -236,10 +236,10 @@ describe('maintenance of vehicles', () => {
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-disposition']).toBe('attachment; filename="manutenzioni.csv"')
     expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Data;Mezzo;Targa;Tipo;Descrizione;Officina;Km o ore;Spesa;Note',
-      '02/11/2026;Furgone;AB123CD;Gomme;Gomme invernali;"Gommista; Bianchi";91200;520,00;',
-      "15/10/2026;Escavatore;;Tagliando;Tagliando 500 ore;;500;450,50;'=1+1",
-      '20/12/2025;Furgone;AB123CD;Revisione;Tagliando 500 ore;;;;',
+      'Data;Mezzo;Targa;Tipo;Descrizione;Officina;Km o ore;Spesa;Note;Prossima manutenzione',
+      '02/11/2026;Furgone;AB123CD;Gomme;Gomme invernali;"Gommista; Bianchi";91200;520,00;;',
+      "15/10/2026;Escavatore;;Tagliando;Tagliando 500 ore;;500;450,50;'=1+1;15/04/2027",
+      '20/12/2025;Furgone;AB123CD;Revisione;Tagliando 500 ore;;;;;',
     ])
     const filtered = await browser.call(
       'GET',
@@ -334,6 +334,7 @@ describe('maintenance of vehicles', () => {
       performed_on: '2026-03-01',
       kind: 'service',
       meter_reading: 500,
+      next_due_on: null,
     })
     // A job registered later but done earlier does not take its place.
     await browser.call('POST', base, { body: job({ performed_on: '2026-02-01', kind: 'tires' }) })
@@ -349,13 +350,14 @@ describe('maintenance of vehicles', () => {
       performed_on: '2026-03-01',
       kind: 'repair',
       meter_reading: null,
+      next_due_on: null,
     })
     // The ETag of the vehicle does not change.
     expect((await browser.call('GET', card)).headers.etag).toBe('"1"')
 
     // Moving the older job forward makes it the last one.
     await browser.call('PUT', `${base}/${older.id}`, {
-      body: job({ performed_on: '2026-04-01', meter_reading: 620 }),
+      body: job({ performed_on: '2026-04-01', meter_reading: 620, next_due_on: '2027-04-01' }),
       headers: { 'if-match': '"1"' },
     })
     expect(await last()).toEqual({
@@ -363,6 +365,7 @@ describe('maintenance of vehicles', () => {
       performed_on: '2026-04-01',
       kind: 'service',
       meter_reading: 620,
+      next_due_on: '2027-04-01',
     })
 
     // Another vehicle of the company and one of another company keep their own.
