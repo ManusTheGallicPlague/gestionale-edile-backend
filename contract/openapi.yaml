@@ -4936,7 +4936,8 @@ paths:
         indicato.
         Con filter[employee] solo quel dipendente, attivo o no, anche senza assenze (per la
         scheda del dipendente); un dipendente che non c'è dà un elenco vuoto. Con
-        filter[vacation]=exceeded solo chi ha vacation_remaining sotto zero. totals somma i
+        filter[vacation]=exceeded solo chi ha vacation_remaining sotto zero, con
+        filter[permit]=exceeded solo chi ha permit_remaining sotto zero. totals somma i
         dipendenti dell'elenco.
       parameters:
         - name: year
@@ -7574,7 +7575,9 @@ components:
     AbsenceTotalsFilter:
       name: filter
       in: query
-      description: Filtri, ad esempio filter[employee]=<id> oppure filter[vacation]=exceeded.
+      description: |
+        Filtri, ad esempio filter[employee]=<id>, filter[vacation]=exceeded oppure
+        filter[permit]=exceeded; insieme valgono tutti.
       style: deepObject
       explode: true
       schema:
@@ -7585,6 +7588,10 @@ components:
             type: string
             enum: [exceeded]
             description: exceeded tiene solo chi ha fatto più ferie di quelle spettanti e riportate.
+          permit:
+            type: string
+            enum: [exceeded]
+            description: exceeded tiene solo chi ha permit_remaining sotto zero.
     Company:
       name: company
       in: path
@@ -10775,7 +10782,7 @@ components:
       description: |
         Assenze dei dipendenti attivi (listCompanyAbsences), con employees.view, sulla data
         italiana: per sapere chi manca in squadra.
-      required: [away_today, starting_soon, vacation_exceeded]
+      required: [away_today, starting_soon, vacation_exceeded, permit_exceeded]
       properties:
         away_today:
           type: integer
@@ -10791,6 +10798,12 @@ components:
           description: |
             Dipendenti attivi che nell'anno in corso hanno fatto più ferie di quelle spettanti e
             riportate (getAbsenceTotals con filter[vacation]=exceeded).
+        permit_exceeded:
+          type: integer
+          minimum: 0
+          description: |
+            Dipendenti attivi che nell'anno in corso hanno fatto più ore di permesso di quelle
+            spettanti (getAbsenceTotals con filter[permit]=exceeded).
     SiteActivityList:
       type: object
       required: [data]

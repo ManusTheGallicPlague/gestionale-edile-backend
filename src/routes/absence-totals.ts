@@ -96,8 +96,16 @@ function readFilters(query: Record<string, unknown>) {
   if (vacationValue !== undefined && vacationValue !== 'exceeded') {
     errors['filter[vacation]'] = ['Valori ammessi: exceeded.']
   }
+  const permitValue = single('filter[permit]')
+  if (permitValue !== undefined && permitValue !== 'exceeded') {
+    errors['filter[permit]'] = ['Valori ammessi: exceeded.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { employee, exceeded: vacationValue === 'exceeded' }
+  return {
+    employee,
+    exceeded: vacationValue === 'exceeded',
+    permitExceeded: permitValue === 'exceeded',
+  }
 }
 
 export async function readTotals(client: PoolClient, query: Record<string, unknown>) {
@@ -157,12 +165,13 @@ export async function readTotals(client: PoolClient, query: Record<string, unkno
             BigInt(tally.leave.workingDays) * HOURS_PER_DAY * 100n
           ).toString(),
         )
-  const listed = filters.exceeded
-    ? employees.filter((e) => {
-        const left = remaining(e)
-        return left !== null && left < 0
-      })
-    : employees
+  const listed = employees.filter((e) => {
+    if (filters.exceeded) {
+      const left = remaining(e)
+      if (left === null || left >= 0) return false
+    }
+    return !filters.permitExceeded || (permitRemaining(e)?.startsWith('-') ?? false)
+  })
   const total = emptyTally()
   for (const { tally } of listed) {
     for (const kind of ABSENCE_KINDS) {

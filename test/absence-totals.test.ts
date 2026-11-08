@@ -399,6 +399,44 @@ describe('absence totals of the year', () => {
     expect(csv.body.replace('﻿', '').trim().split('\r\n')).toHaveLength(3)
   })
 
+  it('keeps only who took more leave hours than allowed', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    const set = (id: string, hours: number) =>
+      ctx.owner.query('update public.employees set annual_permit_hours = $2 where id = $1', [
+        id,
+        hours,
+      ])
+    await set(s.mario, 3) // 3.75 hours of leave in 2026: -0.75
+    await set(s.anna, 0) // no leave: exactly 0 left, not exceeded
+    await set(theirs.mario, 1) // another company
+    const exceeded = async (query = '') => {
+      const res = await s.browser.call('GET', `${s.url}?year=2026&filter[permit]=exceeded${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<Totals>()
+    }
+    const body = await exceeded()
+    // Luca has no hours at all: not counted as exceeded.
+    expect(body.employees.map((e) => [e.employee.id, e.permit_remaining])).toEqual([
+      [s.mario, '-0.75'],
+    ])
+    expect(body.totals).toMatchObject({ days: 18, hours: '3.75' })
+    expect((await exceeded(`&filter[employee]=${s.anna}`)).employees).toEqual([])
+    // With the vacation filter too, only who exceeded both.
+    expect((await exceeded('&filter[vacation]=exceeded')).employees).toEqual([])
+    await ctx.owner.query('update public.employees set annual_leave_days = 10 where id = $1', [
+      s.mario,
+    ])
+    expect(
+      (await exceeded('&filter[vacation]=exceeded')).employees.map((e) => e.employee.id),
+    ).toEqual([s.mario])
+    const csv = await s.browser.call('GET', `${s.url}/export?year=2026&filter[permit]=exceeded`)
+    expect(csv.body.replace('\ufeff', '').trim().split('\r\n')).toHaveLength(3)
+    // Exactly at zero is not exceeded.
+    await set(s.mario, 4)
+    expect((await exceeded()).employees).toEqual([])
+  })
+
   it('refuses wrong filters', async () => {
     const s = await scene()
     for (const [query, field] of [
@@ -406,6 +444,8 @@ describe('absence totals of the year', () => {
       [`filter[employee]=${s.mario}&filter[employee]=${s.anna}`, 'filter[employee]'],
       ['filter[vacation]=remaining', 'filter[vacation]'],
       ['filter[vacation]=', 'filter[vacation]'],
+      ['filter[permit]=remaining', 'filter[permit]'],
+      ['filter[permit]=exceeded&filter[permit]=exceeded', 'filter[permit]'],
     ]) {
       for (const path of [s.url, `${s.url}/export`]) {
         const res = await s.browser.call('GET', `${path}?year=2026&${query}`)

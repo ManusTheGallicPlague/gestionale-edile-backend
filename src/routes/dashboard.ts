@@ -349,14 +349,15 @@ async function absenceCounts(client: PoolClient, today: string) {
      join public.employees e on e.id = a.employee_id and e.active`,
     [today],
   )
-  const exceeded = await readTotals(client, {
-    year: today.slice(0, 4),
-    'filter[vacation]': 'exceeded',
-  })
+  const year = await readTotals(client, { year: today.slice(0, 4) })
+  const active = year.employees.filter((e) => e.employee.active)
   return {
     away_today: rows[0]?.away_today ?? 0,
     starting_soon: rows[0]?.starting_soon ?? 0,
-    vacation_exceeded: exceeded.employees.filter((e) => e.employee.active).length,
+    vacation_exceeded: active.filter(
+      (e) => e.vacation_remaining !== null && e.vacation_remaining < 0,
+    ).length,
+    permit_exceeded: active.filter((e) => e.permit_remaining?.startsWith('-') ?? false).length,
   }
 }
 

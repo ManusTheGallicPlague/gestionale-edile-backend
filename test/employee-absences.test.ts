@@ -540,12 +540,14 @@ describe('absences in the dashboard', () => {
       away_today: 2,
       starting_soon: 2,
       vacation_exceeded: 0,
+      permit_exceeded: 0,
     })
     const none = await theirs.browser.call('GET', `/api/companies/${theirs.company.slug}/dashboard`)
     expect(none.json<{ absences: unknown }>().absences).toEqual({
       away_today: 0,
       starting_soon: 1,
       vacation_exceeded: 0,
+      permit_exceeded: 0,
     })
   })
 
@@ -586,6 +588,42 @@ describe('absences in the dashboard', () => {
     expect(
       other.json<{ absences: { vacation_exceeded: number } }>().absences.vacation_exceeded,
     ).toBe(1)
+  })
+
+  it('counts the active employees over their leave hours in the current year', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    const today = day(0)
+    const employee = async (company: string, active: boolean, hours: number | null) =>
+      (
+        await ctx.owner.query<{ id: string }>(
+          `insert into public.employees (company_id, first_name, last_name, active, annual_permit_hours)
+           values ($1, 'X', 'Y', $2, $3) returning id`,
+          [company, active, hours],
+        )
+      ).rows[0]?.id
+    const leave = (company: string, who: unknown, date: string, hours: string) =>
+      ctx.owner.query(
+        `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on, hours, notes)
+         values ($1, $2, 'leave', $3, $3, $4, 'x')`,
+        [company, who, date, hours],
+      )
+    const counted = async () =>
+      (await s.browser.call('GET', `/api/companies/${s.company.slug}/dashboard`)).json<{
+        absences: { vacation_exceeded: number; permit_exceeded: number }
+      }>().absences
+    expect(await counted()).toMatchObject({ permit_exceeded: 0 })
+    await leave(s.company.id, await employee(s.company.id, true, 2), today, '2.25') // over
+    await leave(s.company.id, await employee(s.company.id, true, 2), today, '2') // exactly zero
+    await leave(s.company.id, await employee(s.company.id, false, 0), today, '1') // not active
+    await leave(s.company.id, await employee(s.company.id, true, null), today, '3') // no hours
+    await leave(theirs.company.id, await employee(theirs.company.id, true, 0), today, '1')
+    expect(await counted()).toMatchObject({ vacation_exceeded: 0, permit_exceeded: 1 })
+    const other = await theirs.browser.call(
+      'GET',
+      `/api/companies/${theirs.company.slug}/dashboard`,
+    )
+    expect(other.json<{ absences: { permit_exceeded: number } }>().absences.permit_exceeded).toBe(1)
   })
 
   it('is null without employees.view', async () => {
