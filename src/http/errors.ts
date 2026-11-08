@@ -109,6 +109,9 @@ export const messages = {
   maintenanceStale:
     'La manutenzione è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   maintenanceMissingIfMatch: 'Manca la versione della manutenzione: ricarica la pagina e riprova.',
+  refuelingStale:
+    'Il rifornimento è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  refuelingMissingIfMatch: 'Manca la versione del rifornimento: ricarica la pagina e riprova.',
   chapterStale:
     'Il capitolo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   itemStale:

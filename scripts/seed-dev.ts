@@ -371,6 +371,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       await client.query('delete from public.vehicle_maintenances where company_id = $1', [
         companyId,
       ])
+      await client.query('delete from public.vehicle_refuelings where company_id = $1', [companyId])
       await client.query('delete from public.supplier_documents where company_id = $1', [companyId])
       await client.query('delete from public.suppliers where company_id = $1', [companyId])
       for (const s of devSuppliers(company.seed)) {
@@ -566,6 +567,22 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          from public.vehicle_maintenances m
          join public.vehicles v on v.id = m.vehicle_id
          where m.company_id = $1 and m.next_due_on is not null`,
+        [companyId],
+      )
+      // Three fill-ups of the van, the last one without the station.
+      await client.query(
+        `insert into public.vehicle_refuelings (company_id, vehicle_id, refueled_on, liters,
+           amount_cents, meter_reading, supplier_id)
+         select $1, v.id, current_date - r.ago, r.liters, r.cents, r.meter,
+           case when r.station
+             then (select id from public.suppliers where company_id = $1 order by name limit 1)
+           end
+         from (values
+           (30, 52.40, 9170, 90100, true),
+           (16, 48.75, 8460, 90820, true),
+           (2, 20.00, 3600, 91350, false)
+         ) as r (ago, liters, cents, meter, station)
+         join public.vehicles v on v.company_id = $1 and v.plate = 'AA000AA'`,
         [companyId],
       )
       await client.query('delete from public.employees where company_id = $1', [companyId])

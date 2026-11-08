@@ -5410,6 +5410,116 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/vehicles/{vehicle}/refuelings:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/VehicleId'
+    get:
+      operationId: listVehicleRefuelings
+      summary: Rifornimenti di un mezzo
+      description: |
+        Permesso: vehicles.view (senza, 404 come per la scheda). I rifornimenti di carburante
+        del mezzo, senza paginazione, dal più recente, con i litri e la spesa totali
+        dell'elenco. Con filter[from] e filter[to] (estremi compresi) solo quelli del periodo.
+      parameters:
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[from]=2026-01-01&filter[to]=2026-12-31.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: I rifornimenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleRefuelingList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createVehicleRefueling
+      summary: Nuovo rifornimento
+      description: 'Permesso: vehicles.update. Il fornitore, se indicato, deve essere dell''azienda.'
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleRefuelingInput' }
+      responses:
+        '201':
+          description: Rifornimento registrato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleRefueling' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/vehicles/{vehicle}/refuelings/{refueling}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/VehicleId'
+      - name: refueling
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    put:
+      operationId: updateVehicleRefueling
+      summary: Modifica di un rifornimento
+      description: 'Permesso: vehicles.update. Si inviano tutti i campi. If-Match come per i mezzi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleRefuelingInput' }
+      responses:
+        '200':
+          description: Rifornimento aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleRefueling' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteVehicleRefueling
+      summary: Eliminazione di un rifornimento
+      description: 'Permesso: vehicles.update. If-Match come per i mezzi.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Rifornimento eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/vehicle-maintenances/export:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8820,6 +8930,71 @@ components:
           description: Somma delle spese dell'elenco (quelle senza importo contano zero).
           allOf:
             - $ref: '#/components/schemas/SignedAmount'
+    VehicleRefuelingInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [refueled_on, liters, amount, meter_reading, supplier_id, notes]
+      properties:
+        refueled_on: { $ref: '#/components/schemas/Date' }
+        liters: { $ref: '#/components/schemas/Liters' }
+        amount:
+          description: Spesa del rifornimento senza IVA, non negativa.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        meter_reading:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 9999999
+          description: Chilometri o ore motore segnati al momento del rifornimento.
+        supplier_id:
+          description: Distributore o fornitore del carburante, dell'azienda.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    VehicleRefueling:
+      allOf:
+        - $ref: '#/components/schemas/VehicleRefuelingInput'
+        - type: object
+          required: [id, vehicle_id, supplier, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            vehicle_id: { $ref: '#/components/schemas/Id' }
+            supplier:
+              oneOf:
+                - $ref: '#/components/schemas/SubjectRef'
+                - type: 'null'
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    VehicleRefuelingList:
+      type: object
+      required: [data, total_liters, total_amount]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/VehicleRefueling' }
+        total_liters:
+          description: Somma dei litri dell'elenco, con due decimali e il punto.
+          type: string
+          pattern: '^\d+\.\d{2}$'
+          examples: ['1234.50']
+        total_amount:
+          description: Somma delle spese dell'elenco.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+    Liters:
+      type: string
+      description: |
+        Litri come stringa con il punto e fino a due decimali, mai numero JSON; più di zero. In
+        uscita ha sempre due decimali.
+      pattern: '^\d{1,6}(\.\d{1,2})?$'
+      examples: ['45.20']
     EmployeeAbsenceInput:
       type: object
       description: I campi facoltativi si inviano comunque, con null se vuoti.
