@@ -549,6 +549,20 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          ) as e (first_name, last_name, job_title, hired_on, cost, active)`,
         [companyId],
       )
+      // Absences of the employees: a week of holiday, a sick day and two hours of leave.
+      await client.query(
+        `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on,
+           hours, notes)
+         select $1, e.id, a.kind, current_date + a.from_day, current_date + a.to_day,
+           a.hours::numeric, a.notes
+         from (values
+           ('Galli', 'vacation', 14, 18, null, null),
+           ('Riva', 'sick_leave', -3, -3, null, null),
+           ('Ferri', 'leave', 2, 2, '2.00', 'Visita specialistica')
+         ) as a (last_name, kind, from_day, to_day, hours, notes)
+         join public.employees e on e.company_id = $1 and e.last_name = a.last_name`,
+        [companyId],
+      )
       await client.query('delete from public.sites where company_id = $1', [companyId])
       await client.query(
         `insert into public.sites (company_id, code, name, client_id, address, status, start_on,

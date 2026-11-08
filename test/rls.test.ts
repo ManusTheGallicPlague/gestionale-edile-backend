@@ -534,6 +534,51 @@ describe('the API role cannot cross companies', () => {
     await expect(auth.query('select * from public.employees')).rejects.toThrow(/permission denied/)
   })
 
+  it('employee absences: cannot read or write across companies', async () => {
+    const { rows } = await owner.query<{ id: string }>(
+      "insert into public.employees (company_id, first_name, last_name) values ($1, 'B', 'B') returning id",
+      [companyB.id],
+    )
+    const employeeB = rows[0]?.id
+    await owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on)
+       values ($1, $2, 'vacation', '2026-08-10', '2026-08-14')`,
+      [companyB.id, employeeB],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.employee_absences where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on)
+           values ($1, $2, 'vacation', '2026-09-01', '2026-09-01')`,
+          [companyB.id, employeeB],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    // An absence of my company cannot point at their employee either.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on)
+           values ($1, $2, 'vacation', '2026-09-01', '2026-09-01')`,
+          [companyA.id, employeeB],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.employee_absences set notes = 'x'")
+      const d = await c.query('delete from public.employee_absences')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.employee_absences')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('vehicles: cannot read or write across companies', async () => {
     await owner.query(
       "insert into public.vehicles (company_id, name, kind) values ($1, 'B', 'vehicle')",

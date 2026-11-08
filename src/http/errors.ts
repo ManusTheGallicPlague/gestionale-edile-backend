@@ -100,6 +100,9 @@ export const messages = {
   employeeHasDocuments:
     'Il dipendente è in una squadra o ha documenti collegati e non si può eliminare: puoi segnarlo come non attivo.',
   employeeMissingIfMatch: 'Manca la versione del dipendente: ricarica la pagina e riprova.',
+  absenceStale:
+    'L’assenza è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
+  absenceMissingIfMatch: 'Manca la versione dell’assenza: ricarica la pagina e riprova.',
   vehicleStale:
     'Il mezzo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   vehicleMissingIfMatch: 'Manca la versione del mezzo: ricarica la pagina e riprova.',

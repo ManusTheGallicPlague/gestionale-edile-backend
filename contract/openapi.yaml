@@ -4590,6 +4590,118 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/employees/{employee}/absences:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      operationId: listEmployeeAbsences
+      summary: Assenze di un dipendente
+      description: |
+        Permesso: employees.view (senza, 404 come per la scheda). Ferie, malattie, permessi e
+        infortuni del dipendente, senza paginazione, dalla più recente. Con filter[from] e
+        filter[to] (estremi compresi) solo le assenze che toccano quel periodo, per il calendario.
+      parameters:
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[from]=2026-11-01&filter[to]=2026-11-30.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Le assenze
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeAbsenceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+    post:
+      operationId: createEmployeeAbsence
+      summary: Nuova assenza
+      description: |
+        Permesso: employees.update. Un'assenza non può sovrapporsi a un'altra dello stesso
+        dipendente (422 su starts_on).
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeeAbsenceInput' }
+      responses:
+        '201':
+          description: Assenza registrata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeAbsence' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/employees/{employee}/absences/{absence}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+      - name: absence
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    put:
+      operationId: updateEmployeeAbsence
+      summary: Modifica di un'assenza
+      description: 'Permesso: employees.update. Si inviano tutti i campi. If-Match come per i dipendenti.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeeAbsenceInput' }
+      responses:
+        '200':
+          description: Assenza aggiornata
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeAbsence' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteEmployeeAbsence
+      summary: Eliminazione di un'assenza
+      description: 'Permesso: employees.update. If-Match come per i dipendenti.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Assenza eliminata
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/vehicles:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8117,6 +8229,59 @@ components:
         uploaded_at:
           type: string
           format: date-time
+    EmployeeAbsenceKind:
+      type: string
+      description: |
+        vacation: ferie. sick_leave: malattia. leave: permesso. injury: infortunio.
+        other: altra assenza (note obbligatorie).
+      enum: [vacation, sick_leave, leave, injury, other]
+    EmployeeAbsenceInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [kind, starts_on, ends_on, hours, notes]
+      properties:
+        kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
+        starts_on: { $ref: '#/components/schemas/Date' }
+        ends_on:
+          description: Ultimo giorno di assenza, compreso; non prima di starts_on.
+          allOf:
+            - $ref: '#/components/schemas/Date'
+        hours:
+          description: |
+            Solo per un'assenza di parte della giornata (es. permesso di 2 ore): ammesse solo se
+            starts_on ed ends_on coincidono, da 0.01 a 24. Null per giornate intere.
+          oneOf:
+            - $ref: '#/components/schemas/Hours'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          description: Obbligatorie se kind è other.
+          maxLength: 2000
+    EmployeeAbsence:
+      allOf:
+        - $ref: '#/components/schemas/EmployeeAbsenceInput'
+        - type: object
+          required: [id, employee_id, days, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            employee_id: { $ref: '#/components/schemas/Id' }
+            days:
+              type: integer
+              minimum: 1
+              description: Giorni di calendario da starts_on a ends_on, estremi compresi.
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    EmployeeAbsenceList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/EmployeeAbsence' }
     SupplierDocumentList:
       type: object
       required: [data]
