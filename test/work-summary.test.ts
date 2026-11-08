@@ -247,6 +247,58 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
     expect(vehicle.json<object>()).not.toHaveProperty('absences')
   })
 
+  it('somma le manutenzioni del mezzo nel periodo, senza quelle di altri mezzi', async () => {
+    const s = await scene()
+    const job = (vehicle: string, date: string, cents: number | null) =>
+      ctx.owner.query(
+        `insert into public.vehicle_maintenances
+           (company_id, vehicle_id, performed_on, kind, description, amount_cents)
+         values ($1, $2, $3, 'repair', 'Riparazione', $4)`,
+        [s.company.id, vehicle, date, cents],
+      )
+    // No reports and no maintenance: zero.
+    const empty = await s.browser.call('GET', vehicleUrl(s.slug, s.digger))
+    expect(empty.json<object>()).toMatchObject({ maintenance: { count: 0, amount: '0.00' } })
+
+    await job(s.digger, '2026-09-30', 12010)
+    await job(s.digger, '2026-10-15', 5)
+    await job(s.digger, '2026-10-31', null)
+    const [truck = ''] = (
+      await ctx.owner.query<{ id: string }>(
+        `insert into public.vehicles (company_id, name, kind) values ($1, 'Furgone', 'vehicle')
+         returning id`,
+        [s.company.id],
+      )
+    ).rows.map((r) => r.id)
+    await job(truck, '2026-10-15', 99900)
+    // Another company's vehicle with maintenance: never counted.
+    const other = await scene()
+    await ctx.owner.query(
+      `insert into public.vehicle_maintenances
+         (company_id, vehicle_id, performed_on, kind, description, amount_cents)
+       values ($1, $2, '2026-10-15', 'repair', 'Loro', 70000)`,
+      [other.company.id, other.digger],
+    )
+
+    const all = await s.browser.call('GET', vehicleUrl(s.slug, s.digger))
+    expect(all.statusCode).toBe(200)
+    expect(all.json<object>()).toMatchObject({ maintenance: { count: 3, amount: '120.15' } })
+    const october = await s.browser.call(
+      'GET',
+      vehicleUrl(s.slug, s.digger, '?filter[from]=2026-10-01&filter[to]=2026-10-31'),
+    )
+    expect(october.json<object>()).toMatchObject({ maintenance: { count: 2, amount: '0.05' } })
+    // The status of the reports does not filter the maintenance.
+    const approved = await s.browser.call(
+      'GET',
+      vehicleUrl(s.slug, s.digger, '?filter[status]=approved'),
+    )
+    expect(approved.json<object>()).toMatchObject({ maintenance: { count: 3 } })
+    // Employees have no maintenance.
+    const employee = await s.browser.call('GET', employeeUrl(s.slug, s.verdi))
+    expect(employee.json<object>()).not.toHaveProperty('maintenance')
+  })
+
   it('rifiuta filtri non validi con 422', async () => {
     const s = await scene()
     const res = await s.browser.call(

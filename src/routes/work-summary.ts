@@ -277,6 +277,19 @@ async function readAbsences(client: PoolClient, id: string, query: Record<string
   }
 }
 
+/** Maintenance of a vehicle in the period of the summary: how many jobs and their cost. */
+async function readMaintenance(client: PoolClient, id: string, query: Record<string, unknown>) {
+  const { from, to } = readFilters(query)
+  const { rows } = await client.query<{ count: number; cents: string }>(
+    `select count(*)::int as count, coalesce(sum(amount_cents), 0)::text as cents
+     from public.vehicle_maintenances
+     where vehicle_id = $1
+       and ($2::date is null or performed_on >= $2) and ($3::date is null or performed_on <= $3)`,
+    [id, from ?? null, to ?? null],
+  )
+  return { count: rows[0]?.count ?? 0, amount: centsToAmount(rows[0]?.cents ?? '0') }
+}
+
 /** Hours of an employee or a vehicle per site, for their cards. */
 export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
   const routes: { path: string; param: string; permission: Permission; source: Source }[] = [
@@ -310,7 +323,13 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
             request.query,
             permissions.has('reports.view'),
           )
-          if (!summary || route.source.table !== 'employees') return summary
+          if (!summary) return summary
+          if (route.source.table === 'vehicles') {
+            return {
+              ...summary,
+              maintenance: await readMaintenance(client, id.toLowerCase(), request.query),
+            }
+          }
           return {
             ...summary,
             absences: await readAbsences(client, id.toLowerCase(), request.query),

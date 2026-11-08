@@ -5270,6 +5270,8 @@ paths:
         scheda del mezzo: ore dai rapportini, giorni con ore e costo per cantiere, dal cantiere con
         più ore. Il costo usa il costo orario attuale, come il riepilogo dei costi del cantiere;
         è null se il costo orario manca. Senza filtri conta tutti i rapportini.
+        maintenance: numero e spesa delle manutenzioni del mezzo nello stesso periodo (filter[status]
+        non conta).
       parameters:
         - name: filter
           in: query
@@ -5289,7 +5291,7 @@ paths:
           description: Le ore per cantiere
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/WorkSummary' }
+              schema: { $ref: '#/components/schemas/VehicleWorkSummary' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -11375,6 +11377,21 @@ components:
                   - type: 'null'
               first_date: { $ref: '#/components/schemas/Date' }
               last_date: { $ref: '#/components/schemas/Date' }
+    VehicleWorkSummary:
+      allOf:
+        - $ref: '#/components/schemas/WorkSummary'
+        - type: object
+          required: [maintenance]
+          properties:
+            maintenance:
+              type: object
+              description: |
+                Manutenzioni del periodo (performed_on tra filter[from] e filter[to]): quante
+                sono e la spesa senza IVA, quelle senza importo contano zero.
+              required: [count, amount]
+              properties:
+                count: { type: integer, minimum: 0 }
+                amount: { $ref: '#/components/schemas/SignedAmount' }
     EmployeeWorkSummary:
       allOf:
         - $ref: '#/components/schemas/WorkSummary'
