@@ -203,6 +203,67 @@ describe('maintenance of vehicles', () => {
     expect(left.rowCount).toBe(1)
   })
 
+  it('exports the maintenance of all vehicles in CSV, with filters', async () => {
+    const { browser, company, base } = await scene()
+    const supplier = await supplierOf(company.id, 'Gommista; Bianchi')
+    const truck = await vehicleOf(company.id, 'Furgone')
+    await ctx.owner.query("update public.vehicles set plate = 'AB123CD' where id = $1", [truck])
+    const truckBase = base.replace(/vehicles\/[^/]+/, `vehicles/${truck}`)
+    await browser.call('POST', base, { body: job({ notes: '=1+1' }) })
+    await browser.call('POST', truckBase, {
+      body: job({
+        performed_on: '2026-11-02',
+        kind: 'tires',
+        description: 'Gomme invernali',
+        supplier_id: supplier,
+        amount: '520',
+        meter_reading: 91200,
+      }),
+    })
+    await browser.call('POST', truckBase, {
+      body: job({
+        performed_on: '2025-12-20',
+        kind: 'inspection',
+        amount: null,
+        meter_reading: null,
+      }),
+    })
+    const other = await scene()
+    await other.browser.call('POST', other.base, { body: job({ description: 'Loro' }) })
+
+    const url = `/api/companies/${company.slug}/vehicle-maintenances/export`
+    const res = await browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe('attachment; filename="manutenzioni.csv"')
+    expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Data;Mezzo;Targa;Tipo;Descrizione;Officina;Km o ore;Spesa;Note',
+      '02/11/2026;Furgone;AB123CD;Gomme;Gomme invernali;"Gommista; Bianchi";91200;520,00;',
+      "15/10/2026;Escavatore;;Tagliando;Tagliando 500 ore;;500;450,50;'=1+1",
+      '20/12/2025;Furgone;AB123CD;Revisione;Tagliando 500 ore;;;;',
+    ])
+    const filtered = await browser.call(
+      'GET',
+      `${url}?filter[from]=2026-01-01&filter[to]=2026-12-31&filter[vehicle]=${truck}`,
+    )
+    expect(filtered.body.replace('﻿', '').trim().split('\r\n')).toHaveLength(2)
+    const bad = await browser.call('GET', `${url}?filter[vehicle]=abc&filter[from]=ieri`)
+    expect(bad.statusCode).toBe(422)
+    expect(Object.keys(bad.json<{ errors: object }>().errors).sort()).toEqual([
+      'filter[from]',
+      'filter[vehicle]',
+    ])
+    const none = await scene([])
+    expect(
+      (
+        await none.browser.call(
+          'GET',
+          `/api/companies/${none.company.slug}/vehicle-maintenances/export`,
+        )
+      ).statusCode,
+    ).toBe(403)
+    expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
+  })
+
   it('needs vehicles.view to read (404) and vehicles.update to write (403)', async () => {
     const reader = await scene(['vehicles.view'])
     expect((await reader.browser.call('GET', reader.base)).statusCode).toBe(200)

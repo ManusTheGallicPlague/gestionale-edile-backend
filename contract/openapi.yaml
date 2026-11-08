@@ -5407,6 +5407,46 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/vehicle-maintenances/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportVehicleMaintenances
+      summary: Esportazione in CSV delle manutenzioni di tutti i mezzi
+      description: |
+        Permesso: vehicles.view. Le manutenzioni di tutti i mezzi, dalla più recente, nello
+        stesso formato dell'esportazione dei clienti: per il commercialista. Tipo per esteso
+        (Tagliando, Riparazione, Revisione, Gomme, Altro), date come 30/11/2026, spesa con la
+        virgola, vuota se manca. Con filter[from] e filter[to] (estremi compresi) solo quelle del
+        periodo, con filter[vehicle] solo quelle di un mezzo. Il file si chiama manutenzioni.csv.
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              vehicle: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/estimates:
     parameters:
       - $ref: '#/components/parameters/Company'

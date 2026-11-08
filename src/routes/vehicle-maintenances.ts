@@ -16,9 +16,19 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 export const MAINTENANCE_KINDS = ['service', 'repair', 'inspection', 'tires', 'other'] as const
 type MaintenanceKind = (typeof MAINTENANCE_KINDS)[number]
+
+/** Names of the kinds in the CSV file. */
+const KIND_NAMES: Record<MaintenanceKind, string> = {
+  service: 'Tagliando',
+  repair: 'Riparazione',
+  inspection: 'Revisione',
+  tires: 'Gomme',
+  other: 'Altro',
+}
 
 interface MaintenanceInput {
   performed_on: string
@@ -162,7 +172,7 @@ export function parseMaintenanceInput(body: unknown): MaintenanceInput {
   return { performed_on, kind, description, supplier_id, amount_cents, meter_reading, notes }
 }
 
-function readPeriod(query: Record<string, unknown>) {
+function readPeriod(query: Record<string, unknown>, withVehicle = false) {
   const errors: FieldErrors = {}
   const date = (name: string): string | null => {
     const value = query[`filter[${name}]`]
@@ -180,8 +190,14 @@ function readPeriod(query: Record<string, unknown>) {
   const from = date('from')
   const to = date('to')
   if (from && to && to < from) errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
+  let vehicle: string | null = null
+  if (withVehicle) {
+    const value = query['filter[vehicle]']
+    if (typeof value === 'string' && UUID.test(value)) vehicle = value.toLowerCase()
+    else if (value !== undefined) errors['filter[vehicle]'] = ['Identificativo non valido.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { from, to }
+  return { from, to, vehicle }
 }
 
 function expectedVersion(header: string | string[] | undefined): number {
@@ -226,6 +242,62 @@ async function missingOrStale(client: PoolClient, id: string, vehicleId: string)
 }
 
 export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, db: Db): void {
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/vehicle-maintenances/export',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('vehicles.view')) throw forbidden()
+        const { from, to, vehicle } = readPeriod(request.query, true)
+        const { rows } = await client.query<
+          MaintenanceRow & { vehicle_name: string; plate: string | null }
+        >(
+          `select m.performed_on::text as performed_on, m.kind, m.description,
+             s.name as supplier_name, m.amount_cents::text as amount_cents, m.meter_reading,
+             m.notes, v.name as vehicle_name, v.plate
+           from public.vehicle_maintenances m
+           join public.vehicles v on v.id = m.vehicle_id
+           left join public.suppliers s on s.id = m.supplier_id
+           where ($1::date is null or m.performed_on >= $1)
+             and ($2::date is null or m.performed_on <= $2)
+             and ($3::uuid is null or m.vehicle_id = $3)
+           order by m.performed_on desc, v.name, m.created_at desc, m.id desc
+           limit $4`,
+          [from, to, vehicle, MAX_EXPORT_ROWS],
+        )
+        return toCsv(
+          [
+            'Data',
+            'Mezzo',
+            'Targa',
+            'Tipo',
+            'Descrizione',
+            'Officina',
+            'Km o ore',
+            'Spesa',
+            'Note',
+          ],
+          rows.map((r) => [
+            italianDate(r.performed_on),
+            r.vehicle_name,
+            r.plate,
+            KIND_NAMES[r.kind],
+            r.description,
+            r.supplier_name,
+            r.meter_reading,
+            r.amount_cents === null ? null : italianAmount(r.amount_cents),
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="manutenzioni.csv"')
+        .send(csv)
+    },
+  )
+
   const base = '/api/companies/:company/vehicles/:vehicle/maintenances'
 
   app.get<{ Params: Params; Querystring: Record<string, unknown> }>(base, async (request) => {
