@@ -33,6 +33,13 @@ export const onSite = (site: string) => `suppliers.subcontractor
     or exists (select 1 from public.purchase_orders o
                where o.site_id = ${site} and o.supplier_id = suppliers.id))`
 
+interface SupplierSiteRow {
+  id: string
+  code: string | null
+  name: string
+  status: string
+}
+
 interface Row {
   name: string
   vat_number: string | null
@@ -82,6 +89,37 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
             documents_expiring: r.documents_expiring,
             no_valid_durc: r.no_valid_durc,
           })),
+        }
+      })
+    },
+  )
+
+  // The other way round: the sites of a supplier (any, not only subcontractors).
+  app.get<{ Params: { company: string; supplier: string } }>(
+    '/api/companies/:company/suppliers/:supplier/sites',
+    async (request) => {
+      const session = requireSession(request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('suppliers.view')) throw notFound()
+        const id = request.params.supplier
+        if (!UUID.test(id)) throw notFound()
+        const found = await client.query('select 1 from public.suppliers where id = $1', [id])
+        if (found.rowCount === 0) throw notFound()
+        if (!permissions.has('sites.view')) throw forbidden()
+        const { rows } = await client.query<SupplierSiteRow>(
+          `select s.id, s.code, s.name, s.status
+           from public.sites s
+           where exists (select 1 from public.site_costs c
+                         where c.site_id = s.id and c.supplier_id = $1)
+              or exists (select 1 from public.purchase_orders o
+                         where o.site_id = s.id and o.supplier_id = $1)
+           order by array_position(array['active', 'planned', 'suspended', 'completed'],
+             s.status::text), lower(s.name), s.id`,
+          [id],
+        )
+        return {
+          data: rows.map((r) => ({ site_id: r.id, code: r.code, name: r.name, status: r.status })),
         }
       })
     },

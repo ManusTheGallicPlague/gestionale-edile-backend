@@ -1072,6 +1072,30 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/suppliers/{supplier}/sites:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SupplierId'
+    get:
+      operationId: listSupplierSites
+      summary: Cantieri di un fornitore
+      description: |
+        Permessi: suppliers.view e sites.view. Senza suppliers.view il fornitore è «non trovato»
+        (404), come nella scheda; senza sites.view 403. Per la scheda del fornitore o del
+        subappaltatore, al contrario di listSiteSubcontractors: i cantieri su cui il fornitore,
+        anche archiviato, ha un costo o un ordine, di qualunque stato, prima quelli in corso, poi
+        da iniziare, sospesi e chiusi, e a parità in ordine di nome. Nessun importo: i costi si
+        leggono con i loro permessi.
+      responses:
+        '200':
+          description: I cantieri del fornitore
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SupplierSiteList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/suppliers/{supplier}/documents:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -10448,6 +10472,21 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/SiteSubcontractor' }
+    SupplierSite:
+      type: object
+      required: [site_id, code, name, status]
+      properties:
+        site_id: { $ref: '#/components/schemas/Id' }
+        code: { type: [string, 'null'] }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/SiteStatus' }
+    SupplierSiteList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/SupplierSite' }
     SiteTeam:
       type: object
       required: [data]
