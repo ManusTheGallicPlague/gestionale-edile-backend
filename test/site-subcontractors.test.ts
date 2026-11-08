@@ -313,6 +313,111 @@ describe('sites by compliance of their subcontractors', () => {
   })
 })
 
+describe('subcontractors_expired in a site', () => {
+  it('marks the sites with a subcontractor with an expired document, only with suppliers.view', async () => {
+    const { browser, company, siteId, otherSiteId } = await scene([
+      'sites.view',
+      'sites.update',
+      'suppliers.view',
+    ])
+    const site = `/api/companies/${company.slug}/sites/${siteId}`
+    type Flag = { name: string; subcontractors_expired: boolean | null }
+    const before = await browser.call('GET', site)
+    expect(before.json<Flag>().subcontractors_expired).toBe(false)
+    const etag = before.headers.etag
+    const doc = (companyId: string, id: string, days: number) =>
+      ctx.owner.query(
+        `insert into public.supplier_documents (company_id, supplier_id, kind, issued_on, expires_on)
+         values ($1, $2, 'durc', date '2026-01-15', (now() at time zone 'Europe/Rome')::date + $3::int)`,
+        [companyId, id, days],
+      )
+    // Villetta: a subcontractor on an order with a DURC expired yesterday.
+    await doc(company.id, await supplier(company.id, 'Colombo', true, { order: siteId }), -1)
+    // Altro: a DURC expired but renewed, and a plain supplier with an expired one.
+    const renewed = await supplier(company.id, 'Esposito', true, { cost: otherSiteId })
+    await doc(company.id, renewed, -100)
+    await doc(company.id, renewed, 100)
+    await doc(company.id, await supplier(company.id, 'Cementi', false, { cost: otherSiteId }), -5)
+
+    const after = await browser.call('GET', site)
+    expect(after.statusCode).toBe(200)
+    expect(after.json<Flag>().subcontractors_expired).toBe(true)
+    expect(after.headers.etag).toBe(etag)
+    const list = await browser.call('GET', `/api/companies/${company.slug}/sites?sort=name`)
+    expect(
+      list.json<{ data: Flag[] }>().data.map((s) => [s.name, s.subcontractors_expired]),
+    ).toEqual([
+      ['Altro', false],
+      ['Villetta', true],
+    ])
+    const csv = await browser.call('GET', `/api/companies/${company.slug}/sites/export?sort=name`)
+    expect(csv.statusCode).toBe(200)
+    const rows = csv.body.trim().split('\r\n')
+    expect(rows[0]).toMatch(/;Subappaltatori con documenti scaduti$/)
+    expect(rows[1]).toMatch(/^;Altro;.*;No$/)
+    expect(rows[2]).toMatch(/^;Villetta;.*;Sì$/)
+    // Sent back in the body it is ignored, and stays computed.
+    const updated = await browser.call('PUT', site, {
+      body: {
+        code: null,
+        name: 'Villetta 2',
+        client_id: null,
+        address: null,
+        status: 'planned',
+        start_on: null,
+        end_on: null,
+        budget: null,
+        notes: null,
+        subcontractors_expired: false,
+      },
+      headers: { 'if-match': String(etag) },
+    })
+    expect(updated.statusCode).toBe(200)
+    expect(updated.json<Flag>().subcontractors_expired).toBe(true)
+
+    // Without suppliers.view it is null everywhere, and the CSV cell is empty.
+    const chief = await scene(['sites.view', 'sites.create', 'sites.update'])
+    await doc(
+      chief.company.id,
+      await supplier(chief.company.id, 'Loro', true, { cost: chief.siteId }),
+      -1,
+    )
+    const chiefBase = `/api/companies/${chief.company.slug}/sites`
+    const seen = await chief.browser.call('GET', `${chiefBase}/${chief.siteId}`)
+    expect(seen.json<Flag>().subcontractors_expired).toBeNull()
+    const chiefList = await chief.browser.call('GET', chiefBase)
+    expect(chiefList.json<{ data: Flag[] }>().data.map((s) => s.subcontractors_expired)).toEqual([
+      null,
+      null,
+    ])
+    const created = await chief.browser.call('POST', chiefBase, {
+      body: {
+        code: null,
+        name: 'Nuovo',
+        client_id: null,
+        address: null,
+        status: 'planned',
+        start_on: null,
+        end_on: null,
+        budget: null,
+        notes: null,
+      },
+    })
+    expect(created.statusCode).toBe(201)
+    expect(created.json<Flag>().subcontractors_expired).toBeNull()
+    const chiefCsv = await chief.browser.call('GET', `${chiefBase}/export?sort=name`)
+    expect(chiefCsv.body.trim().split('\r\n').slice(1)).toEqual([
+      expect.stringMatching(/;No;$/),
+      expect.stringMatching(/;No;$/),
+      expect.stringMatching(/;No;$/),
+    ])
+
+    // The other company now has an irregular subcontractor: our Altro stays false.
+    const theirs = await browser.call('GET', `/api/companies/${company.slug}/sites/${otherSiteId}`)
+    expect(theirs.json<Flag>().subcontractors_expired).toBe(false)
+  })
+})
+
 describe('active sites with irregular subcontractors in the dashboard', () => {
   it('counts active sites only, once each, with sites.view and suppliers.view', async () => {
     const { browser, company } = await scene()

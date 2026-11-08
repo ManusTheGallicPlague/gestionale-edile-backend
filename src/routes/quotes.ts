@@ -650,7 +650,7 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
         // A budget is never negative: a quote of deductions only leaves it empty.
         [quoteRow.subject, quoteRow.client_id, taxable < 0n ? null : taxable.toString(), id],
       )
-      return readSite(client, created[0]?.id ?? '')
+      return readSite(client, created[0]?.id ?? '', permissions)
     })
     if (!site) throw new Error('insert returned no row')
     return sendSite(reply, site, 201)

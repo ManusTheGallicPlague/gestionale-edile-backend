@@ -73,6 +73,8 @@ interface SiteRow extends SiteValues {
   quote_seq: number | null
   quote_revision: number | null
   team_documents_expired: boolean
+  /** Null when the user cannot see suppliers (see readSite). */
+  subcontractors_expired: boolean | null
   version: number
   created_at: Date
   updated_at: Date
@@ -84,7 +86,9 @@ const SELECT = `select s.id, s.code, s.name, s.client_id, s.address, s.status,
     s.start_on::text as start_on, s.end_on::text as end_on, s.budget_cents::text as budget_cents,
     s.notes, s.latitude::text as latitude, s.longitude::text as longitude, s.version, s.created_at, s.updated_at, c.name as client_name,
     s.quote_id, q.number_year as quote_year, q.number_seq as quote_seq, q.revision as quote_revision,
-    ${teamHas('s.id', EMPLOYEE_DOCUMENTS_SQL.expired)} as team_documents_expired
+    ${teamHas('s.id', EMPLOYEE_DOCUMENTS_SQL.expired)} as team_documents_expired,
+    exists (select 1 from public.suppliers
+      where ${onSite('s.id')} and ${COMPLIANCE_SQL.expired}) as subcontractors_expired
   from public.sites s
   left join public.clients c on c.id = s.client_id
   left join public.quotes q on q.id = s.quote_id`
@@ -124,6 +128,7 @@ function toContract(row: SiteRow) {
         }
       : null,
     team_documents_expired: row.team_documents_expired,
+    subcontractors_expired: row.subcontractors_expired,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -368,13 +373,18 @@ function listFilter(list: ReturnType<typeof readList>) {
   return { where, values }
 }
 
-export async function readSite(client: PoolClient, id: string) {
+/** subcontractors_expired says something about suppliers: only with suppliers.view. */
+function forPermissions(row: SiteRow, permissions: ReadonlySet<string>): SiteRow {
+  return permissions.has('suppliers.view') ? row : { ...row, subcontractors_expired: null }
+}
+
+export async function readSite(client: PoolClient, id: string, permissions: ReadonlySet<string>) {
   const { rows } = await client.query<SiteRow>(`${SELECT} where s.id = $1`, [id])
-  return rows[0]
+  return rows[0] && forPermissions(rows[0], permissions)
 }
 
 async function missingOrStale(client: PoolClient, id: string): Promise<never> {
-  if (!(await readSite(client, id))) throw notFound()
+  if (!(await readSite(client, id, new Set()))) throw notFound()
   throw new ApiError(412, messages.siteStale, 'stale_record')
 }
 
@@ -403,7 +413,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
         values.slice(0, filters),
       )
       return {
-        data: rows.map(toContract),
+        data: rows.map((r) => toContract(forPermissions(r, permissions))),
         meta: { total: count.rows[0]?.total ?? 0, page: list.page, per_page: list.perPage },
       }
     })
@@ -421,6 +431,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
         if (list.teamDocuments === 'expiring' && !permissions.has('employees.view')) {
           throw forbidden()
         }
+        const suppliers = permissions.has('suppliers.view')
         const { where, values } = listFilter(list)
         values.push(MAX_EXPORT_ROWS)
         const { rows } = await client.query<SiteRow>(
@@ -440,6 +451,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             'Budget',
             'Note',
             'Documenti squadra scaduti',
+            'Subappaltatori con documenti scaduti',
           ],
           rows.map((r) => [
             r.code,
@@ -452,6 +464,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             r.budget_cents && italianAmount(r.budget_cents),
             r.notes,
             r.team_documents_expired ? 'Sì' : 'No',
+            suppliers ? (r.subcontractors_expired ? 'Sì' : 'No') : null,
           ]),
         )
       })
@@ -469,7 +482,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       if (!permissions.has('sites.view')) throw notFound()
       const id = request.params.site ?? ''
       if (!UUID.test(id)) throw notFound()
-      return readSite(client, id)
+      return readSite(client, id, permissions)
     })
     if (!row) throw notFound()
     return sendSite(reply, row)
@@ -496,7 +509,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
           ],
         )
         .catch(writeFailed)
-      return readSite(client, rows[0]?.id ?? '')
+      return readSite(client, rows[0]?.id ?? '', permissions)
     })
     if (!row) throw new Error('insert returned no row')
     return sendSite(reply, row, 201)
@@ -531,7 +544,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
         )
         .catch(writeFailed)
       if (!rowCount) return missingOrStale(client, id)
-      return readSite(client, id)
+      return readSite(client, id, permissions)
     })
     if (!row) throw notFound()
     return sendSite(reply, row)

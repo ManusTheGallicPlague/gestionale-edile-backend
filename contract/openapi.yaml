@@ -1688,7 +1688,9 @@ paths:
       description: |
         Permesso: sites.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
         paginazione, nello stesso formato dell'esportazione dei clienti. Stato tradotto (Da iniziare, In corso, Sospeso, Chiuso), date come 30/11/2026, budget con la virgola decimale.
-        L'ultima colonna, «Documenti squadra scaduti», vale Sì o No come team_documents_expired.
+        La penultima colonna, «Documenti squadra scaduti», vale Sì o No come team_documents_expired;
+        l'ultima, «Subappaltatori con documenti scaduti», vale Sì o No come subcontractors_expired
+        ed è vuota senza suppliers.view.
         Il file si chiama cantieri.csv.
       parameters:
         - $ref: '#/components/parameters/Search'
@@ -10330,7 +10332,17 @@ components:
       allOf:
         - $ref: '#/components/schemas/SiteInput'
         - type: object
-          required: [id, client, location, quote, team_documents_expired, created_at, updated_at]
+          required:
+            [
+              id,
+              client,
+              location,
+              quote,
+              team_documents_expired,
+              subcontractors_expired,
+              created_at,
+              updated_at,
+            ]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             client:
@@ -10343,6 +10355,12 @@ components:
                 Vero se almeno un dipendente della squadra ha un documento scaduto, come
                 documents_expired di getSiteTeam e filter[team_documents]=expired. Calcolato:
                 non cambia l'ETag e si ignora se arriva nel corpo.
+            subcontractors_expired:
+              type: [boolean, 'null']
+              description: |
+                Vero se almeno un subappaltatore del cantiere ha un documento scaduto, come
+                listSiteSubcontractors e filter[subcontractor_compliance]=expired. Null senza
+                suppliers.view. Calcolato: non cambia l'ETag e si ignora se arriva nel corpo.
             quote:
               description: Il preventivo da cui è nato il cantiere (createSiteFromQuote), o null.
               oneOf:
