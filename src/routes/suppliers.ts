@@ -83,7 +83,7 @@ function duplicateErrors(error: { constraint?: string | undefined }): FieldError
   return null
 }
 
-const COMPLIANCE = ['expired', 'expiring', 'no_valid_durc'] as const
+export const COMPLIANCE = ['expired', 'expiring', 'no_valid_durc'] as const
 
 const TODAY = "(now() at time zone 'Europe/Rome')::date"
 

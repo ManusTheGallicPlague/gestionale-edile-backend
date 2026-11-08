@@ -1629,6 +1629,13 @@ paths:
                   true: cantieri attivi senza un rapportino (in qualunque stato) con la data di
                   oggi, gli stessi contati in reports.missing_today di getDashboard. false:
                   cantieri attivi che il rapportino di oggi ce l'hanno.
+              subcontractor_compliance:
+                type: string
+                enum: [expired, expiring, no_valid_durc]
+                description: |
+                  Cantieri con almeno un subappaltatore (con un costo o un ordine sul cantiere,
+                  anche archiviato) nella condizione indicata, come filter[compliance] dei
+                  fornitori e listSiteSubcontractors. Serve anche suppliers.view, altrimenti 403.
       responses:
         '200':
           description: Una pagina di cantieri
@@ -1697,6 +1704,13 @@ paths:
                   true: cantieri attivi senza un rapportino (in qualunque stato) con la data di
                   oggi, gli stessi contati in reports.missing_today di getDashboard. false:
                   cantieri attivi che il rapportino di oggi ce l'hanno.
+              subcontractor_compliance:
+                type: string
+                enum: [expired, expiring, no_valid_durc]
+                description: |
+                  Cantieri con almeno un subappaltatore (con un costo o un ordine sul cantiere,
+                  anche archiviato) nella condizione indicata, come filter[compliance] dei
+                  fornitori e listSiteSubcontractors. Serve anche suppliers.view, altrimenti 403.
       responses:
         '200':
           description: Il file CSV

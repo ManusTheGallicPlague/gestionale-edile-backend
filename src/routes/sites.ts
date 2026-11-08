@@ -18,6 +18,8 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { formatQuoteNumber } from '../quotes/number.js'
+import { onSite } from './site-subcontractors.js'
+import { COMPLIANCE, COMPLIANCE_SQL } from './suppliers.js'
 
 export const SITE_STATUSES = ['planned', 'active', 'suspended', 'completed'] as const
 type Status = (typeof SITE_STATUSES)[number]
@@ -296,8 +298,22 @@ function readList(query: Record<string, unknown>) {
     errors['filter[report_missing]'] = ['Indica true o false.']
   }
   const reportMissing = reportMissingValue === undefined ? undefined : reportMissingValue === 'true'
+  const complianceValue = single('filter[subcontractor_compliance]')
+  const subcontractorCompliance = COMPLIANCE.find((c) => c === complianceValue)
+  if (complianceValue !== undefined && !subcontractorCompliance) {
+    errors['filter[subcontractor_compliance]'] = ['Vale expired, expiring oppure no_valid_durc.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? '-updated_at', search, status, clientId, reportMissing }
+  return {
+    page,
+    perPage,
+    sort: sort ?? '-updated_at',
+    search,
+    status,
+    clientId,
+    reportMissing,
+    subcontractorCompliance,
+  }
 }
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
@@ -318,6 +334,13 @@ function listFilter(list: ReturnType<typeof readList>) {
       `s.status = 'active' and ${list.reportMissing ? 'not ' : ''}exists (
          select 1 from public.daily_reports r
          where r.site_id = s.id and r.report_date = (now() at time zone 'Europe/Rome')::date)`,
+    )
+  }
+  if (list.subcontractorCompliance) {
+    // Sites with at least one subcontractor in that state, as listSiteSubcontractors.
+    where.push(
+      `exists (select 1 from public.suppliers
+         where ${onSite('s.id')} and ${COMPLIANCE_SQL[list.subcontractorCompliance]})`,
     )
   }
   if (list.search) {
@@ -349,6 +372,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('sites.view')) throw forbidden()
+      if (list.subcontractorCompliance && !permissions.has('suppliers.view')) throw forbidden()
       const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
@@ -377,6 +401,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('sites.view')) throw forbidden()
+        if (list.subcontractorCompliance && !permissions.has('suppliers.view')) throw forbidden()
         const { where, values } = listFilter(list)
         values.push(MAX_EXPORT_ROWS)
         const { rows } = await client.query<SiteRow>(

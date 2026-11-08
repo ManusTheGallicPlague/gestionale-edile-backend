@@ -233,3 +233,82 @@ describe('subcontractors of a site', () => {
     ).toBe(401)
   })
 })
+
+describe('sites by compliance of their subcontractors', () => {
+  it('filters the list and the export, only with suppliers.view', async () => {
+    const { browser, company, siteId, otherSiteId } = await scene()
+    const sites = await ctx.owner.query<{ id: string }>(
+      "insert into public.sites (company_id, name) values ($1, 'Rinnovato') returning id",
+      [company.id],
+    )
+    const renewedSite = sites.rows[0]?.id ?? ''
+    // Villetta: a subcontractor (on an order) with an expired DURC; Altro: one expiring.
+    const late = await supplier(company.id, 'Colombo', true, { order: siteId })
+    const soon = await supplier(company.id, 'Damiani', true, { cost: otherSiteId })
+    const renewed = await supplier(company.id, 'Esposito', true, { cost: renewedSite })
+    // A plain supplier with an expired document does not make a site irregular.
+    const plain = await supplier(company.id, 'Cementi', false, { cost: renewedSite })
+    const doc = (id: string, kind: string, days: number) =>
+      ctx.owner.query(
+        `insert into public.supplier_documents (company_id, supplier_id, kind, issued_on, expires_on)
+         values ($1, $2, $3, date '2026-01-15', (now() at time zone 'Europe/Rome')::date + $4::int)`,
+        [company.id, id, kind, days],
+      )
+    await doc(late, 'durc', -1)
+    await doc(soon, 'durc', 90)
+    await doc(soon, 'insurance', 30)
+    await doc(renewed, 'durc', -100)
+    await doc(renewed, 'durc', 100)
+    await doc(plain, 'durc', -5)
+    // Another company's site with an irregular subcontractor stays out.
+    const theirs = await scene()
+    const loro = await supplier(theirs.company.id, 'Loro', true, { cost: theirs.siteId })
+    await ctx.owner.query(
+      `insert into public.supplier_documents (company_id, supplier_id, kind, issued_on, expires_on)
+       values ($1, $2, 'durc', date '2026-01-15', date '2026-01-16')`,
+      [theirs.company.id, loro],
+    )
+
+    const base = `/api/companies/${company.slug}/sites`
+    const names = async (value: string) => {
+      const res = await browser.call(
+        'GET',
+        `${base}?sort=name&filter[subcontractor_compliance]=${value}`,
+      )
+      expect(res.statusCode).toBe(200)
+      return res.json<{ data: { name: string }[] }>().data.map((s) => s.name)
+    }
+    expect(await names('expired')).toEqual(['Villetta'])
+    expect(await names('expiring')).toEqual(['Altro'])
+    expect(await names('no_valid_durc')).toEqual(['Villetta'])
+    const csv = await browser.call(
+      'GET',
+      `${base}/export?filter[subcontractor_compliance]=expiring`,
+    )
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body).toContain('Altro')
+    expect(csv.body).not.toContain('Villetta')
+
+    const bad = await browser.call('GET', `${base}?filter[subcontractor_compliance]=scaduto`)
+    expect(bad.statusCode).toBe(422)
+    expect(bad.json()).toMatchObject({
+      errors: { 'filter[subcontractor_compliance]': [expect.any(String)] },
+    })
+
+    const chief = await scene(['sites.view'])
+    const chiefBase = `/api/companies/${chief.company.slug}/sites`
+    expect(
+      (await chief.browser.call('GET', `${chiefBase}?filter[subcontractor_compliance]=expired`))
+        .statusCode,
+    ).toBe(403)
+    expect(
+      (
+        await chief.browser.call(
+          'GET',
+          `${chiefBase}/export?filter[subcontractor_compliance]=expired`,
+        )
+      ).statusCode,
+    ).toBe(403)
+    expect((await chief.browser.call('GET', chiefBase)).statusCode).toBe(200)
+  })
+})

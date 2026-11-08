@@ -23,11 +23,15 @@ interface SubcontractorRow {
   no_valid_durc: boolean
 }
 
-/** Subcontractors with a cost or an order on the site; the alias `suppliers` is for COMPLIANCE_SQL. */
-const ON_SITE = `suppliers.subcontractor
-  and (exists (select 1 from public.site_costs c where c.site_id = $1 and c.supplier_id = suppliers.id)
+/**
+ * Subcontractors with a cost or an order on the site `site` (a parameter or a column); the
+ * table keeps the name `suppliers`, without alias, for COMPLIANCE_SQL.
+ */
+export const onSite = (site: string) => `suppliers.subcontractor
+  and (exists (select 1 from public.site_costs c
+               where c.site_id = ${site} and c.supplier_id = suppliers.id)
     or exists (select 1 from public.purchase_orders o
-               where o.site_id = $1 and o.supplier_id = suppliers.id))`
+               where o.site_id = ${site} and o.supplier_id = suppliers.id))`
 
 interface Row {
   name: string
@@ -64,7 +68,7 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
              ${COMPLIANCE_SQL.expiring} as documents_expiring,
              ${COMPLIANCE_SQL.no_valid_durc} as no_valid_durc
            from public.suppliers
-           where ${ON_SITE}
+           where ${onSite('$1')}
            order by lower(name), id`,
           [id],
         )
