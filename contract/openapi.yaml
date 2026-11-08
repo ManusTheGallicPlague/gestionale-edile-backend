@@ -4726,10 +4726,11 @@ paths:
       - $ref: '#/components/parameters/EmployeeId'
     get:
       operationId: listLeaveCarryovers
-      summary: Ferie residue riportate dagli anni precedenti
+      summary: Ferie e permessi riportati dagli anni precedenti
       description: |
         Permesso: employees.view (senza, 404 come per la scheda). Per ogni anno, i giorni di
-        ferie non godute riportati dall'anno prima (come nella busta paga), dal più recente,
+        ferie e le ore di permesso non goduti riportati dall'anno prima (come nella busta
+        paga), dal più recente,
         senza paginazione.
       responses:
         '200':
@@ -4754,10 +4755,10 @@ paths:
           maximum: 2100
     put:
       operationId: setLeaveCarryover
-      summary: Ferie riportate dall'anno precedente
+      summary: Ferie e permessi riportati dall'anno precedente
       description: |
-        Permesso: employees.update. Imposta i giorni di ferie riportati nell'anno indicato
-        (crea il riporto se manca). Senza If-Match: il valore è assoluto. Un anno fuori
+        Permesso: employees.update. Imposta i giorni di ferie e le ore di permesso riportati
+        nell'anno indicato (crea il riporto se manca); un campo che manca resta com'era. Senza If-Match: il valore è assoluto. Un anno fuori
         dall'intervallo è 404, come un indirizzo che non esiste.
         Nel registro delle modifiche compare come modifica del dipendente (entity employee),
         con il campo leave_carryover e senza il valore; anche l'eliminazione.
@@ -8629,23 +8630,38 @@ components:
     LeaveCarryoverInput:
       type: object
       additionalProperties: false
-      required: [days]
+      minProperties: 1
+      description: |
+        Almeno uno dei due campi. Un campo che manca resta com'era (null se il riporto è
+        nuovo), null lo toglie; senza giorni e senza ore il riporto non resta (422: si elimina).
       properties:
         days:
-          type: integer
+          type: [integer, 'null']
           minimum: -366
           maximum: 366
           description: |
             Giorni lavorativi di ferie non godute riportati dall'anno prima; negativo se il
             dipendente ne ha anticipate.
+        permit_hours:
+          type: [string, 'null']
+          pattern: '^-?\d{1,4}(\.\d{1,2})?$'
+          examples: ['12.5', '-4']
+          description: |
+            Ore di permesso (permessi retribuiti, ROL, ex festività) non godute riportate
+            dall'anno prima, da -2000 a 2000 con il punto; negativo se ne ha anticipate.
     LeaveCarryover:
       type: object
-      required: [year, days, updated_at]
+      required: [year, days, permit_hours, updated_at]
       properties:
         year: { type: integer }
         days:
-          type: integer
-          description: Giorni riportati, come in LeaveCarryoverInput.
+          type: [integer, 'null']
+          description: Giorni riportati, come in LeaveCarryoverInput; null se non indicati.
+        permit_hours:
+          type: [string, 'null']
+          pattern: '^-?\d+\.\d{2}$'
+          examples: ['12.50']
+          description: Ore di permesso riportate, con due decimali; null se non indicate.
         updated_at:
           type: string
           format: date-time
@@ -8691,6 +8707,7 @@ components:
                 vacation_carried_over,
                 vacation_remaining,
                 permit_allowance,
+                permit_carried_over,
                 permit_remaining,
               ]
             properties:
@@ -8716,12 +8733,18 @@ components:
               permit_allowance:
                 type: [integer, 'null']
                 description: Ore di permesso spettanti nell'anno (annual_permit_hours), null se non indicate.
+              permit_carried_over:
+                type: [string, 'null']
+                pattern: '^-?\d+\.\d{2}$'
+                examples: ['12.50']
+                description: Ore di permesso riportate dall'anno prima (setLeaveCarryover), null se non indicate.
               permit_remaining:
                 type: [string, 'null']
                 pattern: '^-?\d+\.\d{2}$'
                 examples: ['80.50', '-4.00']
                 description: |
-                  Ore di permesso spettanti meno le ore dei permessi dell'anno; un permesso di
+                  Ore di permesso spettanti più quelle riportate dall'anno prima, meno le ore dei
+                  permessi dell'anno; un permesso di
                   tutto il giorno conta 8 ore per ogni giorno lavorativo. Negativo se ne ha
                   fatte di più, null senza ore spettanti.
               days: { type: integer }

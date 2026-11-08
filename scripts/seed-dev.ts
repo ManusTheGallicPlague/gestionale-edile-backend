@@ -564,11 +564,13 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          join public.employees e on e.company_id = $1 and e.last_name = a.last_name`,
         [companyId],
       )
-      // Vacation carried over from last year, as the payslip shows it.
+      // Vacation and leave hours carried over from last year, as the payslip shows them.
       await client.query(
-        `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
-         select $1, e.id, extract(year from current_date)::int, c.days
-         from (values ('Ferri', 4), ('Riva', -1)) as c (last_name, days)
+        `insert into public.employee_leave_carryovers
+           (company_id, employee_id, year, days, permit_hours)
+         select $1, e.id, extract(year from current_date)::int, c.days, c.hours::numeric
+         from (values ('Ferri', 4, '12.50'), ('Riva', -1, null), ('Galli', null, '6.00'))
+           as c (last_name, days, hours)
          join public.employees e on e.company_id = $1 and e.last_name = c.last_name`,
         [companyId],
       )

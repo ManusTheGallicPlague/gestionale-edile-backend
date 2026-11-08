@@ -20,6 +20,7 @@ interface Row {
   annual_leave_days: number | null
   annual_permit_hours: number | null
   carried_over_days: number | null
+  carried_over_permit_hours: string | null
   kind: AbsenceKind | null
   /** The absence clipped to the year. */
   starts_on: string | null
@@ -121,7 +122,8 @@ export async function readTotals(client: PoolClient, query: Record<string, unkno
        where ends_on >= $1::date and starts_on <= $2::date
      )
      select e.id, e.first_name, e.last_name, e.active, e.annual_leave_days, e.annual_permit_hours,
-       c.days::int as carried_over_days, a.kind,
+       c.days::int as carried_over_days,
+       c.permit_hours::numeric(10, 2)::text as carried_over_permit_hours, a.kind,
        a.starts_on::text as starts_on, a.ends_on::text as ends_on,
        (a.ends_on - a.starts_on + 1)::int as days, a.hours::numeric(10, 2)::text as hours
      from public.employees e
@@ -152,15 +154,17 @@ export async function readTotals(client: PoolClient, query: Record<string, unkno
       ? null
       : row.annual_leave_days + (row.carried_over_days ?? 0) - tally.vacation.workingDays
   /**
-   * Hours of leave left: the yearly allowance less the hours of the leaves by the hour and
-   * 8 hours for each working day of a whole-day leave.
+   * Hours of leave left: the yearly allowance plus the hours carried over from the year
+   * before, less the hours of the leaves by the hour and 8 hours for each working day of a
+   * whole-day leave.
    */
   const permitRemaining = ({ row, tally }: { row: Row; tally: Tally }) =>
     row.annual_permit_hours === null
       ? null
       : centsToAmount(
           (
-            BigInt(row.annual_permit_hours) * 100n -
+            BigInt(row.annual_permit_hours) * 100n +
+            BigInt((row.carried_over_permit_hours ?? '0.00').replace('.', '')) -
             tally.leave.hundredths -
             BigInt(tally.leave.workingDays) * HOURS_PER_DAY * 100n
           ).toString(),
@@ -195,6 +199,7 @@ export async function readTotals(client: PoolClient, query: Record<string, unkno
       vacation_carried_over: e.row.carried_over_days,
       vacation_remaining: remaining(e),
       permit_allowance: e.row.annual_permit_hours,
+      permit_carried_over: e.row.carried_over_permit_hours,
       permit_remaining: permitRemaining(e),
       ...present(e.tally),
     })),
@@ -226,6 +231,7 @@ function totalsCsv(totals: Totals): string {
       'Ferie anno precedente',
       'Ferie spettanti',
       'Ferie residue',
+      'Permessi anno precedente (ore)',
       'Permessi spettanti (ore)',
       'Permessi residui (ore)',
     ],
@@ -237,10 +243,11 @@ function totalsCsv(totals: Totals): string {
         e.vacation_carried_over,
         e.vacation_allowance,
         e.vacation_remaining,
+        e.permit_carried_over && italianQuantity(e.permit_carried_over),
         e.permit_allowance,
         e.permit_remaining && italianQuantity(e.permit_remaining),
       ]),
-      ['Totale', null, ...cells(totals.totals), null, null, null, null, null],
+      ['Totale', null, ...cells(totals.totals), null, null, null, null, null, null],
     ],
   )
 }

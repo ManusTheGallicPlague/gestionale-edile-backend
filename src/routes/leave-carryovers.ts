@@ -9,13 +9,23 @@ import { visibleEmployee } from './employee-absences.js'
 
 interface CarryoverRow {
   year: number
-  days: number
+  days: number | null
+  permit_hours: string | null
   updated_at: Date
+}
+
+/** The parts of a carry-over in a PUT: a missing one stays as it is, null removes it. */
+interface CarryoverInput {
+  days?: number | null
+  permit_hours?: string | null
 }
 
 type Params = { company: string; employee: string; year?: string }
 
-const COLUMNS = 'year::int as year, days::int as days, updated_at'
+const COLUMNS =
+  'year::int as year, days::int as days, permit_hours::numeric(10, 2)::text as permit_hours, updated_at'
+
+const PERMIT_HOURS = /^-?\d{1,4}(\.\d{1,2})?$/
 
 /** The year of the path: out of range, the address does not exist. */
 function pathYear(value: string | undefined): number {
@@ -24,22 +34,39 @@ function pathYear(value: string | undefined): number {
   return year
 }
 
-export function parseCarryoverInput(body: unknown): { days: number } | { errors: FieldErrors } {
+export function parseCarryoverInput(body: unknown): CarryoverInput | { errors: FieldErrors } {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) {
     return { errors: { _: ['Il corpo della richiesta deve essere un oggetto JSON.'] } }
   }
   const errors: FieldErrors = {}
   const raw = body as Record<string, unknown>
   for (const field of Object.keys(raw)) {
-    if (field !== 'days') errors[field] = ['Campo non previsto.']
+    if (field !== 'days' && field !== 'permit_hours') errors[field] = ['Campo non previsto.']
   }
-  const days = raw.days
-  if (!('days' in raw)) errors.days = ['Campo mancante.']
-  else if (typeof days !== 'number' || !Number.isInteger(days) || days < -366 || days > 366) {
-    errors.days = ['Un numero intero di giorni da -366 a 366.']
+  const input: CarryoverInput = {}
+  if ('days' in raw) {
+    const days = raw.days
+    if (
+      days !== null &&
+      (typeof days !== 'number' || !Number.isInteger(days) || days < -366 || days > 366)
+    ) {
+      errors.days = ['Un numero intero di giorni da -366 a 366, o null.']
+    } else input.days = days
+  }
+  if ('permit_hours' in raw) {
+    const hours = raw.permit_hours
+    if (
+      hours !== null &&
+      (typeof hours !== 'string' || !PERMIT_HOURS.test(hours) || Math.abs(Number(hours)) > 2000)
+    ) {
+      errors.permit_hours = ['Ore da -2000 a 2000, con il punto e al massimo due decimali, o null.']
+    } else input.permit_hours = hours
+  }
+  if (!('days' in raw) && !('permit_hours' in raw) && Object.keys(errors).length === 0) {
+    errors._ = ['Indica i giorni di ferie, le ore di permesso o entrambi.']
   }
   if (Object.keys(errors).length > 0) return { errors }
-  return { days: days as number }
+  return input
 }
 
 export function leaveCarryoverRoutes(app: FastifyInstance, config: Config, db: Db): void {
@@ -70,12 +97,29 @@ export function leaveCarryoverRoutes(app: FastifyInstance, config: Config, db: D
       const year = pathYear(request.params.year)
       const parsed = parseCarryoverInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
+      const current = await client.query<{ days: number | null; permit_hours: string | null }>(
+        `select days::int as days, permit_hours::text as permit_hours
+         from public.employee_leave_carryovers where employee_id = $1 and year = $2 for update`,
+        [employeeId, year],
+      )
+      const days = parsed.days === undefined ? (current.rows[0]?.days ?? null) : parsed.days
+      const hours =
+        parsed.permit_hours === undefined
+          ? (current.rows[0]?.permit_hours ?? null)
+          : parsed.permit_hours
+      if (days === null && hours === null) {
+        throw new ValidationFailed({
+          _: ['Senza giorni e senza ore il riporto non resta: per toglierlo si elimina.'],
+        })
+      }
       const { rows } = await client.query<CarryoverRow>(
-        `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
-         values (app.current_company_id(), $1, $2, $3)
-         on conflict (employee_id, year) do update set days = excluded.days, updated_at = now()
+        `insert into public.employee_leave_carryovers
+           (company_id, employee_id, year, days, permit_hours)
+         values (app.current_company_id(), $1, $2, $3, $4)
+         on conflict (employee_id, year) do update
+           set days = excluded.days, permit_hours = excluded.permit_hours, updated_at = now()
          returning ${COLUMNS}`,
-        [employeeId, year, parsed.days],
+        [employeeId, year, days, hours],
       )
       return rows[0]
     })

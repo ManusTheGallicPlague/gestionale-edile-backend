@@ -245,6 +245,10 @@ describe('audit log', () => {
     expect((await browser.call('PUT', base, { body: { days: 17 } })).statusCode).toBe(200)
     expect((await browser.call('PUT', base, { body: { days: 17 } })).statusCode).toBe(200)
     expect((await browser.call('PUT', base, { body: { days: 19 } })).statusCode).toBe(200)
+    // Leave hours too: a change counts, the same hours written differently do not.
+    const hours = (permit_hours: string) => browser.call('PUT', base, { body: { permit_hours } })
+    expect((await hours('12.5')).statusCode).toBe(200)
+    expect((await hours('12.50')).statusCode).toBe(200)
     expect((await browser.call('DELETE', base)).statusCode).toBe(204)
     // Another company with a carry-over: not in this log.
     const other = await fx.company()
@@ -268,9 +272,11 @@ describe('audit log', () => {
       [id, 'update', ['leave_carryover'], author],
       [id, 'update', ['leave_carryover'], author],
       [id, 'update', ['leave_carryover'], author],
+      [id, 'update', ['leave_carryover'], author],
       [id, 'create', [], null],
     ])
     expect(res.body).not.toContain('days')
+    expect(res.body).not.toContain('12.5')
 
     // Deleting the employee logs the delete, not also the carry-overs that go with it.
     await browser.call('PUT', base, { body: { days: 2 } })
@@ -278,6 +284,7 @@ describe('audit log', () => {
     const after = await browser.call('GET', log)
     expect(after.json<{ data: Entry[] }>().data.map((e) => e.action)).toEqual([
       'delete',
+      'update',
       'update',
       'update',
       'update',

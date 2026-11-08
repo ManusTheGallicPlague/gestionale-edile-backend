@@ -617,8 +617,9 @@ describe('the API role cannot cross companies', () => {
     ).rejects.toThrow(/foreign key/)
     const changed = await as(alice.id, companyA.id, async (c) => {
       const u = await c.query('update public.employee_leave_carryovers set days = 0')
+      const h = await c.query('update public.employee_leave_carryovers set permit_hours = 99')
       const d = await c.query('delete from public.employee_leave_carryovers')
-      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+      return (u.rowCount ?? 0) + (h.rowCount ?? 0) + (d.rowCount ?? 0)
     })
     expect(changed).toBe(0)
     await expect(auth.query('select * from public.employee_leave_carryovers')).rejects.toThrow(

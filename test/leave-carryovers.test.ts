@@ -26,7 +26,12 @@ async function scene(permissions: Permission[] = ALL) {
   return { browser, company, employee, base }
 }
 
-type Carryover = { year: number; days: number; updated_at: string }
+type Carryover = {
+  year: number
+  days: number | null
+  permit_hours: string | null
+  updated_at: string
+}
 
 describe('vacation carried over from the year before', () => {
   it('sets, replaces and deletes the carry-over of a year, newest first', async () => {
@@ -57,17 +62,29 @@ describe('vacation carried over from the year before', () => {
   it('refuses wrong days without changing anything, and a year out of range', async () => {
     const { browser, base } = await scene()
     await browser.call('PUT', `${base}/2026`, { body: { days: 3 } })
-    for (const body of [
-      {},
-      { days: 2.5 },
-      { days: '3' },
-      { days: null },
-      { days: 367 },
-      { days: -367 },
-    ]) {
+    for (const body of [{ days: 2.5 }, { days: '3' }, { days: 367 }, { days: -367 }]) {
       const res = await browser.call('PUT', `${base}/2026`, { body })
       expect(res.statusCode).toBe(422)
       expect(Object.keys(res.json<{ errors: object }>().errors)).toEqual(['days'])
+    }
+    for (const body of [
+      { permit_hours: 4 },
+      { permit_hours: '4,5' },
+      { permit_hours: '4.125' },
+      { permit_hours: '2000.01' },
+      { permit_hours: '-2000.5' },
+      { permit_hours: '' },
+      { days: 1, permit_hours: '1e3' },
+    ]) {
+      const res = await browser.call('PUT', `${base}/2026`, { body })
+      expect(res.statusCode).toBe(422)
+      expect(Object.keys(res.json<{ errors: object }>().errors)).toEqual(['permit_hours'])
+    }
+    // Nothing at all, or nothing left: the carry-over goes with DELETE.
+    for (const body of [{}, { days: null }, { days: null, permit_hours: null }]) {
+      const res = await browser.call('PUT', `${base}/2026`, { body })
+      expect(res.statusCode).toBe(422)
+      expect(Object.keys(res.json<{ errors: object }>().errors)).toEqual(['_'])
     }
     const extra = await browser.call('PUT', `${base}/2026`, { body: { days: 1, year: 2020 } })
     expect(extra.statusCode).toBe(422)
@@ -81,6 +98,39 @@ describe('vacation carried over from the year before', () => {
     const list = await browser.call('GET', base)
     expect(list.json<{ data: Carryover[] }>().data.map((c) => [c.year, c.days])).toEqual([
       [2026, 3],
+    ])
+  })
+
+  it('carries over leave hours next to the days, each kept when missing and removed with null', async () => {
+    const { browser, base } = await scene()
+    const hours = await browser.call('PUT', `${base}/2026`, { body: { permit_hours: '12.5' } })
+    expect(hours.statusCode).toBe(200)
+    expect(hours.json()).toMatchObject({ year: 2026, days: null, permit_hours: '12.50' })
+    // The days alone keep the hours, the hours alone keep the days.
+    const days = await browser.call('PUT', `${base}/2026`, { body: { days: 4 } })
+    expect(days.json()).toMatchObject({ days: 4, permit_hours: '12.50' })
+    const less = await browser.call('PUT', `${base}/2026`, { body: { permit_hours: '-3' } })
+    expect(less.json()).toMatchObject({ days: 4, permit_hours: '-3.00' })
+    const both = await browser.call('PUT', `${base}/2027`, {
+      body: { days: -1, permit_hours: '2000' },
+    })
+    expect(both.json()).toMatchObject({ days: -1, permit_hours: '2000.00' })
+    // Null removes one part; the other stays.
+    const noHours = await browser.call('PUT', `${base}/2026`, { body: { permit_hours: null } })
+    expect(noHours.json()).toMatchObject({ days: 4, permit_hours: null })
+    const swap = await browser.call('PUT', `${base}/2026`, {
+      body: { days: null, permit_hours: '0' },
+    })
+    expect(swap.json()).toMatchObject({ days: null, permit_hours: '0.00' })
+    // Removing the last part is refused and changes nothing.
+    const last = await browser.call('PUT', `${base}/2026`, { body: { permit_hours: null } })
+    expect(last.statusCode).toBe(422)
+    const list = await browser.call('GET', base)
+    expect(
+      list.json<{ data: Carryover[] }>().data.map((c) => [c.year, c.days, c.permit_hours]),
+    ).toEqual([
+      [2027, -1, '2000.00'],
+      [2026, null, '0.00'],
     ])
   })
 
