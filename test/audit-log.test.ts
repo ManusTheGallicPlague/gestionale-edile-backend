@@ -228,6 +228,64 @@ describe('audit log', () => {
     expect(JSON.stringify(data)).not.toContain('sick_leave')
   })
 
+  it('records the vacation carried over as a change of the employee, without the days', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'employees.view',
+      'employees.update',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const employee = await ctx.owner.query<{ id: string }>(
+      "insert into public.employees (company_id, first_name, last_name) values ($1, 'Mario', 'Operaio') returning id",
+      [company.id],
+    )
+    const id = employee.rows[0]?.id ?? ''
+    const base = `/api/companies/${company.slug}/employees/${id}/leave-carryovers/2026`
+    expect((await browser.call('PUT', base, { body: { days: 17 } })).statusCode).toBe(200)
+    expect((await browser.call('PUT', base, { body: { days: 17 } })).statusCode).toBe(200)
+    expect((await browser.call('PUT', base, { body: { days: 19 } })).statusCode).toBe(200)
+    expect((await browser.call('DELETE', base)).statusCode).toBe(204)
+    // Another company with a carry-over: not in this log.
+    const other = await fx.company()
+    const theirs = await ctx.owner.query<{ id: string }>(
+      "insert into public.employees (company_id, first_name, last_name) values ($1, 'Anna', 'Bianchi') returning id",
+      [other.id],
+    )
+    await ctx.owner.query(
+      `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
+       values ($1, $2, 2026, 3)`,
+      [other.id, theirs.rows[0]?.id],
+    )
+
+    const log = `/api/companies/${company.slug}/audit-log?filter[entity]=employee`
+    const author = { id: user.id, name: 'Utente di prova' }
+    const res = await browser.call('GET', log)
+    expect(res.statusCode).toBe(200)
+    // The same days again is not a change.
+    const entries = res.json<{ data: Entry[] }>().data
+    expect(entries.map((e) => [e.entity_id, e.action, e.fields, e.user])).toEqual([
+      [id, 'update', ['leave_carryover'], author],
+      [id, 'update', ['leave_carryover'], author],
+      [id, 'update', ['leave_carryover'], author],
+      [id, 'create', [], null],
+    ])
+    expect(res.body).not.toContain('days')
+
+    // Deleting the employee logs the delete, not also the carry-overs that go with it.
+    await browser.call('PUT', base, { body: { days: 2 } })
+    await ctx.owner.query('delete from public.employees where id = $1', [id])
+    const after = await browser.call('GET', log)
+    expect(after.json<{ data: Entry[] }>().data.map((e) => e.action)).toEqual([
+      'delete',
+      'update',
+      'update',
+      'update',
+      'update',
+      'create',
+    ])
+  })
+
   it('needs audit.view and shows only the company of the URL', async () => {
     const reader = await fx.companyWithUser(['estimates.view', 'estimates.create'])
     const browser = new Browser(ctx.app)

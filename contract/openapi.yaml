@@ -4758,6 +4758,8 @@ paths:
         Permesso: employees.update. Imposta i giorni di ferie riportati nell'anno indicato
         (crea il riporto se manca). Senza If-Match: il valore è assoluto. Un anno fuori
         dall'intervallo è 404, come un indirizzo che non esiste.
+        Nel registro delle modifiche compare come modifica del dipendente (entity employee),
+        con il campo leave_carryover e senza il valore; anche l'eliminazione.
       security:
         - session: []
           csrf: []
