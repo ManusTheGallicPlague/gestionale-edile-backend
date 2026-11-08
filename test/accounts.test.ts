@@ -259,6 +259,106 @@ describe('statement of account', () => {
     expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
   })
 
+  it('prints the open invoices of a supplier, archived too, to check the balance', async () => {
+    const s = await scene()
+    await ctx.owner.query(
+      `update public.suppliers set vat_number = '01234567897', street = 'Via Roma 5',
+         postal_code = '10121', city = 'Torino', province = 'TO', archived_at = now()
+       where id = $1`,
+      [s.supplier],
+    )
+    await ctx.owner.query(
+      `insert into public.company_profiles (company_id, legal_name, iban)
+       values ($1, 'Edilizia di prova Srl', 'IT60X0542811101000000123456')
+       on conflict (company_id) do update set iban = excluded.iban`,
+      [s.company.id],
+    )
+    const other = (
+      await ctx.owner.query<{ id: string }>(
+        "insert into public.suppliers (company_id, name) values ($1, 'Noli di prova') returning id",
+        [s.company.id],
+      )
+    ).rows[0]?.id
+    const received = { direction: 'received', client_id: null, supplier_id: s.supplier }
+    const url = `${s.base}/suppliers/${s.supplier}/account/pdf`
+    const empty = await s.browser.call('GET', url)
+    expect(empty.statusCode).toBe(200)
+    expect(empty.rawPayload.toString('latin1')).toContain('(Nessuna fattura da pagare.)')
+
+    await invoice(s, s.browser, { ...received, number: 'A-PAGATA', paid_on: '2026-01-20' })
+    await invoice(s, s.browser, { ...received, number: 'A-NUOVA', due_date: '2099-12-31' })
+    const late = await invoice(s, s.browser, {
+      ...received,
+      number: 'A-VECCHIA',
+      due_date: '2026-02-28',
+    })
+    const pay = await s.browser.call('POST', `${s.base}/invoices/${late.id}/payments`, {
+      body: { date: '2026-02-10', amount: '200.50', method: null, notes: null },
+      headers: { 'If-Match': '"1"' },
+    })
+    expect(pay.statusCode).toBe(200)
+    await invoice(s, s.browser, { ...received, number: 'A-ALTRO', supplier_id: other })
+    // An issued invoice is never in a supplier's statement.
+    await invoice(s, s.browser, { number: 'F-EMESSA' })
+
+    const res = await s.browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="estratto-conto.pdf"')
+    const text = res.rawPayload.toString('latin1')
+    expect(text.startsWith('%PDF-1.4\n')).toBe(true)
+    expect(text).toContain('(Estratto conto)')
+    expect(text).toContain('(Laterizi di prova)')
+    expect(text).toContain('(P. IVA 01234567897)')
+    expect(text).toContain('(10121 Torino \\(TO\\))')
+    expect(text.indexOf('(A-VECCHIA)')).toBeGreaterThan(0)
+    expect(text.indexOf('(A-VECCHIA)')).toBeLessThan(text.indexOf('(A-NUOVA)'))
+    expect(text).not.toContain('(A-PAGATA)')
+    expect(text).not.toContain('(A-ALTRO)')
+    expect(text).not.toContain('(F-EMESSA)')
+    expect(text).toContain('(28/02/2026 scaduta)')
+    expect(text).toContain('(Gi\xe0 pagato)')
+    expect(text).toContain('(Totale da pagare)')
+    expect(text).toContain('(\x80 2.239,50)')
+    expect(text).toContain('(\x80 1.019,50)')
+    expect(text).toContain(
+      '(Vi chiediamo di verificare il saldo e di segnalarci eventuali differenze.)',
+    )
+    // The company's IBAN is for clients who pay, not for a supplier.
+    expect(text).not.toContain('IT60X0542811101000000123456')
+    expect(text).not.toContain('incassare')
+
+    // Another company, a client's id, without invoices.view, without suppliers.view, signed out.
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', url)).statusCode).toBe(404)
+    expect(
+      (await theirs.browser.call('GET', `${theirs.base}/suppliers/${s.supplier}/account/pdf`))
+        .statusCode,
+    ).toBe(404)
+    expect(
+      (await s.browser.call('GET', `${s.base}/suppliers/${s.client}/account/pdf`)).statusCode,
+    ).toBe(404)
+    const noInvoices = await scene(['suppliers.view'])
+    expect(
+      (
+        await noInvoices.browser.call(
+          'GET',
+          `${noInvoices.base}/suppliers/${noInvoices.supplier}/account/pdf`,
+        )
+      ).statusCode,
+    ).toBe(403)
+    const noSuppliers = await scene(['invoices.view'])
+    expect(
+      (
+        await noSuppliers.browser.call(
+          'GET',
+          `${noSuppliers.base}/suppliers/${noSuppliers.supplier}/account/pdf`,
+        )
+      ).statusCode,
+    ).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
+  })
+
   it('lists the balance of each client, highest first, with totals of all pages', async () => {
     const s = await scene()
     const third = (

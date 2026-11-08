@@ -1072,6 +1072,38 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/suppliers/{supplier}/account/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SupplierId'
+    get:
+      operationId: getSupplierAccountPdf
+      summary: PDF dell'estratto conto di un fornitore, da mandare per la verifica del saldo
+      description: |
+        Permessi: suppliers.view e invoices.view, come getSupplierAccount. Come
+        getClientAccountPdf, con le fatture ricevute dal fornitore, anche archiviato: intestazione
+        dell'azienda, fornitore con indirizzo e partita IVA, data di oggi, le fatture ricevute non
+        ancora pagate dalla scadenza più vecchia (numero, data, scadenza, netto a pagare, già
+        pagato, residuo; «scaduta» accanto alla scadenza passata), totale da pagare e parte
+        scaduta, e la richiesta di segnalare eventuali differenze. Niente IBAN. Senza fatture
+        aperte esce la riga «Nessuna fattura da pagare.». Il file si chiama estratto-conto.pdf.
+      responses:
+        '200':
+          description: Il PDF
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/suppliers/{supplier}/sites:
     parameters:
       - $ref: '#/components/parameters/Company'

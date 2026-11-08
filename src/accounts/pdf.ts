@@ -3,6 +3,8 @@ import { A4, PdfDocument, textWidth, wrap, type TextStyle } from '../pdf/pdf.js'
 import { companyHeader, italianAmount, type QuotePdfData } from '../quotes/pdf.js'
 
 export interface AccountPdfData {
+  /** client: issued invoices, as a payment reminder; supplier: received ones, to check the balance. */
+  kind: 'client' | 'supplier'
   logo?: PdfImage | undefined
   company: QuotePdfData['company']
   client: QuotePdfData['client']
@@ -32,8 +34,9 @@ const COLUMNS = { date: 150, due: 215, amountDue: 400, settled: 475 }
 
 const italianDate = (date: string) => date.split('-').reverse().join('/')
 
-/** The open items of a client in A4, to send as a payment reminder. */
+/** The open items of a client (payment reminder) or a supplier (balance check) in A4. */
 export function accountPdf(data: AccountPdfData): Buffer {
+  const supplier = data.kind === 'supplier'
   const pdf = new PdfDocument()
   let y = 0
   const newPage = () => {
@@ -46,7 +49,7 @@ export function accountPdf(data: AccountPdfData): Buffer {
     pdf.text(COLUMNS.date, row, 'Data', BOLD)
     pdf.text(COLUMNS.due, row, 'Scadenza', BOLD)
     pdf.textRight(COLUMNS.amountDue, row, 'Netto a pagare', BOLD)
-    pdf.textRight(COLUMNS.settled, row, 'Già incassato', BOLD)
+    pdf.textRight(COLUMNS.settled, row, supplier ? 'Già pagato' : 'Già incassato', BOLD)
     pdf.textRight(RIGHT, row, 'Residuo', BOLD)
     pdf.line(MARGIN, row - 4, RIGHT, row - 4)
     y = row - 4 - LEADING
@@ -79,9 +82,14 @@ export function accountPdf(data: AccountPdfData): Buffer {
   y -= 6
 
   if (data.invoices.length === 0) {
-    paragraph('Nessuna fattura da incassare.', BODY)
+    paragraph(supplier ? 'Nessuna fattura da pagare.' : 'Nessuna fattura da incassare.', BODY)
   } else {
-    paragraph('Le fatture seguenti risultano ancora da saldare.', BODY)
+    paragraph(
+      supplier
+        ? 'Le vostre fatture seguenti risultano ancora da pagare.'
+        : 'Le fatture seguenti risultano ancora da saldare.',
+      BODY,
+    )
     y -= 4
     tableHeader()
     for (const inv of data.invoices) {
@@ -107,14 +115,21 @@ export function accountPdf(data: AccountPdfData): Buffer {
     if (y - (3 * LEADING + 20) < BOTTOM) newPage()
     pdf.line(MARGIN, y + 4, RIGHT, y + 4)
     y -= 8
-    pdf.textRight(RIGHT - 90, y, 'Totale da incassare', { size: 11, bold: true })
+    pdf.textRight(RIGHT - 90, y, supplier ? 'Totale da pagare' : 'Totale da incassare', {
+      size: 11,
+      bold: true,
+    })
     pdf.textRight(RIGHT, y, `€ ${italianAmount(data.outstanding)}`, { size: 11, bold: true })
     y -= LEADING + 2
     pdf.textRight(RIGHT - 90, y, 'di cui scaduto', BODY)
     pdf.textRight(RIGHT, y, `€ ${italianAmount(data.overdue)}`, BODY)
     y -= 2 * LEADING
-    if (data.company.iban) paragraph(`Per il pagamento: IBAN ${data.company.iban}`, BODY)
-    paragraph('Se il pagamento è già stato fatto, non tenete conto di questo avviso.', BODY)
+    if (supplier) {
+      paragraph('Vi chiediamo di verificare il saldo e di segnalarci eventuali differenze.', BODY)
+    } else {
+      if (data.company.iban) paragraph(`Per il pagamento: IBAN ${data.company.iban}`, BODY)
+      paragraph('Se il pagamento è già stato fatto, non tenete conto di questo avviso.', BODY)
+    }
   }
 
   for (let page = 0; page < pdf.pageCount; page++) {
