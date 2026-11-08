@@ -13,6 +13,7 @@ import { ACTIVITY_FOLLOW_UPS } from './site-activities.js'
 import { COMPLIANCE_SQL } from './suppliers.js'
 import { BELOW_MIN } from './warehouse.js'
 import { DOCUMENTS_SQL } from './vehicles.js'
+import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { readTotals } from './absence-totals.js'
 
 /**
@@ -362,6 +363,20 @@ async function vehicleCounts(client: PoolClient, today: string) {
   }
 }
 
+/** Active employees with documents to renew, as filter[documents] in the employee list. */
+async function employeeCounts(client: PoolClient) {
+  const { rows } = await client.query<{ expired: number; expiring: number }>(
+    `select count(*) filter (where ${EMPLOYEE_DOCUMENTS_SQL.expired})::int as expired,
+       count(*) filter (where ${EMPLOYEE_DOCUMENTS_SQL.expiring})::int as expiring
+     from public.employees e
+     where e.active`,
+  )
+  return {
+    documents_expired: rows[0]?.expired ?? 0,
+    documents_expiring: rows[0]?.expiring ?? 0,
+  }
+}
+
 /** Schedule activities to follow, as filter[follow_up] in the company activity list. */
 async function activityCounts(client: PoolClient) {
   const { rows } = await client.query<{ late: number; starting_soon: number }>(
@@ -422,6 +437,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         warehouse: can('warehouse.view') ? await warehouseCounts(client) : null,
         subcontractors: can('suppliers.view') ? await subcontractorCounts(client) : null,
         vehicles: can('vehicles.view') ? await vehicleCounts(client, today) : null,
+        employees: can('employees.view') ? await employeeCounts(client) : null,
         activities: can('sites.view') ? await activityCounts(client) : null,
         absences: can('employees.view') ? await absenceCounts(client, today) : null,
       }

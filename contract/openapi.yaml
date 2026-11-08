@@ -3487,7 +3487,7 @@ paths:
         sites con sites.view; over_budget con sites.view e costs.view; costs_this_month con
         costs.view; reports con reports.view; deadlines con deadlines.view; invoices con
         invoices.view; progress_statements con estimates.view; quotes con quotes.view; purchase_orders con
-        purchases.view; warehouse con warehouse.view; vehicles con vehicles.view. Le date sono quelle
+        purchases.view; warehouse con warehouse.view; vehicles con vehicles.view; employees con employees.view. Le date sono quelle
         di oggi in Italia. over_budget elenca, dal più sforato, al massimo 10 cantieri non chiusi
         con un budget e costi oltre il budget (manodopera e mezzi dai rapportini approvati, più
         i costi inseriti a mano, come in getSiteCostSummary). costs_this_month somma i costi del
@@ -4361,13 +4361,23 @@ paths:
             default: last_name
         - name: filter
           in: query
-          description: 'Filtri: filter[active]=true solo gli attivi, false solo i cessati; senza filtro tutti.'
+          description: |
+            Filtri: filter[active]=true solo gli attivi, false solo i cessati; senza filtro
+            tutti. filter[documents]=expired i dipendenti con un documento scaduto, expiring
+            quelli con un documento in scadenza.
           style: deepObject
           explode: true
           schema:
             type: object
             properties:
               active: { type: boolean }
+              documents:
+                type: string
+                description: |
+                  Documenti del dipendente (idoneità sanitaria, corsi...), contando per ogni tipo
+                  solo quello con la scadenza più lontana. expired: almeno uno scaduto. expiring:
+                  nessuno scaduto e almeno uno che scade entro 30 giorni (ora italiana).
+                enum: [expired, expiring]
       responses:
         '200':
           description: Una pagina di dipendenti
@@ -4481,6 +4491,13 @@ paths:
             type: object
             properties:
               active: { type: boolean }
+              documents:
+                type: string
+                description: |
+                  Documenti del dipendente (idoneità sanitaria, corsi...), contando per ogni tipo
+                  solo quello con la scadenza più lontana. expired: almeno uno scaduto. expiring:
+                  nessuno scaduto e almeno uno che scade entro 30 giorni (ora italiana).
+                enum: [expired, expiring]
       responses:
         '200':
           description: Il file CSV
@@ -11205,6 +11222,7 @@ components:
           warehouse,
           subcontractors,
           vehicles,
+          employees,
           activities,
           absences,
         ]
@@ -11372,6 +11390,24 @@ components:
                   description: |
                     Nessuna manutenzione passata, almeno una aperta entro 30 giorni (oggi
                     compreso).
+            - type: 'null'
+        employees:
+          oneOf:
+            - type: object
+              description: |
+                Dipendenti attivi con documenti da rinnovare (idoneità sanitaria, corsi,
+                patentini), con employees.view: gli stessi di filter[documents] con
+                filter[active]=true in listEmployees. Giorno italiano.
+              required: [documents_expired, documents_expiring]
+              properties:
+                documents_expired:
+                  type: integer
+                  minimum: 0
+                  description: Con almeno un documento scaduto.
+                documents_expiring:
+                  type: integer
+                  minimum: 0
+                  description: Nessuno scaduto, almeno uno in scadenza entro 30 giorni.
             - type: 'null'
         activities:
           oneOf:

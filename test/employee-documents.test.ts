@@ -312,4 +312,95 @@ describe('documents of an employee', () => {
     )
     expect(rows).toEqual([{ company_id: mine.company.id, title: 'Patentino – Bianchi Luca' }])
   })
+
+  it('filters the employees, their export and the dashboard by expired or expiring documents', async () => {
+    const { browser, company, employee: renewed } = await scene()
+    const add = async (lastName: string, docs: [string, number | null][], active = true) => {
+      const { rows } = await ctx.owner.query<{ id: string }>(
+        `insert into public.employees (company_id, first_name, last_name, active)
+         values ($1, 'Anna', $2, $3) returning id`,
+        [company.id, lastName, active],
+      )
+      for (const [kind, days] of docs) {
+        await ctx.owner.query(
+          `insert into public.employee_documents (company_id, employee_id, kind, expires_on)
+           values ($1, $2, $3, ${days === null ? 'null' : `$4::date`})`,
+          days === null
+            ? [company.id, rows[0]?.id, kind]
+            : [company.id, rows[0]?.id, kind, isoDay(days)],
+        )
+      }
+    }
+    // The first employee: an old fitness expired, but renewed far away. Not listed.
+    await ctx.owner.query(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on)
+       values ($1, $2, 'medical_check', $3), ($1, $2, 'medical_check', $4)`,
+      [company.id, renewed, isoDay(-30), isoDay(200)],
+    )
+    await add('Scaduta', [
+      ['safety_training', -1],
+      ['medical_check', 10],
+    ])
+    await add('In scadenza', [
+      ['medical_check', 30],
+      ['license', null],
+    ])
+    await add('Oggi', [['first_aid', 0]])
+    await add('Tranquilla', [
+      ['medical_check', 31],
+      ['license', null],
+    ])
+    await add('Cessata', [['medical_check', -3]], false)
+    // Another company with an expired document: never in this list.
+    const other = await scene()
+    await ctx.owner.query(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on)
+       values ($1, $2, 'fire_safety', $3)`,
+      [other.company.id, other.employee, isoDay(-5)],
+    )
+
+    const names = async (query: string) => {
+      const res = await browser.call('GET', `/api/companies/${company.slug}/employees?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<{ data: { last_name: string }[] }>().data.map((e) => e.last_name)
+    }
+    expect(await names('filter[documents]=expired')).toEqual(['Cessata', 'Scaduta'])
+    expect(await names('filter[documents]=expired&filter[active]=true')).toEqual(['Scaduta'])
+    expect(await names('filter[documents]=expiring')).toEqual(['In scadenza', 'Oggi'])
+
+    const csv = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/employees/export?filter[documents]=expiring`,
+    )
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body).toContain('In scadenza')
+    expect(csv.body).not.toContain('Scaduta')
+    expect(csv.body).not.toContain('Tranquilla')
+
+    const wrong = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/employees?filter[documents]=valid`,
+    )
+    expect(wrong.statusCode).toBe(422)
+    expect(Object.keys(wrong.json<{ errors: object }>().errors)).toEqual(['filter[documents]'])
+
+    const dashboard = `/api/companies/${company.slug}/dashboard`
+    const d = await browser.call('GET', dashboard)
+    expect(d.statusCode).toBe(200)
+    expect(d.json<{ employees: unknown }>().employees).toEqual({
+      documents_expired: 1,
+      documents_expiring: 2,
+    })
+    const blind = await fx.user()
+    await fx.member(
+      blind.id,
+      company.id,
+      await fx.role(company.id, 'Senza dipendenti', ['deadlines.view']),
+    )
+    const blindBrowser = new Browser(ctx.app)
+    await blindBrowser.signIn(blind.email)
+    const hidden = await blindBrowser.call('GET', dashboard)
+    expect(hidden.statusCode).toBe(200)
+    expect(hidden.json<{ employees: unknown }>().employees).toBeNull()
+  })
 })
