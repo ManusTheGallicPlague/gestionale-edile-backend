@@ -5324,6 +5324,110 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/employees/{employee}/documents:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      operationId: listEmployeeDocuments
+      summary: Documenti di un dipendente
+      description: |
+        Permesso: employees.view (senza, 404 come per la scheda). Idoneità sanitaria, attestati
+        dei corsi di sicurezza, primo soccorso, antincendio, patentini e gli altri documenti del
+        dipendente, senza paginazione (sono pochi), ordinati per scadenza: prima quelli che
+        scadono prima, in fondo quelli senza.
+      responses:
+        '200':
+          description: I documenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeDocumentList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createEmployeeDocument
+      summary: Nuovo documento del dipendente
+      description: |
+        Permesso: employees.update. Se il documento scade, il backend ne fa una scadenza del
+        dipendente (`employee_document_id` nella scadenza; tipo `medical_check` per l'idoneità
+        sanitaria, `training` per corsi e patentini, `other` per gli altri).
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeeDocumentInput' }
+      responses:
+        '201':
+          description: Documento registrato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/employees/{employee}/documents/{document}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+      - name: document
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    put:
+      operationId: updateEmployeeDocument
+      summary: Modifica di un documento del dipendente
+      description: |
+        Permesso: employees.update. Si inviano tutti i campi. If-Match come per i dipendenti.
+        Una scadenza nuova (un rinnovo) riapre la scadenza del dipendente; null la elimina.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmployeeDocumentInput' }
+      responses:
+        '200':
+          description: Documento aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteEmployeeDocument
+      summary: Eliminazione di un documento del dipendente
+      description: 'Permesso: employees.update. If-Match come per i dipendenti. Elimina anche la sua scadenza.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Documento eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/vehicles/{vehicle}/documents:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -9134,6 +9238,66 @@ components:
         vacation: ferie. sick_leave: malattia. leave: permesso. injury: infortunio.
         other: altra assenza (note obbligatorie).
       enum: [vacation, sick_leave, leave, injury, other]
+    EmployeeDocumentKind:
+      type: string
+      description: |
+        medical_check: giudizio di idoneità alla mansione del medico competente.
+        safety_training: attestato di formazione sulla sicurezza (lavoratori, preposti).
+        first_aid: addetto al primo soccorso. fire_safety: addetto antincendio. license:
+        patentino o abilitazione (gru, piattaforme, ponteggi, macchine movimento terra).
+        other: altro documento (descrizione obbligatoria).
+      enum: [medical_check, safety_training, first_aid, fire_safety, license, other]
+    EmployeeDocumentInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [kind, description, issued_on, expires_on, notes]
+      properties:
+        kind: { $ref: '#/components/schemas/EmployeeDocumentKind' }
+        description:
+          type: [string, 'null']
+          description: Obbligatoria se kind è other (es. nome del corso, ente).
+          maxLength: 200
+        issued_on:
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        expires_on:
+          description: |
+            Non prima di issued_on. Null se il documento non scade. Il backend ne fa una
+            scadenza del dipendente e la tiene allineata (una data nuova la riapre).
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    EmployeeDocument:
+      allOf:
+        - $ref: '#/components/schemas/EmployeeDocumentInput'
+        - type: object
+          required: [id, employee_id, status, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            employee_id: { $ref: '#/components/schemas/Id' }
+            status:
+              type: string
+              description: |
+                Calcolato dal backend sulla data di oggi (ora italiana). valid: valido.
+                expiring: scade entro 30 giorni. expired: scaduto. no_expiry: senza scadenza.
+              enum: [valid, expiring, expired, no_expiry]
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    EmployeeDocumentList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/EmployeeDocument' }
     VehicleDocumentKind:
       type: string
       description: |
@@ -9706,6 +9870,7 @@ components:
             - invoice_id
             - vehicle_maintenance_id
             - vehicle_document_id
+            - employee_document_id
             - client
             - supplier
             - site_id
@@ -9755,6 +9920,14 @@ components:
                 Documento del mezzo da cui nasce la scadenza (assicurazione, bollo...). Il backend
                 la tiene allineata alla scadenza del documento (una data nuova la riapre) e la
                 elimina con il documento: si modifica dal documento, non da qui.
+              oneOf:
+                - $ref: '#/components/schemas/Id'
+                - type: 'null'
+            employee_document_id:
+              description: |
+                Documento del dipendente da cui nasce la scadenza (idoneità sanitaria, corsi...).
+                Il backend la tiene allineata alla scadenza del documento (una data nuova la
+                riapre) e la elimina con il documento: si modifica dal documento, non da qui.
               oneOf:
                 - $ref: '#/components/schemas/Id'
                 - type: 'null'

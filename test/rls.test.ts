@@ -715,6 +715,64 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('employee documents: cannot read or write across companies', async () => {
+    const employee = async (companyId: string) =>
+      (
+        await owner.query<{ id: string }>(
+          "insert into public.employees (company_id, first_name, last_name) values ($1, 'D', 'E') returning id",
+          [companyId],
+        )
+      ).rows[0]?.id
+    const employeeB = await employee(companyB.id)
+    const { rows: docs } = await owner.query<{ id: string }>(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on)
+       values ($1, $2, 'medical_check', '2027-01-01') returning id`,
+      [companyB.id, employeeB],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.employee_documents where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.employee_documents (company_id, employee_id, kind)
+           values ($1, $2, 'first_aid')`,
+          [companyB.id, employeeB],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    // A document of my company cannot point at their employee.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.employee_documents (company_id, employee_id, kind)
+           values ($1, $2, 'first_aid')`,
+          [companyA.id, employeeB],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    // A deadline of my company cannot point at their document.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.deadlines (company_id, title, due_on, kind, employee_document_id)
+           values ($1, 'X', '2027-01-01', 'medical_check', $2)`,
+          [companyA.id, docs[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.employee_documents set notes = 'x'")
+      const d = await c.query('delete from public.employee_documents')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.employee_documents')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('vehicle document files: cannot read, write or hang a file across companies', async () => {
     const docs: Record<string, string> = {}
     for (const companyId of [companyA.id, companyB.id]) {

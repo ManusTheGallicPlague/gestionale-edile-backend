@@ -626,6 +626,35 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          ) as e (first_name, last_name, job_title, hired_on, cost, active, leave, permit)`,
         [companyId],
       )
+      // Documents of the employees: fitness for the job (one expiring soon), safety training
+      // and a crane licence without expiry; their deadlines as the API makes them.
+      await client.query(
+        `insert into public.employee_documents (company_id, employee_id, kind, description,
+           issued_on, expires_on)
+         select $1, e.id, d.kind, d.description, current_date - d.issued_ago,
+           current_date + d.expires_in
+         from (values
+           ('Ferri', 'medical_check', null, 340, 25),
+           ('Ferri', 'safety_training', null, 700, 1100),
+           ('Galli', 'medical_check', null, 100, 265),
+           ('Galli', 'license', 'Patentino gru su autocarro', 400, null)
+         ) as d (last_name, kind, description, issued_ago, expires_in)
+         join public.employees e on e.company_id = $1 and e.last_name = d.last_name`,
+        [companyId],
+      )
+      await client.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, employee_id,
+           employee_document_id)
+         select $1,
+           coalesce(d.description, case d.kind when 'medical_check' then 'Idoneità sanitaria'
+             else 'Formazione sicurezza' end) || ' – ' || e.last_name || ' ' || e.first_name,
+           d.expires_on, case d.kind when 'medical_check' then 'medical_check' else 'training' end,
+           d.employee_id, d.id
+         from public.employee_documents d
+         join public.employees e on e.id = d.employee_id
+         where d.company_id = $1 and d.expires_on is not null`,
+        [companyId],
+      )
       // Absences of the employees: a week of holiday, a sick day and two hours of leave.
       await client.query(
         `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on,
