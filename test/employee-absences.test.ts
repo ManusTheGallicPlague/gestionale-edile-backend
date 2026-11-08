@@ -47,6 +47,48 @@ type Absence = {
 }
 
 describe('employee absences', () => {
+  it('leaves the patron saint day of the company out of the working days', async () => {
+    const mine = await scene()
+    const theirs = await scene()
+    const patron = (company: string, day: string) =>
+      ctx.owner.query(
+        `insert into public.company_profiles (company_id, legal_name, patron_saint_day)
+         values ($1, 'Prova', $2)`,
+        [company, day],
+      )
+    await patron(mine.company.id, '06-29') // Monday 29/06/2026
+    // The week of the patron saint, and a week with 08/12 (a national holiday) twice.
+    const week = { starts_on: '2026-06-29', ends_on: '2026-07-03' }
+    const created = await mine.browser.call('POST', mine.base, { body: body(week) })
+    expect(created.json()).toMatchObject({ days: 5, working_days: 4 })
+    const other = await theirs.browser.call('POST', theirs.base, { body: body(week) })
+    expect(other.json()).toMatchObject({ days: 5, working_days: 5 })
+    await ctx.owner.query(
+      "update public.company_profiles set patron_saint_day = '12-08' where company_id = $1",
+      [mine.company.id],
+    )
+    const december = await mine.browser.call('POST', mine.base, {
+      body: body({ starts_on: '2026-12-07', ends_on: '2026-12-11' }),
+    })
+    expect(december.json()).toMatchObject({ working_days: 4 })
+    await ctx.owner.query(
+      "update public.company_profiles set patron_saint_day = '06-29' where company_id = $1",
+      [mine.company.id],
+    )
+    // The same count in the list, the CSV, the calendar and the totals of the year.
+    const list = await mine.browser.call('GET', mine.base)
+    expect(
+      list.json<{ data: { working_days: number }[] }>().data.map((a) => a.working_days),
+    ).toEqual([4, 4])
+    const company = `/api/companies/${mine.company.slug}/absences`
+    const csv = await mine.browser.call('GET', `${company}/export`)
+    expect(csv.body).toContain(';29/06/2026;03/07/2026;5;4;')
+    const ics = await mine.browser.call('GET', `${company}/calendar`)
+    expect(ics.body.replace(/\r\n /g, '')).toContain('Giorni: 5 (lavorativi 4)')
+    const totals = await mine.browser.call('GET', `${company}/totals?year=2026`)
+    expect(totals.json<{ totals: { working_days: number } }>().totals.working_days).toBe(8)
+  })
+
   it('records a period and a few hours of leave, newest first, with the days', async () => {
     const { browser, base, employee } = await scene()
     const holiday = await browser.call('POST', base, { body: body() })

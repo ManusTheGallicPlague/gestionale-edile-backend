@@ -456,11 +456,13 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       const vatBase = String(1_000_000_000 + company.seed * 123_456_789).slice(0, 10)
       await client.query(
         `insert into public.company_profiles (company_id, legal_name, vat_number, tax_code, rea,
-           share_capital_cents, street, postal_code, city, province, phone, email, pec, iban)
+           share_capital_cents, street, postal_code, city, province, phone, email, pec, iban,
+           patron_saint_day)
          values ($1, $2, $3, $3, $4, 1000000, 'Via dell''Industria 12', '10100', 'Torino', 'TO',
-           '011 000 0000', $5, null, 'IT60X0542811101000000123456')
+           '011 000 0000', $5, null, 'IT60X0542811101000000123456', '06-24')
          on conflict (company_id) do update set legal_name = excluded.legal_name,
-           vat_number = excluded.vat_number, tax_code = excluded.tax_code`,
+           vat_number = excluded.vat_number, tax_code = excluded.tax_code,
+           patron_saint_day = excluded.patron_saint_day`,
         [
           companyId,
           company.name,

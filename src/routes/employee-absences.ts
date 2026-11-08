@@ -56,6 +56,8 @@ interface AbsenceRow extends AbsenceInput {
   version: number
   created_at: Date
   updated_at: Date
+  /** Patron saint day of the company, for the working days. */
+  patron: string | null
 }
 
 const HOURS = /^\d{1,2}(\.\d{1,2})?$/
@@ -64,7 +66,8 @@ const HOURS = /^\d{1,2}(\.\d{1,2})?$/
 const columns = (t = '') => `${t}id, ${t}employee_id, ${t}kind,
   ${t}starts_on::text as starts_on, ${t}ends_on::text as ends_on, ${t}hours::text as hours,
   ${t}notes, (${t}ends_on - ${t}starts_on + 1)::int as days, ${t}version, ${t}created_at,
-  ${t}updated_at`
+  ${t}updated_at, (select patron_saint_day from public.company_profiles
+    where company_id = app.current_company_id()) as patron`
 const COLUMNS = columns()
 
 interface CompanyAbsenceRow extends AbsenceRow {
@@ -85,7 +88,7 @@ function toContract(row: AbsenceRow) {
     hours: row.hours,
     notes: row.notes,
     days: row.days,
-    working_days: row.hours === null ? workingDays(row.starts_on, row.ends_on) : null,
+    working_days: row.hours === null ? workingDays(row.starts_on, row.ends_on, row.patron) : null,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -310,7 +313,7 @@ function absenceDescription(r: CompanyAbsenceRow): string {
       ? `Il ${italianDate(r.starts_on)}`
       : `Dal ${italianDate(r.starts_on)} al ${italianDate(r.ends_on)}`,
     r.hours === null
-      ? `Giorni: ${r.days} (lavorativi ${workingDays(r.starts_on, r.ends_on)})`
+      ? `Giorni: ${r.days} (lavorativi ${workingDays(r.starts_on, r.ends_on, r.patron)})`
       : `Ore: ${italianQuantity(r.hours)}`,
   ]
   if (r.notes) lines.push('', r.notes)
@@ -380,7 +383,7 @@ export function employeeAbsenceRoutes(app: FastifyInstance, config: Config, db: 
             italianDate(r.starts_on),
             italianDate(r.ends_on),
             r.days,
-            r.hours === null ? workingDays(r.starts_on, r.ends_on) : null,
+            r.hours === null ? workingDays(r.starts_on, r.ends_on, r.patron) : null,
             r.hours === null ? null : italianQuantity(r.hours),
             r.notes,
           ]),

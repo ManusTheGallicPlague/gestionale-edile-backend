@@ -8626,7 +8626,7 @@ components:
                 Giorni lavorativi da starts_on a ends_on, estremi compresi: dal lunedì al venerdì,
                 senza le festività nazionali (1° e 6 gennaio, lunedì dell'Angelo, 25 aprile,
                 1° maggio, 2 giugno, 15 agosto, 1° novembre, 8, 25 e 26 dicembre). Il santo
-                patrono non si toglie. null per un'assenza a ore.
+                patrono si toglie se indicato nei dati dell'azienda (patron_saint_day). null per un'assenza a ore.
             created_at:
               type: string
               format: date-time
@@ -11638,11 +11638,19 @@ components:
           type: [string, 'null']
           description: Conto per i pagamenti, stampato nelle condizioni. Gli spazi si tolgono.
           maxLength: 42
+        patron_saint_day:
+          type: [string, 'null']
+          pattern: '^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$'
+          examples: ['06-29']
+          description: |
+            Giorno del santo patrono del comune dove l'azienda lavora, come MM-GG (mai 02-29).
+            Facoltativo: se manca resta com'era, null lo toglie. Si toglie dai giorni lavorativi
+            delle assenze (working_days) come le festività nazionali.
     CompanyProfile:
       allOf:
         - $ref: '#/components/schemas/CompanyProfileInput'
         - type: object
-          required: [updated_at]
+          required: [patron_saint_day, updated_at]
           properties:
             updated_at:
               type: [string, 'null']

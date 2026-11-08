@@ -87,6 +87,31 @@ describe('company profile', () => {
     expect((await browser.call('GET', url)).headers.etag).toBe('"2"')
   })
 
+  it('keeps the patron saint day when missing, removes it with null, refuses a wrong day', async () => {
+    const { browser, url, body } = await scene()
+    const put = (version: number, overrides: Record<string, unknown>) =>
+      browser.call('PUT', url, { body: body(overrides), headers: { 'if-match': `"${version}"` } })
+    expect((await browser.call('GET', url)).json()).toMatchObject({ patron_saint_day: null })
+    const first = await put(0, { patron_saint_day: '06-29' })
+    expect(first.statusCode).toBe(200)
+    expect(first.json()).toMatchObject({ patron_saint_day: '06-29' })
+    // The profile without the field: the day stays, the version goes on once.
+    const kept = await put(1, { city: 'Roma' })
+    expect(kept.headers.etag).toBe('"2"')
+    expect(kept.json()).toMatchObject({ city: 'Roma', patron_saint_day: '06-29' })
+    for (const day of ['02-29', '13-01', '6-29', '06-31', '00-10', 629, '']) {
+      const res = await put(2, { patron_saint_day: day })
+      expect(res.statusCode).toBe(422)
+      expect(Object.keys(res.json<{ errors: object }>().errors)).toEqual(['patron_saint_day'])
+    }
+    expect((await browser.call('GET', url)).json()).toMatchObject({ patron_saint_day: '06-29' })
+    const removed = await put(2, { patron_saint_day: null })
+    expect(removed.json()).toMatchObject({ patron_saint_day: null })
+    // A stale version changes nothing, the day included.
+    expect((await put(1, { patron_saint_day: '12-07' })).statusCode).toBe(412)
+    expect((await browser.call('GET', url)).json()).toMatchObject({ patron_saint_day: null })
+  })
+
   it.each([
     ['no legal name', { legal_name: '  ' }, 'legal_name'],
     ['a wrong partita IVA', { vat_number: '01234567890' }, 'vat_number'],

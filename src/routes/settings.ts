@@ -10,6 +10,7 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 import { PROFILE_FIELDS, parseProfile, type ProfileInput } from '../settings/input.js'
 
 export interface ProfileRow extends ProfileInput {
+  patron_saint_day: string | null
   version: number
   updated_at: Date | null
 }
@@ -20,6 +21,7 @@ export async function readProfile(client: PoolClient): Promise<ProfileRow> {
     `select coalesce(p.legal_name, c.name) as legal_name, p.vat_number, p.tax_code, p.rea,
        p.share_capital_cents::text as share_capital_cents, p.street, p.postal_code, p.city,
        p.province, coalesce(p.country, 'IT') as country, p.phone, p.email, p.pec, p.iban,
+       p.patron_saint_day,
        coalesce(p.version, 0) as version, p.updated_at
      from public.companies c
      left join public.company_profiles p on p.company_id = c.id
@@ -45,6 +47,7 @@ const toContract = (row: ProfileRow) => ({
   email: row.email,
   pec: row.pec,
   iban: row.iban,
+  patron_saint_day: row.patron_saint_day,
   updated_at: row.updated_at ? row.updated_at.toISOString() : null,
 })
 
@@ -98,6 +101,13 @@ export function settingsRoutes(app: FastifyInstance, config: Config, db: Db): vo
               [...values, version],
             )
       if (!rowCount) throw new ApiError(412, messages.settingsStale, 'stale_record')
+      if (parsed.patron !== undefined) {
+        await client.query(
+          `update public.company_profiles set patron_saint_day = $1
+           where company_id = app.current_company_id()`,
+          [parsed.patron],
+        )
+      }
       return readProfile(client)
     })
     return send(reply, row)

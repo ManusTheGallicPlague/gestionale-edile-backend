@@ -1,6 +1,7 @@
 import { amountToCents } from '../money.js'
 import { isValidCodiceFiscale, isValidPartitaIva, normalizeTaxId } from '../clients/tax-ids.js'
 import type { FieldErrors } from '../http/errors.js'
+import { isMonthDay } from '../holidays.js'
 
 export interface ProfileInput {
   legal_name: string
@@ -64,7 +65,10 @@ export function isValidIban(iban: string): boolean {
 }
 
 /** Every field must be present (null when empty), as for clients. */
-export function parseProfile(body: unknown): { input: ProfileInput } | { errors: FieldErrors } {
+/** The profile, and the patron saint day when sent (missing: it stays as it is). */
+export function parseProfile(
+  body: unknown,
+): { input: ProfileInput; patron?: string | null } | { errors: FieldErrors } {
   const errors: FieldErrors = {}
   const add = (field: string, message: string) => {
     ;(errors[field] ??= []).push(message)
@@ -152,5 +156,13 @@ export function parseProfile(body: unknown): { input: ProfileInput } | { errors:
     add('phone', 'Il telefono può contenere solo numeri, spazi e + ( ) . / -')
   }
   if (iban !== null && !errors.iban && !isValidIban(iban)) add('iban', 'IBAN non valido.')
-  return Object.keys(errors).length > 0 ? { errors } : { input }
+  let patron: string | null | undefined
+  if ('patron_saint_day' in raw) {
+    const value = raw.patron_saint_day
+    if (value === null) patron = null
+    else if (typeof value === 'string' && isMonthDay(value)) patron = value
+    else add('patron_saint_day', 'Un giorno come MM-GG, ad esempio 06-29, o null.')
+  }
+  if (Object.keys(errors).length > 0) return { errors }
+  return patron === undefined ? { input } : { input, patron }
 }

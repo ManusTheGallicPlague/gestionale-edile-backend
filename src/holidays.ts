@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg'
 /** Easter Sunday of a year (Gregorian calendar, anonymous algorithm), as month and day. */
 export function easter(year: number): { month: number; day: number } {
   const a = year % 19
@@ -61,18 +62,38 @@ function weekdays(start: number, end: number): number {
   return count
 }
 
+/** A day of the year as MM-DD, valid in every year (so never 02-29). */
+export const MONTH_DAY = /^(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/
+
+export function isMonthDay(value: string): boolean {
+  if (!MONTH_DAY.test(value)) return false
+  return new Date(`2001-${value}T00:00:00Z`).toISOString().slice(5, 10) === value
+}
+
+/** The patron saint day of the current company (company profile), MM-DD or null. */
+export async function patronSaintDay(client: PoolClient): Promise<string | null> {
+  const { rows } = await client.query<{ day: string | null }>(
+    `select patron_saint_day as day from public.company_profiles
+     where company_id = app.current_company_id()`,
+  )
+  return rows[0]?.day ?? null
+}
+
 /**
  * Working days from `from` to `to` (AAAA-MM-GG), both included: Monday to Friday, without the
- * national holidays. Zero if `to` is before `from`. Counts by weeks, so a long period costs
- * little: one pass on the holidays of each year.
+ * national holidays and the patron saint day (MM-DD) of the company, if given. Zero if `to`
+ * is before `from`. Counts by weeks, so a long period costs little: one pass on the holidays
+ * of each year.
  */
-export function workingDays(from: string, to: string): number {
+export function workingDays(from: string, to: string, patron: string | null = null): number {
   const start = Date.parse(`${from}T00:00:00Z`) / DAY
   const end = Date.parse(`${to}T00:00:00Z`) / DAY
   let count = weekdays(start, end)
   if (count === 0) return 0
   for (let year = Number(from.slice(0, 4)); year <= Number(to.slice(0, 4)); year++) {
-    for (const holiday of nationalHolidays(year)) {
+    const holidays = nationalHolidays(year)
+    const local = patron === null ? [] : [`${year}-${patron}`].filter((d) => !holidays.has(d))
+    for (const holiday of [...holidays, ...local]) {
       if (holiday < from || holiday > to) continue
       const weekday = new Date(`${holiday}T00:00:00Z`).getUTCDay()
       if (weekday !== 0 && weekday !== 6) count--

@@ -8,7 +8,7 @@ import { ValidationFailed, forbidden } from '../http/errors.js'
 import { requireSession } from '../http/request-context.js'
 import { toCsv } from '../csv.js'
 import { italianQuantity } from '../quotes/pdf.js'
-import { workingDays } from '../holidays.js'
+import { patronSaintDay, workingDays } from '../holidays.js'
 import { UUID } from '../deadlines/input.js'
 import { ABSENCE_KINDS, ABSENCE_NAMES, type AbsenceKind } from './employee-absences.js'
 
@@ -133,6 +133,7 @@ export async function readTotals(client: PoolClient, query: Record<string, unkno
      order by lower(e.last_name), lower(e.first_name), e.id`,
     [from, to, year, filters.employee],
   )
+  const patron = await patronSaintDay(client)
   const employees: { row: Row; tally: Tally }[] = []
   for (const row of rows) {
     let current = employees.at(-1)
@@ -144,7 +145,7 @@ export async function readTotals(client: PoolClient, query: Record<string, unkno
     const tally = current.tally[row.kind]
     if (row.hours === null) {
       tally.days += row.days ?? 0
-      tally.workingDays += workingDays(row.starts_on, row.ends_on)
+      tally.workingDays += workingDays(row.starts_on, row.ends_on, patron)
     } else {
       tally.hundredths += BigInt(row.hours.replace('.', ''))
     }
