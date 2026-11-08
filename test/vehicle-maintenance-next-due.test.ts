@@ -202,4 +202,64 @@ describe('next maintenance of a vehicle', () => {
     }>()
     expect(theirList.data).toHaveLength(1)
   })
+
+  it('counts the vehicles with a next maintenance past or near in the dashboard', async () => {
+    const { browser, company, vehicle } = await scene()
+    const day = (offset: number) => {
+      const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'Europe/Rome' }))
+      d.setDate(d.getDate() + offset)
+      const p = (n: number) => String(n).padStart(2, '0')
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`
+    }
+    const add = async (name: string, active = true) => {
+      const { rows } = await ctx.owner.query<{ id: string }>(
+        "insert into public.vehicles (company_id, name, kind, active) values ($1, $2, 'vehicle', $3) returning id",
+        [company.id, name, active],
+      )
+      return rows[0]?.id ?? ''
+    }
+    const plan = async (vehicleId: string, offset: number) => {
+      const res = await browser.call(
+        'POST',
+        `/api/companies/${company.slug}/vehicles/${vehicleId}/maintenances`,
+        { body: job({ performed_on: day(-200), next_due_on: day(offset) }) },
+      )
+      expect(res.statusCode).toBe(201)
+      return res.json<{ id: string }>().id
+    }
+    // The first vehicle: one overdue and one near, counted once as overdue.
+    await plan(vehicle, -1)
+    await plan(vehicle, 5)
+    await plan(await add('Furgone oggi'), 0)
+    await plan(await add('Autocarro a 30 giorni'), 30)
+    await plan(await add('Gru a 31 giorni'), 31)
+    await plan(await add('Betoniera ferma', false), -10)
+    // Overdue, but done: no longer counted.
+    const done = await add('Pala fatta')
+    await plan(done, -3)
+    const { rows } = await ctx.owner.query<{ id: string }>(
+      'select id from public.deadlines where vehicle_id = $1',
+      [done],
+    )
+    const completed = await browser.call(
+      'POST',
+      `/api/companies/${company.slug}/deadlines/${rows[0]?.id}/complete`,
+      { headers: { 'if-match': '"1"' } },
+    )
+    expect(completed.statusCode).toBe(200)
+    // Another company with an overdue maintenance: never counted here.
+    const other = await scene()
+    await other.browser.call('POST', other.base, {
+      body: job({ performed_on: day(-200), next_due_on: day(-2) }),
+    })
+
+    const d = await browser.call('GET', `/api/companies/${company.slug}/dashboard`)
+    expect(d.statusCode).toBe(200)
+    expect(d.json<{ vehicles: unknown }>().vehicles).toEqual({
+      documents_expired: 0,
+      documents_expiring: 0,
+      maintenance_overdue: 1,
+      maintenance_due_soon: 2,
+    })
+  })
 })

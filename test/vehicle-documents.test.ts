@@ -386,6 +386,8 @@ describe('documents of a vehicle', () => {
     expect(d.json<{ vehicles: unknown }>().vehicles).toEqual({
       documents_expired: 1,
       documents_expiring: 2,
+      maintenance_overdue: 0,
+      maintenance_due_soon: 0,
     })
     const blind = await fx.user()
     await fx.member(

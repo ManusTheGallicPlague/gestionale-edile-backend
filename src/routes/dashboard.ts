@@ -329,17 +329,36 @@ async function subcontractorCounts(client: PoolClient) {
   }
 }
 
-/** Active vehicles with documents to renew, as filter[documents] in the vehicle list. */
-async function vehicleCounts(client: PoolClient) {
-  const { rows } = await client.query<{ expired: number; expiring: number }>(
+/** The open deadlines of the next maintenances of the vehicle aliased `v`. */
+const MAINTENANCE_DUE = `select 1 from public.deadlines d
+  where d.vehicle_id = v.id and d.vehicle_maintenance_id is not null and d.status = 'open'`
+
+/**
+ * Active vehicles to check: documents to renew, as filter[documents] in the vehicle list, and
+ * next maintenances past or near.
+ */
+async function vehicleCounts(client: PoolClient, today: string) {
+  const { rows } = await client.query<{
+    expired: number
+    expiring: number
+    overdue: number
+    due_soon: number
+  }>(
     `select count(*) filter (where ${DOCUMENTS_SQL.expired})::int as expired,
-       count(*) filter (where ${DOCUMENTS_SQL.expiring})::int as expiring
+       count(*) filter (where ${DOCUMENTS_SQL.expiring})::int as expiring,
+       count(*) filter (where exists (${MAINTENANCE_DUE} and d.due_on < $1::date))::int
+         as overdue,
+       count(*) filter (where not exists (${MAINTENANCE_DUE} and d.due_on < $1::date)
+         and exists (${MAINTENANCE_DUE} and d.due_on <= $1::date + 30))::int as due_soon
      from public.vehicles v
      where v.active`,
+    [today],
   )
   return {
     documents_expired: rows[0]?.expired ?? 0,
     documents_expiring: rows[0]?.expiring ?? 0,
+    maintenance_overdue: rows[0]?.overdue ?? 0,
+    maintenance_due_soon: rows[0]?.due_soon ?? 0,
   }
 }
 
@@ -402,7 +421,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         purchase_orders: can('purchases.view') ? await purchaseOrderTotals(client) : null,
         warehouse: can('warehouse.view') ? await warehouseCounts(client) : null,
         subcontractors: can('suppliers.view') ? await subcontractorCounts(client) : null,
-        vehicles: can('vehicles.view') ? await vehicleCounts(client) : null,
+        vehicles: can('vehicles.view') ? await vehicleCounts(client, today) : null,
         activities: can('sites.view') ? await activityCounts(client) : null,
         absences: can('employees.view') ? await absenceCounts(client, today) : null,
       }

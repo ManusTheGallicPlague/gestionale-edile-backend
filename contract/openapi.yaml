@@ -11171,10 +11171,13 @@ components:
           oneOf:
             - type: object
               description: |
-                Mezzi attivi con documenti da rinnovare, con vehicles.view: gli stessi di
-                filter[documents] con filter[active]=true in listVehicles. Per ogni tipo di
-                documento conta solo la scadenza più lontana (giorno italiano).
-              required: [documents_expired, documents_expiring]
+                Mezzi attivi da controllare, con vehicles.view. Documenti da rinnovare: gli
+                stessi di filter[documents] con filter[active]=true in listVehicles, per ogni
+                tipo di documento conta solo la scadenza più lontana. Manutenzioni: le scadenze
+                aperte nate dalla prossima manutenzione (vehicle_maintenance_id); completarle
+                le toglie. Giorno italiano.
+              required:
+                [documents_expired, documents_expiring, maintenance_overdue, maintenance_due_soon]
               properties:
                 documents_expired:
                   type: integer
@@ -11184,6 +11187,18 @@ components:
                   type: integer
                   minimum: 0
                   description: Nessuno scaduto, almeno uno in scadenza entro 30 giorni.
+                maintenance_overdue:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Con la prossima manutenzione (next_due_on) già passata e la sua scadenza
+                    ancora aperta.
+                maintenance_due_soon:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Nessuna manutenzione passata, almeno una aperta entro 30 giorni (oggi
+                    compreso).
             - type: 'null'
         activities:
           oneOf:
