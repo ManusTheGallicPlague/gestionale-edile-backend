@@ -4960,6 +4960,40 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/absences/close-year:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    post:
+      operationId: closeAbsenceYear
+      summary: Chiusura dell'anno di ferie e permessi
+      description: |
+        Permesso: employees.update. Per ogni dipendente attivo con ferie o permessi spettanti,
+        le ferie residue e le ore di permesso residue dell'anno (come in getAbsenceTotals)
+        diventano il riporto dell'anno dopo (setLeaveCarryover), anche negative. Si scrive
+        solo la parte con le spettanze indicate: l'altra resta com'era. I dipendenti non
+        attivi e quelli senza spettanze non si toccano. Ripetuta, ricalcola gli stessi valori
+        (dopo una correzione delle assenze si rilancia). Se un residuo esce dall'intervallo
+        del riporto (giorni da -366 a 366, ore da -2000 a 2000) non si scrive nulla: 422 sotto
+        `_` con i dipendenti da sistemare. Nel registro delle modifiche come setLeaveCarryover.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AbsenceYearClosingInput' }
+      responses:
+        '200':
+          description: I riporti scritti nell'anno dopo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AbsenceYearClosing' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/absences/totals/export:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8672,6 +8706,46 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/LeaveCarryover' }
+    AbsenceYearClosingInput:
+      type: object
+      additionalProperties: false
+      required: [year]
+      properties:
+        year:
+          type: integer
+          minimum: 2000
+          maximum: 2099
+          description: Anno da chiudere; i riporti vanno nell'anno dopo.
+    AbsenceYearClosing:
+      type: object
+      required: [year, carried_into, data]
+      properties:
+        year: { type: integer }
+        carried_into:
+          type: integer
+          description: Anno dei riporti scritti, year + 1.
+        data:
+          type: array
+          description: Un elemento per dipendente toccato, per cognome e nome.
+          items:
+            type: object
+            required: [employee, days, permit_hours]
+            properties:
+              employee:
+                type: object
+                required: [id, first_name, last_name]
+                properties:
+                  id: { $ref: '#/components/schemas/Id' }
+                  first_name: { type: string }
+                  last_name: { type: string }
+              days:
+                type: [integer, 'null']
+                description: Giorni di ferie del riporto dopo la chiusura, come in LeaveCarryover.
+              permit_hours:
+                type: [string, 'null']
+                pattern: '^-?\d+\.\d{2}$'
+                examples: ['12.50']
+                description: Ore di permesso del riporto dopo la chiusura, come in LeaveCarryover.
     AbsenceTotalsKinds:
       type: array
       description: Tutti i tipi, nell'ordine di EmployeeAbsenceKind, anche a zero.
