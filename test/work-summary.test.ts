@@ -349,6 +349,54 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
     expect(employee.json<object>()).not.toHaveProperty('fuel')
   })
 
+  it('calcola il consumo medio da pieno a pieno: litri all’ora o ogni 100 km', async () => {
+    const s = await scene()
+    const fill = (vehicle: string, date: string, liters: string, meter: number | null) =>
+      ctx.owner.query(
+        `insert into public.vehicle_refuelings
+           (company_id, vehicle_id, refueled_on, liters, amount_cents, meter_reading)
+         values ($1, $2, $3, $4, 1000, $5)`,
+        [s.company.id, vehicle, date, liters, meter],
+      )
+    const fuel = async (id: string, query = '') =>
+      (await s.browser.call('GET', vehicleUrl(s.slug, id, query))).json<{
+        fuel: { meter_distance: number | null; consumption: string | null }
+      }>().fuel
+    // No readings, then just one: nothing to divide.
+    await fill(s.digger, '2026-10-01', '50', null)
+    expect(await fuel(s.digger)).toMatchObject({ meter_distance: null, consumption: null })
+    await fill(s.digger, '2026-10-02', '40', 1000)
+    expect(await fuel(s.digger)).toMatchObject({ meter_distance: null, consumption: null })
+    // Same reading twice: zero hours, no consumption.
+    await fill(s.digger, '2026-10-03', '10', 1000)
+    expect(await fuel(s.digger)).toMatchObject({ meter_distance: 0, consumption: null })
+    // A machine: the first fill only marks the start; 10 + 0.1 + 0.2 litres over 30 hours.
+    // Registered out of order: the reading decides, not the date.
+    await fill(s.digger, '2026-10-20', '0.2', 1030)
+    await fill(s.digger, '2026-10-10', '0.1', 1020)
+    expect(await fuel(s.digger)).toMatchObject({ meter_distance: 30, consumption: '0.34' })
+    // Only October 3 to 31: from 1000 to 1030, 0.3 litres over 30 hours.
+    expect(await fuel(s.digger, '?filter[from]=2026-10-03&filter[to]=2026-10-31')).toMatchObject({
+      meter_distance: 30,
+      consumption: '0.01',
+    })
+
+    // A road vehicle: litres per 100 km.
+    const [truck = ''] = (
+      await ctx.owner.query<{ id: string }>(
+        `insert into public.vehicles (company_id, name, kind) values ($1, 'Furgone', 'vehicle')
+         returning id`,
+        [s.company.id],
+      )
+    ).rows.map((r) => r.id)
+    await fill(truck, '2026-10-01', '60', 90000)
+    await fill(truck, '2026-10-15', '35.5', 90400)
+    await fill(truck, '2026-10-30', '34.5', 90800)
+    expect(await fuel(truck)).toMatchObject({ meter_distance: 800, consumption: '8.75' })
+    // The digger keeps its own.
+    expect(await fuel(s.digger)).toMatchObject({ meter_distance: 30, consumption: '0.34' })
+  })
+
   it('rifiuta filtri non validi con 422', async () => {
     const s = await scene()
     const res = await s.browser.call(

@@ -5278,7 +5278,8 @@ paths:
         maintenance: numero e spesa delle manutenzioni del mezzo nello stesso periodo (filter[status]
         non conta).
         fuel: numero di rifornimenti, litri e spesa del carburante nello stesso periodo
-        (filter[status] non conta).
+        (filter[status] non conta), con il consumo medio (litri ogni 100 km per gli automezzi,
+        litri all'ora per gli altri).
       parameters:
         - name: filter
           in: query
@@ -11675,8 +11676,9 @@ components:
               type: object
               description: |
                 Rifornimenti del periodo (refueled_on tra filter[from] e filter[to]): quanti
-                sono, i litri e la spesa senza IVA.
-              required: [count, liters, amount]
+                sono, i litri e la spesa senza IVA, con il consumo medio calcolato da pieno a
+                pieno sui rifornimenti del periodo con il contachilometri o contaore.
+              required: [count, liters, amount, meter_distance, consumption]
               properties:
                 count: { type: integer, minimum: 0 }
                 liters:
@@ -11684,6 +11686,23 @@ components:
                   pattern: '^\d+\.\d{2}$'
                   examples: ['1234.50']
                 amount: { $ref: '#/components/schemas/SignedAmount' }
+                meter_distance:
+                  description: |
+                    Chilometri (automezzi) o ore motore (macchine operatrici e attrezzature) fatti
+                    nel periodo: differenza tra il contachilometri più alto e il più basso dei
+                    rifornimenti del periodo che lo hanno. null se ce n'è meno di due.
+                  type: [integer, 'null']
+                  minimum: 0
+                consumption:
+                  description: |
+                    Consumo medio da pieno a pieno: litri dei rifornimenti con il contachilometri,
+                    tranne quello con il contachilometri più basso, divisi per meter_distance.
+                    Per gli automezzi in litri ogni 100 km, per macchine operatrici e attrezzature
+                    in litri all'ora, con due decimali e il punto. null se meter_distance è null
+                    o zero.
+                  type: [string, 'null']
+                  pattern: '^\d+\.\d{2}$'
+                  examples: ['8.75']
             maintenance:
               type: object
               description: |

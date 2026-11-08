@@ -356,6 +356,11 @@ Aggiunta l'08/11/2026, con il piano tutto spuntato: come per l'ultima manutenzio
 - [x] `last_refueling` nel mezzo (schema `Vehicle`, in elenco, scheda, creazione e modifica; schema `VehicleLastRefueling`): data, litri e contachilometri del rifornimento più recente, null se non ce ne sono; solo lettura, nessuna migrazione
 - [x] Ultimo rifornimento nell'esportazione dei mezzi (`exportVehicles`): colonne «Ultimo rifornimento», «Litri» e «Contachilometri o contaore al rifornimento» in fondo; l'importazione le ignora
 
+### 47. Consumo medio dei mezzi
+Aggiunta l'08/11/2026, con il piano tutto spuntato: con litri e contachilometri registrati a ogni pieno, il titolare vuole sapere quanto consuma un furgone (litri ogni 100 km) o un escavatore (litri all'ora), per accorgersi di un mezzo che consuma troppo.
+
+- [x] Consumo medio nel riepilogo del mezzo (`meter_distance` e `consumption` in `fuel` di `getVehicleWorkSummary`): da pieno a pieno sui rifornimenti del periodo con il contachilometri, ordinati per lettura; litri ogni 100 km per gli automezzi, litri all'ora per gli altri; calcolato nel database in `numeric`, null se mancano almeno due letture diverse; nessuna migrazione
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -540,6 +545,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 08/11/2026: la prossima manutenzione è una data sola (`next_due_on`), non anche i chilometri o le ore del prossimo tagliando: lo scadenziario lavora per date. Se manca nel corpo resta com'era nella modifica (alla creazione vale null), come gli altri campi aggiunti dopo. Titolo della scadenza dal tipo del lavoro e dal nome del mezzo («Prossimo tagliando – Escavatore», «Prossima revisione – …», «Cambio gomme – …», «Controllo dopo la riparazione – …»), fissato quando si scrive la manutenzione: rinominare il mezzo non lo cambia. La scadenza ha `vehicle_id`, quindi un mezzo con la prossima manutenzione in calendario non si elimina (409 `has_documents`) finché non si toglie la data, come per le altre scadenze del mezzo. La scadenza nasce anche se chi scrive non ha i permessi delle scadenze, come quelle dei documenti dei fornitori e delle fatture.
 - 08/11/2026: rifornimenti dei mezzi come tabella a parte (`vehicle_refuelings`), non come tipo di manutenzione: litri e spesa sono sempre presenti e servono per i totali e i consumi. Litri da 0.01 a 999999.99 con due decimali (`numeric(8,2)`, stringa nel contratto come gli importi), spesa obbligatoria in centesimi senza IVA, niente tipo di carburante né prezzo al litro (si ricava). Distributore facoltativo tra i fornitori, che con rifornimenti non si elimina (409). Nessun permesso nuovo: come le manutenzioni, `vehicles.view` e `vehicles.update`.
 - 08/11/2026: l'ultimo rifornimento del mezzo segue la regola dell'ultima manutenzione (data più recente, a parità l'ultimo registrato), calcolato a ogni lettura e fuori dall'`ETag`; nel CSV dei mezzi la colonna del contachilometri si chiama «Contachilometri o contaore al rifornimento» per non confondersi con quella della manutenzione.
+- 08/11/2026: consumo medio da pieno a pieno: i rifornimenti del periodo con il contachilometri si ordinano per lettura (non per data, così un pieno registrato in ritardo non sballa il conto), il primo segna solo la partenza e i litri degli altri si dividono per la differenza tra la lettura più alta e la più bassa. L'unità dipende dal tipo di mezzo (automezzo: litri ogni 100 km; macchina operatrice e attrezzatura: litri all'ora), senza un campo per l'unità: il tipo è già nella scheda. Arrotondato a due decimali.
 
 ## Registro dei giri
 

@@ -302,10 +302,39 @@ async function readFuel(client: PoolClient, id: string, query: Record<string, un
        and ($2::date is null or refueled_on >= $2) and ($3::date is null or refueled_on <= $3)`,
     [id, from ?? null, to ?? null],
   )
+  // Full to full: the refueling with the lowest reading only marks the start; the litres of
+  // the others were burnt over the distance. Per 100 km for road vehicles, per hour otherwise.
+  const { rows: meter } = await client.query<{
+    distance: number | null
+    consumption: string | null
+  }>(
+    `with r as (
+       select liters, meter_reading,
+         row_number() over (order by meter_reading, refueled_on, created_at, id) as n
+       from public.vehicle_refuelings
+       where vehicle_id = $1 and meter_reading is not null
+         and ($2::date is null or refueled_on >= $2) and ($3::date is null or refueled_on <= $3)
+     ), t as (
+       select case when count(*) >= 2 then max(meter_reading) - min(meter_reading) end
+           as distance,
+         coalesce(sum(liters) filter (where n > 1), 0) as burnt
+       from r
+     )
+     select t.distance,
+       case when t.distance > 0 then
+         (t.burnt * case when v.kind = 'vehicle' then 100 else 1 end / t.distance)
+           ::numeric(20, 2)::text
+       end as consumption
+     from t, public.vehicles v
+     where v.id = $1`,
+    [id, from ?? null, to ?? null],
+  )
   return {
     count: rows[0]?.count ?? 0,
     liters: rows[0]?.liters ?? '0.00',
     amount: centsToAmount(rows[0]?.cents ?? '0'),
+    meter_distance: meter[0]?.distance ?? null,
+    consumption: meter[0]?.consumption ?? null,
   }
 }
 
