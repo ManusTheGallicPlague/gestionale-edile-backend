@@ -1926,7 +1926,9 @@ paths:
         Senza un rapportino precedente la proposta è quella della squadra. Chi è assente tutto
         il giorno (ferie, malattia…, un'assenza senza ore) resta fuori dalla proposta e tra i
         dipendenti da scegliere ha `away`; il tipo dell'assenza e le ore di un permesso solo
-        con employees.view.
+        con employees.view. Tra i dipendenti e i mezzi da scegliere `documents_expired` dice
+        chi ha un documento scaduto in quel giorno (idoneità, corso, assicurazione, bollo…),
+        senza dire quale: è un avviso, le ore si possono segnare lo stesso.
       parameters:
         - name: site
           in: query
@@ -10452,13 +10454,19 @@ components:
             tutto il giorno).
           items:
             type: object
-            required: [id, first_name, last_name, in_team, away, absence, absence_hours]
+            required:
+              [id, first_name, last_name, in_team, away, absence, absence_hours, documents_expired]
             properties:
               id: { $ref: '#/components/schemas/Id' }
               first_name: { type: string }
               last_name: { type: string }
               in_team: { type: boolean }
               away: { type: boolean }
+              documents_expired:
+                type: boolean
+                description: |
+                  Vero se in quel giorno è scaduto l'ultimo documento di almeno un tipo (come
+                  filter[documents]=expired di listEmployees, ma alla data del rapportino).
               absence:
                 oneOf:
                   - $ref: '#/components/schemas/EmployeeAbsenceKind'
@@ -10472,11 +10480,17 @@ components:
           description: Mezzi attivi, per nome.
           items:
             type: object
-            required: [id, name, plate]
+            required: [id, name, plate, documents_expired]
             properties:
               id: { $ref: '#/components/schemas/Id' }
               name: { type: string }
               plate: { type: [string, 'null'] }
+              documents_expired:
+                type: boolean
+                description: |
+                  Vero se in quel giorno è scaduto l'ultimo documento di almeno un tipo
+                  (assicurazione, bollo, taratura…), come filter[documents]=expired di
+                  listVehicles ma alla data del rapportino.
     DailyReportList:
       type: object
       required: [data, meta]

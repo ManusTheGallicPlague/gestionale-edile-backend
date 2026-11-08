@@ -22,6 +22,8 @@ import { italianQuantity } from '../quotes/pdf.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
 import { ABSENCE_CODES, type AbsenceKind } from './employee-absences.js'
+import { employeeDocumentsExpiredOn } from './employees.js'
+import { vehicleDocumentsExpiredOn } from './vehicles.js'
 
 export const REPORT_STATUSES = ['draft', 'submitted', 'approved'] as const
 type Status = (typeof REPORT_STATUSES)[number]
@@ -1009,6 +1011,7 @@ interface OptionRow {
   in_team?: boolean
   absence?: AbsenceKind | null
   absence_hours?: string | null
+  documents_expired?: boolean
 }
 
 /** Hours proposed for each team member in a new report: a standard working day. */
@@ -1055,7 +1058,8 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
           `select e.id, e.first_name, e.last_name,
              exists (select 1 from public.site_team t
                      where t.site_id = $1 and t.employee_id = e.id) as in_team,
-             a.kind as absence, a.hours::text as absence_hours
+             a.kind as absence, a.hours::text as absence_hours,
+             ${employeeDocumentsExpiredOn('$2::date')} as documents_expired
            from public.employees e
            left join lateral (
              select x.kind, x.hours from public.employee_absences x
@@ -1073,8 +1077,11 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
           employees.rows.filter((e) => e.absence && e.absence_hours === null).map((e) => e.id),
         )
         const vehicles = await client.query<OptionRow>(
-          `select id, name, plate from public.vehicles where active
-           order by lower(name), id`,
+          `select v.id, v.name, v.plate,
+             ${vehicleDocumentsExpiredOn('$1::date')} as documents_expired
+           from public.vehicles v where v.active
+           order by lower(v.name), v.id`,
+          [date],
         )
         let labor = employees.rows
           .filter((e) => e.in_team && !away.has(e.id))
@@ -1142,11 +1149,13 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
             away: away.has(e.id),
             absence: seesAbsences ? (e.absence ?? null) : null,
             absence_hours: seesAbsences && e.absence ? (e.absence_hours ?? null) : null,
+            documents_expired: e.documents_expired ?? false,
           })),
           vehicles: vehicles.rows.map((v) => ({
             id: v.id,
             name: v.name ?? '',
             plate: v.plate ?? null,
+            documents_expired: v.documents_expired ?? false,
           })),
         }
       })

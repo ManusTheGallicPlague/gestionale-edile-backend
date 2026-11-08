@@ -227,6 +227,14 @@ const LATEST_EXPIRIES = `
   select max(d.expires_on) as expires_on from public.employee_documents d
   where d.employee_id = e.id and d.expires_on is not null group by d.kind`
 
+/**
+ * True if an employee aliased `e` has, on the given day (a SQL date expression), the latest
+ * document of some kind already expired: the `expired` condition at another date.
+ */
+export function employeeDocumentsExpiredOn(day: string): string {
+  return `exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${day})`
+}
+
 /** Conditions on an employee aliased `e`, also counted in the dashboard. */
 export const EMPLOYEE_DOCUMENTS_SQL: Record<(typeof DOCUMENT_FILTERS)[number], string> = {
   expired: `exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${TODAY})`,

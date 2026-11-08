@@ -812,3 +812,78 @@ describe('daily reports and absences', () => {
     expect(back.employees.every((e) => !e.away && e.absence === null)).toBe(true)
   })
 })
+
+describe('daily report of the day and expired documents', () => {
+  it('tells who has an expired document on that day, not which one, and does not block', async () => {
+    const s = await scene()
+    // Verdi: medical check expired on 2026-11-09. Bassi: an old course expired, the refresher
+    // is on file, and first aid expires on 2026-11-10 (still valid that day).
+    await ctx.owner.query(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on, notes)
+       values ($1, $2, 'medical_check', '2026-11-09', 'n. 81'),
+              ($1, $3, 'safety_training', '2026-10-01', null),
+              ($1, $3, 'safety_training', '2027-10-01', null),
+              ($1, $3, 'first_aid', '2026-11-10', null)`,
+      [s.company.id, s.verdi, s.bassi],
+    )
+    await ctx.owner.query(
+      `insert into public.vehicle_documents (company_id, vehicle_id, kind, expires_on, notes)
+       values ($1, $2, 'insurance', '2026-11-09', 'polizza 7')`,
+      [s.company.id, s.digger],
+    )
+    type Today = {
+      employees: { id: string; documents_expired: boolean }[]
+      vehicles: { id: string; documents_expired: boolean }[]
+    }
+    const flags = (t: Today) => ({
+      employees: Object.fromEntries(t.employees.map((e) => [e.id, e.documents_expired])),
+      vehicles: Object.fromEntries(t.vehicles.map((v) => [v.id, v.documents_expired])),
+    })
+
+    // A capo cantiere with only reports.view sees the warning, not the document.
+    const chief = new Browser(ctx.app)
+    const role = await fx.role(s.company.id, 'Capo cantiere', ['reports.view', 'reports.create'])
+    const person = await fx.user()
+    await fx.member(person.id, s.company.id, role)
+    await chief.signIn(person.email)
+    const on = async (date: string) => {
+      const res = await chief.call('GET', `${s.base}/today?site=${s.site}&date=${date}`)
+      expect(res.statusCode).toBe(200)
+      return res
+    }
+    const expired = await on('2026-11-10')
+    expect(flags(expired.json<Today>())).toMatchObject({
+      employees: { [s.verdi]: true, [s.bassi]: false },
+      vehicles: { [s.digger]: true },
+    })
+    for (const hidden of ['medical_check', 'insurance', 'n. 81', 'polizza 7']) {
+      expect(expired.body).not.toContain(hidden)
+    }
+    // The day the documents were still valid, nothing to warn.
+    expect(flags((await on('2026-11-09')).json<Today>())).toMatchObject({
+      employees: { [s.verdi]: false, [s.bassi]: false },
+      vehicles: { [s.digger]: false },
+    })
+
+    // A warning, not a block: the hours of Verdi and the digger are accepted.
+    const saved = await chief.call('POST', s.base, { body: body(s, { date: '2026-11-10' }) })
+    expect(saved.statusCode).toBe(201)
+
+    // Renewing the medical check clears the warning.
+    await ctx.owner.query(
+      `insert into public.employee_documents (company_id, employee_id, kind, expires_on)
+       values ($1, $2, 'medical_check', '2027-11-09')`,
+      [s.company.id, s.verdi],
+    )
+    expect(flags((await on('2026-11-10')).json<Today>()).employees[s.verdi]).toBe(false)
+
+    // Documents of another company never reach this one.
+    const other = await scene()
+    const theirs = await other.browser.call(
+      'GET',
+      `${other.base}/today?site=${other.site}&date=2026-11-10`,
+    )
+    const t = theirs.json<Today>()
+    expect([...t.employees, ...t.vehicles].every((x) => !x.documents_expired)).toBe(true)
+  })
+})
