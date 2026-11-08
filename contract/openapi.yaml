@@ -3487,7 +3487,7 @@ paths:
         sites con sites.view; over_budget con sites.view e costs.view; costs_this_month con
         costs.view; reports con reports.view; deadlines con deadlines.view; invoices con
         invoices.view; progress_statements con estimates.view; quotes con quotes.view; purchase_orders con
-        purchases.view; warehouse con warehouse.view. Le date sono quelle
+        purchases.view; warehouse con warehouse.view; vehicles con vehicles.view. Le date sono quelle
         di oggi in Italia. over_budget elenca, dal più sforato, al massimo 10 cantieri non chiusi
         con un budget e costi oltre il budget (manodopera e mezzi dai rapportini approvati, più
         i costi inseriti a mano, come in getSiteCostSummary). costs_this_month somma i costi del
@@ -11026,6 +11026,7 @@ components:
           purchase_orders,
           warehouse,
           subcontractors,
+          vehicles,
           activities,
           absences,
         ]
@@ -11160,6 +11161,24 @@ components:
                   type: integer
                   minimum: 0
                   description: Senza un DURC valido oggi.
+            - type: 'null'
+        vehicles:
+          oneOf:
+            - type: object
+              description: |
+                Mezzi attivi con documenti da rinnovare, con vehicles.view: gli stessi di
+                filter[documents] con filter[active]=true in listVehicles. Per ogni tipo di
+                documento conta solo la scadenza più lontana (giorno italiano).
+              required: [documents_expired, documents_expiring]
+              properties:
+                documents_expired:
+                  type: integer
+                  minimum: 0
+                  description: Con almeno un documento scaduto.
+                documents_expiring:
+                  type: integer
+                  minimum: 0
+                  description: Nessuno scaduto, almeno uno in scadenza entro 30 giorni.
             - type: 'null'
         activities:
           oneOf:

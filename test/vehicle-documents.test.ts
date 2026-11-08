@@ -303,7 +303,7 @@ describe('documents of a vehicle', () => {
     ])
   })
 
-  it('filters the vehicles and their export by expired or expiring documents', async () => {
+  it('filters the vehicles, their export and the dashboard by expired or expiring documents', async () => {
     const { browser, company, vehicle: renewed } = await scene()
     const add = async (name: string, docs: [string, number | null][]) => {
       const { rows } = await ctx.owner.query<{ id: string }>(
@@ -373,5 +373,30 @@ describe('documents of a vehicle', () => {
     )
     expect(wrong.statusCode).toBe(422)
     expect(Object.keys(wrong.json<{ errors: object }>().errors)).toEqual(['filter[documents]'])
+
+    // The dashboard counts the same, only active vehicles.
+    await add('Betoniera ferma', [['insurance', -3]])
+    await ctx.owner.query(
+      "update public.vehicles set active = false where company_id = $1 and name = 'Betoniera ferma'",
+      [company.id],
+    )
+    const dashboard = `/api/companies/${company.slug}/dashboard`
+    const d = await browser.call('GET', dashboard)
+    expect(d.statusCode).toBe(200)
+    expect(d.json<{ vehicles: unknown }>().vehicles).toEqual({
+      documents_expired: 1,
+      documents_expiring: 2,
+    })
+    const blind = await fx.user()
+    await fx.member(
+      blind.id,
+      company.id,
+      await fx.role(company.id, 'Senza mezzi', ['deadlines.view']),
+    )
+    const blindBrowser = new Browser(ctx.app)
+    await blindBrowser.signIn(blind.email)
+    const hidden = await blindBrowser.call('GET', dashboard)
+    expect(hidden.statusCode).toBe(200)
+    expect(hidden.json<{ vehicles: unknown }>().vehicles).toBeNull()
   })
 })

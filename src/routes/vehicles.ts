@@ -206,7 +206,8 @@ const LATEST_EXPIRIES = `
   select max(d.expires_on) as expires_on from public.vehicle_documents d
   where d.vehicle_id = v.id and d.expires_on is not null group by d.kind`
 
-const DOCUMENTS_SQL: Record<(typeof DOCUMENT_FILTERS)[number], string> = {
+/** Conditions on a vehicle aliased `v`, also counted in the dashboard. */
+export const DOCUMENTS_SQL: Record<(typeof DOCUMENT_FILTERS)[number], string> = {
   expired: `exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${TODAY})`,
   expiring: `not exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on < ${TODAY})
     and exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on <= ${TODAY} + 30)`,
