@@ -4413,7 +4413,8 @@ paths:
         `row.<n>`; il file di exportEmployees si reimporta così com'è. Colonne per nome:
         cognome e nome sono obbligatorie; le altre sono codice fiscale, mansione, telefono,
         email, assunzione (30/11/2026 oppure 2026-11-30), costo orario (28,50 oppure 28.50),
-        attivo (sì o no, vuoto vale sì), note. Ogni riga si controlla come createEmployee;
+        attivo (sì o no, vuoto vale sì), note, ferie annue (giorni interi), permessi annui
+        (ore intere). Ogni riga si controlla come createEmployee;
         un codice fiscale già presente nell'azienda o ripetuto nel file è un errore della riga.
       security:
         - session: []
@@ -8673,7 +8674,18 @@ components:
           items:
             type: object
             required:
-              [employee, days, working_days, hours, kinds, vacation_allowance, vacation_carried_over, vacation_remaining]
+              [
+                employee,
+                days,
+                working_days,
+                hours,
+                kinds,
+                vacation_allowance,
+                vacation_carried_over,
+                vacation_remaining,
+                permit_allowance,
+                permit_remaining,
+              ]
             properties:
               employee:
                 type: object
@@ -8694,6 +8706,17 @@ components:
                 description: |
                   Ferie spettanti più quelle riportate dall'anno prima, meno i giorni lavorativi
                   di ferie dell'anno; negativo se ne ha fatte di più, null senza ferie spettanti.
+              permit_allowance:
+                type: [integer, 'null']
+                description: Ore di permesso spettanti nell'anno (annual_permit_hours), null se non indicate.
+              permit_remaining:
+                type: [string, 'null']
+                pattern: '^-?\d+\.\d{2}$'
+                examples: ['80.50', '-4.00']
+                description: |
+                  Ore di permesso spettanti meno le ore dei permessi dell'anno; un permesso di
+                  tutto il giorno conta 8 ore per ogni giorno lavorativo. Negativo se ne ha
+                  fatte di più, null senza ore spettanti.
               days: { type: integer }
               working_days: { type: integer }
               hours: { $ref: '#/components/schemas/WorkHours' }
@@ -10997,11 +11020,20 @@ components:
             Giorni lavorativi di ferie spettanti in un anno, per le ferie residue di
             getAbsenceTotals; null se non si tiene il conto. Facoltativo: se manca, alla
             creazione vale null e alla modifica resta quello che c'era.
+        annual_permit_hours:
+          type: [integer, 'null']
+          minimum: 0
+          maximum: 2000
+          description: |
+            Ore di permesso spettanti in un anno (permessi retribuiti, ROL ed ex festività),
+            per i permessi residui di getAbsenceTotals; null se non si tiene il conto.
+            Facoltativo: se manca, alla creazione vale null e alla modifica resta quello che
+            c'era.
     Employee:
       allOf:
         - $ref: '#/components/schemas/EmployeeInput'
         - type: object
-          required: [id, annual_leave_days, created_at, updated_at]
+          required: [id, annual_leave_days, annual_permit_hours, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             created_at:

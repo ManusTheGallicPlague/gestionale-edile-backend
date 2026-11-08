@@ -19,6 +19,7 @@ const FIELDS = [
   'active',
   'notes',
   'annual_leave_days',
+  'annual_permit_hours',
 ] as const
 type Field = (typeof FIELDS)[number]
 
@@ -55,6 +56,12 @@ const HEADERS: Record<string, Field> = {
   giorniferie: 'annual_leave_days',
   feriespettanti: 'annual_leave_days',
   annualleavedays: 'annual_leave_days',
+  permessiannui: 'annual_permit_hours',
+  permessi: 'annual_permit_hours',
+  orepermessi: 'annual_permit_hours',
+  permessispettanti: 'annual_permit_hours',
+  rol: 'annual_permit_hours',
+  annualpermithours: 'annual_permit_hours',
 }
 
 const FIELD_NAMES: Record<Field, string> = {
@@ -69,6 +76,7 @@ const FIELD_NAMES: Record<Field, string> = {
   active: 'attivo',
   notes: 'note',
   annual_leave_days: 'ferie annue',
+  annual_permit_hours: 'permessi annui',
 }
 
 /** "codice fiscale: message" for each field error of parseEmployeeInput. */
@@ -149,6 +157,11 @@ export function parseEmployeesCsv<T>(
     if (leave === '') input.annual_leave_days = null
     else if (/^\d{1,3}$/.test(leave)) input.annual_leave_days = Number(leave)
     else problems.push('ferie annue: un numero intero di giorni (es. 26).')
+    const permit = cell('annual_permit_hours')
+    if (permit === '') input.annual_permit_hours = null
+    else if (/^\d{1,4}$/.test(permit) && Number(permit) <= 2000) {
+      input.annual_permit_hours = Number(permit)
+    } else problems.push('permessi annui: un numero intero di ore da 0 a 2000 (es. 88).')
     const active = readYesNo(cell('active'), true)
     if (active === null) problems.push('attivo: sì oppure no.')
     else input.active = active

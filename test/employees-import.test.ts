@@ -44,10 +44,10 @@ describe('employee import', () => {
   it('adds the employees with Italian dates and amounts', async () => {
     const s = await scene()
     const file =
-      'Cognome;Nome;Codice fiscale;Mansione;Assunzione;Costo orario;Attivo;Ferie annue\n' +
-      `Rossi;Mario;${cf('RSSMRA80A01H501')};Muratore;01/03/2020;"28,50";Sì;26\n` +
-      `Bianchi;Luca;;Manovale;2021-09-15;1.234,00;no;0\n` +
-      'Verdi;Anna;;;;;;\n'
+      'Cognome;Nome;Codice fiscale;Mansione;Assunzione;Costo orario;Attivo;Ferie annue;Permessi annui\n' +
+      `Rossi;Mario;${cf('RSSMRA80A01H501')};Muratore;01/03/2020;"28,50";Sì;26;88\n` +
+      `Bianchi;Luca;;Manovale;2021-09-15;1.234,00;no;0;0\n` +
+      'Verdi;Anna;;;;;;;\n'
     const res = await s.browser.call('POST', `${s.base}/import`, csv(file))
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({ created: 3 })
@@ -58,6 +58,7 @@ describe('employee import', () => {
         hourly_cost: '1234.00',
         active: false,
         annual_leave_days: 0,
+        annual_permit_hours: 0,
       }),
       expect.objectContaining({
         last_name: 'Rossi',
@@ -66,12 +67,14 @@ describe('employee import', () => {
         hourly_cost: '28.50',
         active: true,
         annual_leave_days: 26,
+        annual_permit_hours: 88,
       }),
       expect.objectContaining({
         last_name: 'Verdi',
         hourly_cost: null,
         active: true,
         annual_leave_days: null,
+        annual_permit_hours: null,
       }),
     ])
 
@@ -114,6 +117,22 @@ describe('employee import', () => {
     ])
     expect(errors['row.7']).toEqual(['ferie annue: un numero intero di giorni (es. 26).'])
     expect(errors['row.8']).toEqual(['ferie annue: Un numero intero di giorni da 0 a 366.'])
+
+    const hours =
+      'cognome;nome;permessi annui\n' +
+      'Ore;Uno;88\n' +
+      'Ore;Due;7,5\n' +
+      'Ore;Tre;2001\n' +
+      'Ore;Quattro;-1\n'
+    const wrong = await s.browser.call('POST', `${s.base}/import`, csv(hours))
+    expect(wrong.statusCode).toBe(422)
+    const message = ['permessi annui: un numero intero di ore da 0 a 2000 (es. 88).']
+    expect(wrong.json<{ errors: unknown }>().errors).toEqual({
+      'row.3': message,
+      'row.4': message,
+      'row.5': message,
+    })
+    expect(await employees(s.browser, s.base)).toEqual([])
     expect(errors['row.3']?.[0]).toMatch(/^assunzione: /)
     expect(errors['row.4']).toEqual(['costo orario: importo non valido (es. 28,50).'])
     expect(errors['row.5']).toEqual(['attivo: sì oppure no.'])

@@ -38,6 +38,8 @@ interface EmployeeValues {
   notes: string | null
   /** Absent from the input: null on create, unchanged on update. */
   annual_leave_days?: number | null
+  /** Absent from the input: null on create, unchanged on update. */
+  annual_permit_hours?: number | null
 }
 const COLUMNS = [
   'first_name',
@@ -54,6 +56,7 @@ const COLUMNS = [
 
 interface EmployeeRow extends EmployeeValues {
   annual_leave_days: number | null
+  annual_permit_hours: number | null
   id: string
   version: number
   created_at: Date
@@ -64,7 +67,7 @@ type Params = { company: string; employee?: string }
 
 const SELECT = `select e.id, e.first_name, e.last_name, e.tax_code, e.job_title, e.phone, e.email,
     e.hired_on::text as hired_on, e.hourly_cost_cents::text as hourly_cost_cents, e.active,
-    e.notes, e.annual_leave_days, e.version, e.created_at, e.updated_at
+    e.notes, e.annual_leave_days, e.annual_permit_hours, e.version, e.created_at, e.updated_at
   from public.employees e`
 
 const SORTS = {
@@ -90,6 +93,7 @@ function toContract(row: EmployeeRow) {
     active: row.active,
     notes: row.notes,
     annual_leave_days: row.annual_leave_days,
+    annual_permit_hours: row.annual_permit_hours,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -160,14 +164,19 @@ export function parseEmployeeInput(
   }
   if (typeof raw.active !== 'boolean') add('active', 'Vale true oppure false.')
   const notes = text('notes', 2000)
-  const leave = raw.annual_leave_days
-  if (
-    leave !== undefined &&
-    leave !== null &&
-    !(typeof leave === 'number' && Number.isInteger(leave) && leave >= 0 && leave <= 366)
-  ) {
-    add('annual_leave_days', 'Un numero intero di giorni da 0 a 366.')
+  const whole = (name: string, max: number, message: string) => {
+    const value = raw[name]
+    if (
+      value !== undefined &&
+      value !== null &&
+      !(typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= max)
+    ) {
+      add(name, message)
+    }
+    return value as number | null | undefined
   }
+  const leave = whole('annual_leave_days', 366, 'Un numero intero di giorni da 0 a 366.')
+  const permit = whole('annual_permit_hours', 2000, 'Un numero intero di ore da 0 a 2000.')
   if (Object.keys(errors).length > 0 || !first_name || !last_name) return { errors }
   return {
     input: {
@@ -181,14 +190,19 @@ export function parseEmployeeInput(
       hourly_cost_cents,
       active: raw.active === true,
       notes,
-      ...(leave === undefined ? {} : { annual_leave_days: leave as number | null }),
+      ...(leave === undefined ? {} : { annual_leave_days: leave }),
+      ...(permit === undefined ? {} : { annual_permit_hours: permit }),
     },
   }
 }
 
-/** The columns to write: annual_leave_days only when the input has it. */
-const columnsOf = (input: EmployeeValues): (keyof EmployeeValues)[] =>
-  input.annual_leave_days === undefined ? [...COLUMNS] : [...COLUMNS, 'annual_leave_days']
+/** Columns written only when the input has them, kept as they are on update otherwise. */
+const OPTIONAL = ['annual_leave_days', 'annual_permit_hours'] as const
+
+const columnsOf = (input: EmployeeValues): (keyof EmployeeValues)[] => [
+  ...COLUMNS,
+  ...OPTIONAL.filter((f) => input[f] !== undefined),
+]
 
 const placeholders = (columns: readonly string[]) => columns.map((_, i) => `$${i + 1}`).join(', ')
 
@@ -372,6 +386,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
             'Attivo',
             'Note',
             'Ferie annue',
+            'Permessi annui',
           ],
           rows.map((r) => [
             r.last_name,
@@ -385,6 +400,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
             r.active ? 'Sì' : 'No',
             r.notes,
             r.annual_leave_days,
+            r.annual_permit_hours,
           ]),
         )
       })

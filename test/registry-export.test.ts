@@ -52,7 +52,7 @@ describe('sites, employees and vehicles export', () => {
       [company.id],
     )
     await ctx.owner.query(
-      "update public.employees set annual_leave_days = 26 where company_id = $1 and last_name = 'Verdi'",
+      "update public.employees set annual_leave_days = 26, annual_permit_hours = 88 where company_id = $1 and last_name = 'Verdi'",
       [company.id],
     )
     const url = `/api/companies/${company.slug}/employees/export`
@@ -60,9 +60,9 @@ describe('sites, employees and vehicles export', () => {
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-disposition']).toBe('attachment; filename="dipendenti.csv"')
     expect(lines(res.body)).toEqual([
-      'Cognome;Nome;Codice fiscale;Mansione;Telefono;Email;Assunzione;Costo orario;Attivo;Note;Ferie annue',
-      'Bassi;Anna;;;;;;;No;;',
-      'Verdi;Luca;;Muratore;;;02/03/2020;28,50;Sì;;26',
+      'Cognome;Nome;Codice fiscale;Mansione;Telefono;Email;Assunzione;Costo orario;Attivo;Note;Ferie annue;Permessi annui',
+      'Bassi;Anna;;;;;;;No;;;',
+      'Verdi;Luca;;Muratore;;;02/03/2020;28,50;Sì;;26;88',
     ])
     expect(lines((await browser.call('GET', `${url}?filter[active]=true`)).body)).toHaveLength(2)
   })

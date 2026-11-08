@@ -21,6 +21,8 @@ type Totals = {
     vacation_allowance: number | null
     vacation_carried_over: number | null
     vacation_remaining: number | null
+    permit_allowance: number | null
+    permit_remaining: string | null
     days: number
     working_days: number
     hours: string
@@ -87,6 +89,8 @@ describe('absence totals of the year', () => {
       vacation_allowance: null,
       vacation_carried_over: null,
       vacation_remaining: null,
+      permit_allowance: null,
+      permit_remaining: null,
       days: 0,
       working_days: 0,
       hours: '0.00',
@@ -174,6 +178,55 @@ describe('absence totals of the year', () => {
     ])
   })
 
+  it('counts the remaining leave hours, a whole-day leave as 8 hours a working day', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    const set = (id: string, hours: number | null) =>
+      ctx.owner.query('update public.employees set annual_permit_hours = $2 where id = $1', [
+        id,
+        hours,
+      ])
+    await set(s.mario, 88)
+    await set(s.anna, 32)
+    await set(theirs.mario, 1) // another company: its hours do not count here
+    // Mario, besides 2.5 + 1.25 hours in September: a whole-day leave from Friday 30/10 to
+    // Monday 02/11 (2 working days) and one across the new year (31/12, then 01/01 a holiday).
+    await ctx.owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on, notes)
+       values ($1, $2, 'leave', '2026-10-30', '2026-11-02', 'x'),
+              ($1, $2, 'leave', '2026-12-31', '2027-01-01', 'x')`,
+      [s.company.id, s.mario],
+    )
+    const year = (y: number) =>
+      s.browser
+        .call('GET', `${s.url}?year=${y}`)
+        .then((r) => r.json<Totals>())
+        .then((t) =>
+          t.employees.map((e) => [e.employee.id, e.permit_allowance, e.permit_remaining]),
+        )
+    // 88 - 3.75 - 3 working days × 8 hours.
+    expect(await year(2026)).toEqual([
+      [s.anna, 32, '32.00'],
+      [s.mario, 88, '60.25'],
+      [s.gone, null, null],
+    ])
+    expect(await year(2027)).toEqual([
+      [s.anna, 32, '32.00'],
+      [s.mario, 88, '88.00'],
+    ])
+    // More leave than allowed goes below zero, with the hundredths kept exact.
+    await set(s.mario, 20)
+    await set(s.anna, null)
+    expect(await year(2026)).toEqual([
+      [s.anna, null, null],
+      [s.mario, 20, '-7.75'],
+      [s.gone, null, null],
+    ])
+    const csv = await s.browser.call('GET', `${s.url}/export?year=2026`)
+    expect(csv.body).toContain('Rossi;Mario;')
+    expect(csv.body.split('\r\n').find((l) => l.startsWith('Rossi;'))).toMatch(/;20;-7,75$/)
+  })
+
   it('adds the vacation carried over into the year, only of that year and company', async () => {
     const s = await scene()
     const theirs = await scene()
@@ -239,9 +292,10 @@ describe('absence totals of the year', () => {
     await ctx.owner.query("update public.employees set last_name = '=SUM(A1)' where id = $1", [
       s.anna,
     ])
-    await ctx.owner.query('update public.employees set annual_leave_days = 26 where id = $1', [
-      s.mario,
-    ])
+    await ctx.owner.query(
+      'update public.employees set annual_leave_days = 26, annual_permit_hours = 8 where id = $1',
+      [s.mario],
+    )
     await ctx.owner.query(
       `insert into public.employee_leave_carryovers (company_id, employee_id, year, days)
        values ($1, $2, 2026, -2)`,
@@ -252,11 +306,11 @@ describe('absence totals of the year', () => {
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="assenze-2026.csv"')
     expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Cognome;Nome;Ferie giorni;Ferie giorni lavorativi;Ferie ore;Malattia giorni;Malattia giorni lavorativi;Malattia ore;Permesso giorni;Permesso giorni lavorativi;Permesso ore;Infortunio giorni;Infortunio giorni lavorativi;Infortunio ore;Altro giorni;Altro giorni lavorativi;Altro ore;Totale giorni;Totale giorni lavorativi;Totale ore;Ferie anno precedente;Ferie spettanti;Ferie residue',
-      "'=SUM(A1);Anna;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;;;",
-      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;-2;26;10',
-      'Verdi;Luca;0;0;0;0;0;0;0;0;0;5;5;0;0;0;0;5;5;0;;;',
-      'Totale;;16;14;0;2;1;0;0;0;3,75;5;5;0;0;0;0;23;20;3,75;;;',
+      'Cognome;Nome;Ferie giorni;Ferie giorni lavorativi;Ferie ore;Malattia giorni;Malattia giorni lavorativi;Malattia ore;Permesso giorni;Permesso giorni lavorativi;Permesso ore;Infortunio giorni;Infortunio giorni lavorativi;Infortunio ore;Altro giorni;Altro giorni lavorativi;Altro ore;Totale giorni;Totale giorni lavorativi;Totale ore;Ferie anno precedente;Ferie spettanti;Ferie residue;Permessi spettanti (ore);Permessi residui (ore)',
+      "'=SUM(A1);Anna;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;0;;;;;",
+      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;-2;26;10;8;4,25',
+      'Verdi;Luca;0;0;0;0;0;0;0;0;0;5;5;0;0;0;0;5;5;0;;;;;',
+      'Totale;;16;14;0;2;1;0;0;0;3,75;5;5;0;0;0;0;23;20;3,75;;;;;',
     ])
     expect((await s.browser.call('GET', `${s.url}/export?year=x`)).statusCode).toBe(422)
   })
@@ -295,8 +349,8 @@ describe('absence totals of the year', () => {
     expect(csv.statusCode).toBe(200)
     expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
       expect.stringMatching(/^Cognome;Nome;/),
-      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;;;',
-      'Totale;;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;;;',
+      'Rossi;Mario;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;;;;;',
+      'Totale;;16;14;0;2;1;0;0;0;3,75;0;0;0;0;0;0;18;15;3,75;;;;;',
     ])
   })
 

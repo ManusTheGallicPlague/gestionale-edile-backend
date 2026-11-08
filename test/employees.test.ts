@@ -97,6 +97,10 @@ describe('employees', () => {
     ['half a vacation day', { annual_leave_days: 26.5 }, 'annual_leave_days'],
     ['negative vacation days', { annual_leave_days: -1 }, 'annual_leave_days'],
     ['more vacation days than a year', { annual_leave_days: 367 }, 'annual_leave_days'],
+    ['leave hours as text', { annual_permit_hours: '88' }, 'annual_permit_hours'],
+    ['half a leave hour', { annual_permit_hours: 88.5 }, 'annual_permit_hours'],
+    ['negative leave hours', { annual_permit_hours: -1 }, 'annual_permit_hours'],
+    ['too many leave hours', { annual_permit_hours: 2001 }, 'annual_permit_hours'],
   ])('refuses %s', async (_label, overrides, field) => {
     const { browser, base } = await scene()
     const res = await browser.call('POST', base, { body: employeeBody(overrides) })
@@ -131,6 +135,44 @@ describe('employees', () => {
     // A wrong value changes nothing.
     expect((await put(4, { annual_leave_days: 400 })).statusCode).toBe(422)
     expect((await browser.call('GET', url)).headers.etag).toBe('"4"')
+  })
+
+  it('keeps the yearly leave hours when an update leaves them out', async () => {
+    const { browser, base } = await scene()
+    const without = await browser.call('POST', base, { body: employeeBody() })
+    expect(without.json()).toMatchObject({ annual_permit_hours: null })
+    const created = await browser.call('POST', base, {
+      body: employeeBody({ last_name: 'Verdi', annual_leave_days: 26, annual_permit_hours: 88 }),
+    })
+    expect(created.statusCode).toBe(201)
+    expect(created.json()).toMatchObject({ annual_leave_days: 26, annual_permit_hours: 88 })
+    const url = `${base}/${created.json<{ id: string }>().id}`
+    const put = (version: number, overrides: Record<string, unknown>) =>
+      browser.call('PUT', url, {
+        body: employeeBody({ last_name: 'Verdi', ...overrides }),
+        headers: { 'if-match': `"${version}"` },
+      })
+    // Each optional field is kept on its own when the update leaves it out.
+    expect((await put(1, { annual_leave_days: 20 })).json()).toMatchObject({
+      annual_leave_days: 20,
+      annual_permit_hours: 88,
+    })
+    expect((await put(2, { annual_permit_hours: 0 })).json()).toMatchObject({
+      annual_leave_days: 20,
+      annual_permit_hours: 0,
+    })
+    expect((await put(3, { annual_permit_hours: null })).json()).toMatchObject({
+      annual_leave_days: 20,
+      annual_permit_hours: null,
+    })
+    expect((await put(4, { annual_permit_hours: 2000 })).json()).toMatchObject({
+      annual_permit_hours: 2000,
+    })
+    // A wrong value changes nothing.
+    expect((await put(5, { annual_permit_hours: 2001 })).statusCode).toBe(422)
+    const read = await browser.call('GET', url)
+    expect(read.headers.etag).toBe('"5"')
+    expect(read.json()).toMatchObject({ annual_permit_hours: 2000 })
   })
 
   it('a tax code is unique in the company, not across companies', async () => {
