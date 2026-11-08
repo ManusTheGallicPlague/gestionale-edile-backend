@@ -4841,6 +4841,76 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/absences/totals:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: getAbsenceTotals
+      summary: Assenze dell'anno per dipendente
+      description: |
+        Permesso: employees.view. Quante assenze ha fatto ogni dipendente in un anno solare, per
+        tipo: per il titolare che controlla le ferie godute e per il consulente del lavoro.
+        days: giorni di calendario delle assenze di tutto il giorno, solo quelli dentro l'anno
+        (le ferie a cavallo di Capodanno si dividono tra i due anni); hours: ore dei permessi.
+        Ci sono tutti i dipendenti attivi, anche senza assenze, e quelli non più attivi che
+        hanno assenze nell'anno, per cognome e nome. kinds ha sempre tutti i tipi, nell'ordine
+        di EmployeeAbsenceKind, anche a zero. year è l'anno in corso (ora italiana) se non
+        indicato.
+      parameters:
+        - name: year
+          in: query
+          description: Anno solare, da 2000 a 2100.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+      responses:
+        '200':
+          description: Le assenze dell'anno
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AbsenceTotals' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/absences/totals/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportAbsenceTotals
+      summary: Esportazione in CSV delle assenze dell'anno per dipendente
+      description: |
+        Permesso: employees.view. Le stesse righe di getAbsenceTotals, nello stesso formato
+        dell'esportazione dei clienti: una riga per dipendente con giorni e ore di ogni tipo
+        (ore con la virgola) e una riga finale «Totale». Il file si chiama
+        assenze-AAAA.csv, con l'anno.
+      parameters:
+        - name: year
+          in: query
+          description: Anno solare, da 2000 a 2100.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/vehicles:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8443,6 +8513,47 @@ components:
                       last_name: { type: string }
                       active: { type: boolean }
         meta: { $ref: '#/components/schemas/ListMeta' }
+    AbsenceTotalsKinds:
+      type: array
+      description: Tutti i tipi, nell'ordine di EmployeeAbsenceKind, anche a zero.
+      items:
+        type: object
+        required: [kind, days, hours]
+        properties:
+          kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
+          days: { type: integer }
+          hours: { $ref: '#/components/schemas/WorkHours' }
+    AbsenceTotals:
+      type: object
+      required: [year, from, to, employees, totals]
+      properties:
+        year: { type: integer }
+        from: { $ref: '#/components/schemas/Date' }
+        to: { $ref: '#/components/schemas/Date' }
+        employees:
+          type: array
+          items:
+            type: object
+            required: [employee, days, hours, kinds]
+            properties:
+              employee:
+                type: object
+                required: [id, first_name, last_name, active]
+                properties:
+                  id: { $ref: '#/components/schemas/Id' }
+                  first_name: { type: string }
+                  last_name: { type: string }
+                  active: { type: boolean }
+              days: { type: integer }
+              hours: { $ref: '#/components/schemas/WorkHours' }
+              kinds: { $ref: '#/components/schemas/AbsenceTotalsKinds' }
+        totals:
+          type: object
+          required: [days, hours, kinds]
+          properties:
+            days: { type: integer }
+            hours: { $ref: '#/components/schemas/WorkHours' }
+            kinds: { $ref: '#/components/schemas/AbsenceTotalsKinds' }
     SupplierDocumentList:
       type: object
       required: [data]

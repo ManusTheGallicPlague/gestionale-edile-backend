@@ -32,7 +32,7 @@ export const ABSENCE_CODES: Record<AbsenceKind, string> = {
 }
 
 /** Names of the absences in the CSV files. */
-const ABSENCE_NAMES: Record<AbsenceKind, string> = {
+export const ABSENCE_NAMES: Record<AbsenceKind, string> = {
   vacation: 'Ferie',
   sick_leave: 'Malattia',
   leave: 'Permesso',

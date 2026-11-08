@@ -10,6 +10,7 @@ import { clientRoutes } from './routes/clients.js'
 import { supplierRoutes } from './routes/suppliers.js'
 import { supplierDocumentRoutes } from './routes/supplier-documents.js'
 import { employeeAbsenceRoutes } from './routes/employee-absences.js'
+import { absenceTotalsRoutes } from './routes/absence-totals.js'
 import { deadlineRoutes } from './routes/deadlines.js'
 import { estimateRoutes } from './routes/estimates.js'
 import { siteRoutes } from './routes/sites.js'
@@ -119,6 +120,7 @@ export function buildApp(
   supplierRoutes(app, config, db)
   supplierDocumentRoutes(app, config, db)
   employeeAbsenceRoutes(app, config, db)
+  absenceTotalsRoutes(app, db)
   deadlineRoutes(app, config, db)
   estimateRoutes(app, config, db)
   siteRoutes(app, config, db)
