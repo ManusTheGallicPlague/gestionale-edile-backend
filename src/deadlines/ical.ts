@@ -8,10 +8,14 @@ export interface AllDayEvent {
   uid: string
   /** YYYY-MM-DD */
   date: string
+  /** Last day, included (YYYY-MM-DD); the same day when missing. */
+  lastDate?: string
   summary: string
   description: string
   /** When the event last changed, for DTSTAMP. */
   stamp: Date
+  /** A reminder at 9 in the morning of the day before; on when missing. */
+  alarm?: boolean
 }
 
 /** TEXT values: backslash, semicolon, comma and newlines are escaped. */
@@ -58,11 +62,15 @@ const utcStamp = (date: Date) =>
     .replace(/\.\d{3}Z$/, 'Z')
     .replace(/[-:]/g, '')
 
-export function toICalendar(calendarName: string, events: AllDayEvent[]): string {
+export function toICalendar(
+  calendarName: string,
+  events: AllDayEvent[],
+  product = 'Scadenze',
+): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Gestionale edile//Scadenze//IT',
+    `PRODID:-//Gestionale edile//${product}//IT`,
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     `X-WR-CALNAME:${escapeText(calendarName)}`,
@@ -73,18 +81,23 @@ export function toICalendar(calendarName: string, events: AllDayEvent[]): string
       `UID:${e.uid}`,
       `DTSTAMP:${utcStamp(e.stamp)}`,
       `DTSTART;VALUE=DATE:${compactDate(e.date)}`,
-      `DTEND;VALUE=DATE:${compactDate(nextDay(e.date))}`,
+      // DTEND of all-day events is exclusive: the day after the last one.
+      `DTEND;VALUE=DATE:${compactDate(nextDay(e.lastDate ?? e.date))}`,
       `SUMMARY:${escapeText(e.summary)}`,
       `DESCRIPTION:${escapeText(e.description)}`,
       'TRANSP:TRANSPARENT',
-      'BEGIN:VALARM',
-      'ACTION:DISPLAY',
-      `DESCRIPTION:${escapeText(e.summary)}`,
-      // Midnight of the day minus 15 hours: 9 in the morning of the day before.
-      'TRIGGER:-PT15H',
-      'END:VALARM',
-      'END:VEVENT',
     )
+    if (e.alarm !== false) {
+      lines.push(
+        'BEGIN:VALARM',
+        'ACTION:DISPLAY',
+        `DESCRIPTION:${escapeText(e.summary)}`,
+        // Midnight of the day minus 15 hours: 9 in the morning of the day before.
+        'TRIGGER:-PT15H',
+        'END:VALARM',
+      )
+    }
+    lines.push('END:VEVENT')
   }
   lines.push('END:VCALENDAR')
   return lines.map(foldLine).join('\r\n') + '\r\n'

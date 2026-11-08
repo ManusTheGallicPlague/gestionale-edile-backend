@@ -270,6 +270,11 @@ Aggiunta l'08/11/2026, con il piano tutto spuntato: con le assenze registrate, i
 - [x] Assenze di oggi nella squadra del cantiere (`getSiteTeam`, `replaceSiteTeam`): `away` per chi è assente tutto il giorno, data italiana; `absence` e `absence_hours` solo con `employees.view`
 - [x] Assenze di tutti i dipendenti in CSV per il consulente del lavoro (`exportCompanyAbsences`, file `assenze.csv`), con gli stessi filtri di `listCompanyAbsences`, tipo per esteso e sigla del foglio ore
 
+### 34. Assenze nel calendario
+Aggiunta l'08/11/2026, con il piano tutto spuntato: l'ufficio e il titolare vogliono vedere ferie e permessi della squadra nel calendario del telefono, accanto alle scadenze, senza aprire il gestionale.
+
+- [x] Assenze di tutti i dipendenti in formato iCalendar (`exportAbsencesCalendar` su `…/absences/calendar`, file `assenze.ics`, con `employees.view`): eventi di giorni interi dal primo all'ultimo giorno, senza promemoria, «Cognome Nome – Tipo» con le ore del permesso, UID stabile, stessi filtri di `listCompanyAbsences`
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -436,6 +441,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 08/11/2026: assenze nella dashboard solo dei dipendenti attivi; `away_today` conta le persone (non le assenze) che oggi, data italiana, sono assenti; `starting_soon` conta le assenze che iniziano da domani a 7 giorni compresi (quella che inizia oggi è già in `away_today`).
 - 08/11/2026: un rapportino non accetta ore per chi ha un'assenza di tutto il giorno (senza ore) in quella data; si corregge l'assenza se è sbagliata. Un'assenza registrata dopo, su giorni con ore già nei rapportini, resta accettata: la malattia si comunica spesso a cose fatte.
 - 08/11/2026: il tipo dell'assenza (malattia, infortunio) è un dato delicato: a chi ha solo i permessi dei rapportini si dice che il dipendente è assente, non perché; il tipo e le ore del permesso solo con `employees.view`.
+- 08/11/2026: le assenze nel calendario (`assenze.ics`) non hanno promemoria, a differenza delle scadenze: sono eventi di altri, e un avviso per ogni ferie sarebbe solo rumore. Sono segnate come «libero» (TRANSP:TRANSPARENT) per non occupare l'agenda di chi le importa. Con `employees.view` si vede il tipo, malattia compresa, come nel CSV.
 
 ## Registro dei giri
 

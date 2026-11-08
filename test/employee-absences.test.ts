@@ -336,6 +336,97 @@ describe('absences of the whole company', () => {
   })
 })
 
+describe('absences in the calendar', () => {
+  /** Unfolds the lines as a calendar would. */
+  const unfold = (body: string) => body.replace(/\r\n /g, '').split('\r\n')
+
+  async function scene2(permissions: Permission[] = ALL) {
+    const s = await scene(permissions)
+    const { rows } = await ctx.owner.query<{ id: string }>(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on, hours, notes)
+       values ($1, $2, 'vacation', '2026-12-28', '2027-01-04', null, 'Natale; al mare, forse'),
+              ($1, $2, 'leave', '2026-09-03', '2026-09-03', 2.5, null)
+       returning id`,
+      [s.company.id, s.employee],
+    )
+    return {
+      ...s,
+      ids: rows.map((r) => r.id),
+      url: `/api/companies/${s.company.slug}/absences/calendar`,
+    }
+  }
+
+  it('exports every absence as all-day events from the first to the last day, without reminders', async () => {
+    const s = await scene2()
+    const other = await scene2() // another company with the same absences
+    const res = await s.browser.call('GET', s.url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/calendar; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="assenze.ics"')
+    expect(res.body.endsWith('\r\n')).toBe(true)
+    for (const raw of res.body.split('\r\n')) {
+      expect(Buffer.byteLength(raw, 'utf8')).toBeLessThanOrEqual(75)
+    }
+    const lines = unfold(res.body)
+    expect(lines[0]).toBe('BEGIN:VCALENDAR')
+    expect(lines).toContain('PRODID:-//Gestionale edile//Assenze//IT')
+    expect(lines).toContain('X-WR-CALNAME:Assenze')
+    expect(lines.filter((l) => l === 'BEGIN:VEVENT')).toHaveLength(2)
+    expect(lines).not.toContain('BEGIN:VALARM')
+    for (const id of other.ids) expect(res.body).not.toContain(id)
+    expect(lines).toContain(`UID:absence-${s.ids[0]}`)
+
+    // The holidays across the new year end, exclusively, on the day after the last one.
+    expect(lines).toContain('DTSTART;VALUE=DATE:20261228')
+    expect(lines).toContain('DTEND;VALUE=DATE:20270105')
+    expect(lines).toContain('DTSTART;VALUE=DATE:20260903')
+    expect(lines).toContain('DTEND;VALUE=DATE:20260904')
+    expect(lines.filter((l) => l.startsWith('SUMMARY:'))).toEqual([
+      'SUMMARY:Operaio Mario – Ferie',
+      'SUMMARY:Operaio Mario – Permesso 2\\,5 h',
+    ])
+    expect(lines).toContain(
+      'DESCRIPTION:Tipo: Ferie (FE)\\nDal 28/12/2026 al 04/01/2027\\nGiorni: 8\\n\\nNatale\\; al mare\\, forse',
+    )
+    expect(lines).toContain('DESCRIPTION:Tipo: Permesso (PE)\\nIl 03/09/2026\\nOre: 2\\,5')
+
+    // Same UIDs every time, so the calendar updates instead of duplicating.
+    const again = await s.browser.call('GET', s.url)
+    const uids = (body: string) => unfold(body).filter((l) => l.startsWith('UID:'))
+    expect(uids(again.body)).toEqual(uids(res.body))
+  })
+
+  it('takes the same filters as the list, and refuses wrong ones', async () => {
+    const s = await scene2()
+    const count = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.url}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return unfold(res.body).filter((l) => l === 'BEGIN:VEVENT').length
+    }
+    expect(await count('filter[from]=2027-01-04&filter[to]=2027-01-31')).toBe(1)
+    expect(await count('filter[kind]=leave')).toBe(1)
+    expect(await count('filter[kind]=sick_leave')).toBe(0)
+    expect(await count(`filter[employee]=${s.employee}`)).toBe(2)
+    const theirs = await scene2()
+    expect(await count(`filter[employee]=${theirs.employee}`)).toBe(0)
+    for (const query of [
+      'filter[kind]=sciopero',
+      'filter[from]=31/12/2026',
+      'filter[employee]=x',
+    ]) {
+      expect((await s.browser.call('GET', `${s.url}?${query}`)).statusCode).toBe(422)
+    }
+  })
+
+  it('needs employees.view (403), the company (404) and a session (401)', async () => {
+    const s = await scene2()
+    const blind = await scene2(['clients.view'])
+    expect((await blind.browser.call('GET', blind.url)).statusCode).toBe(403)
+    expect((await blind.browser.call('GET', s.url)).statusCode).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', s.url)).statusCode).toBe(401)
+  })
+})
+
 describe('absences in the monthly timesheet', () => {
   it('writes the code of the absence in its days, after the hours, only without a site', async () => {
     const s = await scene([...ALL, 'reports.view'])

@@ -17,6 +17,7 @@ import {
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 import { italianQuantity } from '../quotes/pdf.js'
+import { toICalendar } from '../deadlines/ical.js'
 
 export const ABSENCE_KINDS = ['vacation', 'sick_leave', 'leave', 'injury', 'other'] as const
 export type AbsenceKind = (typeof ABSENCE_KINDS)[number]
@@ -295,6 +296,23 @@ async function readCompanyAbsences(
   return { rows, total: count.rows[0]?.total ?? 0 }
 }
 
+function absenceSummary(r: CompanyAbsenceRow): string {
+  const hours = r.hours === null ? '' : ` ${italianQuantity(r.hours)} h`
+  return `${r.last_name} ${r.first_name} – ${ABSENCE_NAMES[r.kind]}${hours}`
+}
+
+function absenceDescription(r: CompanyAbsenceRow): string {
+  const lines = [
+    `Tipo: ${ABSENCE_NAMES[r.kind]} (${ABSENCE_CODES[r.kind]})`,
+    r.starts_on === r.ends_on
+      ? `Il ${italianDate(r.starts_on)}`
+      : `Dal ${italianDate(r.starts_on)} al ${italianDate(r.ends_on)}`,
+    r.hours === null ? `Giorni: ${r.days}` : `Ore: ${italianQuantity(r.hours)}`,
+  ]
+  if (r.notes) lines.push('', r.notes)
+  return lines.join('\n')
+}
+
 export function employeeAbsenceRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const base = '/api/companies/:company/employees/:employee/absences'
 
@@ -356,6 +374,36 @@ export function employeeAbsenceRoutes(app: FastifyInstance, config: Config, db: 
         .header('Content-Type', 'text/csv; charset=utf-8')
         .header('Content-Disposition', 'attachment; filename="assenze.csv"')
         .send(csv)
+    },
+  )
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/absences/calendar',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const filters = readFilters(request.query, true)
+      const ics = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('employees.view')) throw forbidden()
+        const { rows } = await readCompanyAbsences(client, filters, MAX_EXPORT_ROWS, 0)
+        return toICalendar(
+          'Assenze',
+          rows.map((r) => ({
+            uid: `absence-${r.id}`,
+            date: r.starts_on,
+            lastDate: r.ends_on,
+            summary: absenceSummary(r),
+            description: absenceDescription(r),
+            stamp: r.updated_at,
+            alarm: false,
+          })),
+          'Assenze',
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/calendar; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="assenze.ics"')
+        .send(ics)
     },
   )
 

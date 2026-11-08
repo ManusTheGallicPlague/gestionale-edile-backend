@@ -4794,6 +4794,50 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/absences/calendar:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportAbsencesCalendar
+      summary: Assenze di tutti i dipendenti in formato calendario (iCalendar)
+      description: |
+        Permesso: employees.view. Le assenze come file .ics (RFC 5545) da aprire nel calendario
+        del telefono o del computer, per sapere chi manca senza aprire il gestionale. Stessi
+        filtri di listCompanyAbsences. Ogni assenza è un evento di giorni interi, dal primo
+        all'ultimo giorno compresi, senza promemoria e segnato come libero; il titolo è
+        «Cognome Nome – Tipo», con le ore di un permesso (es. «Permesso 2,5 h»). Nella
+        descrizione ci sono tipo, sigla del foglio ore, periodo, giorni o ore e note. L'UID
+        dell'evento resta lo stesso a ogni esportazione, così il calendario aggiorna l'evento
+        invece di duplicarlo. Il file si chiama assenze.ics.
+      parameters:
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              employee: { $ref: '#/components/schemas/Id' }
+              kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
+      responses:
+        '200':
+          description: Il file iCalendar
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/calendar:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/vehicles:
     parameters:
       - $ref: '#/components/parameters/Company'
