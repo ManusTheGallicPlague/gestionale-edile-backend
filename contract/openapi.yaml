@@ -5576,8 +5576,9 @@ paths:
       description: |
         Permesso: vehicles.view. I rifornimenti di tutti i mezzi, dal più recente, nello stesso
         formato dell'esportazione dei clienti: per il commercialista o il controllo dei consumi.
-        Colonne Data, Mezzo, Targa, Litri, Spesa, Km o ore, Distributore, Note; date come
-        30/11/2026, litri e spesa con la virgola. Con filter[from] e filter[to] (estremi
+        Colonne Data, Mezzo, Targa, Litri, Spesa, Km o ore, Distributore, Note, Consumo; date
+        come 30/11/2026, litri, spesa e consumo con la virgola. Il consumo è quello del campo
+        consumption del rifornimento (litri ogni 100 km o all'ora), vuoto se manca. Con filter[from] e filter[to] (estremi
         compresi) solo quelli del periodo, con filter[vehicle] solo quelli di un mezzo. Il file
         si chiama rifornimenti.csv.
       parameters:
@@ -9005,10 +9006,23 @@ components:
       allOf:
         - $ref: '#/components/schemas/VehicleRefuelingInput'
         - type: object
-          required: [id, vehicle_id, supplier, created_at, updated_at]
+          required: [id, vehicle_id, supplier, consumption, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             vehicle_id: { $ref: '#/components/schemas/Id' }
+            consumption:
+              description: |
+                Consumo da pieno a pieno: litri di questo rifornimento divisi per i chilometri o
+                le ore dal rifornimento precedente, cioè quello del mezzo con la lettura più alta
+                tra quelle più basse di questa (di qualunque data, anche fuori dal periodo
+                filtrato). Per gli automezzi in litri ogni 100 km, per macchine operatrici e
+                attrezzature in litri all'ora, con due decimali e il punto. null senza
+                contachilometri o senza un rifornimento precedente con una lettura più bassa.
+                Solo lettura, da non inviare: cambia senza cambiare l'ETag quando si registra,
+                si modifica o si elimina un altro rifornimento.
+              type: [string, 'null']
+              pattern: '^\d+\.\d{2}$'
+              examples: ['8.75']
             supplier:
               oneOf:
                 - $ref: '#/components/schemas/SubjectRef'

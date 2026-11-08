@@ -32,6 +32,7 @@ interface RefuelingRow extends RefuelingInput {
   id: string
   vehicle_id: string
   supplier_name: string | null
+  consumption: string | null
   version: number
   created_at: Date
   updated_at: Date
@@ -64,9 +65,18 @@ const LITERS = /^\d{1,6}(\.\d{1,2})?$/
 // Dates and numerics leave the database as text: no time zone shift, no floating point.
 const SELECT = `select r.id, r.vehicle_id, r.refueled_on::text as refueled_on,
     r.liters::text as liters, r.amount_cents::text as amount_cents, r.meter_reading,
-    r.supplier_id, s.name as supplier_name, r.notes, r.version, r.created_at, r.updated_at
+    r.supplier_id, s.name as supplier_name, r.notes, r.version, r.created_at, r.updated_at,
+    (r.liters * case when v.kind = 'vehicle' then 100 else 1 end
+      / (r.meter_reading - p.meter_reading))::numeric(20, 2)::text as consumption
   from public.vehicle_refuelings r
-  left join public.suppliers s on s.id = r.supplier_id`
+  join public.vehicles v on v.id = r.vehicle_id
+  left join public.suppliers s on s.id = r.supplier_id
+  left join lateral (
+    -- Full to full: the litres of this fill were burnt since the previous reading.
+    select max(prev.meter_reading) as meter_reading
+    from public.vehicle_refuelings prev
+    where prev.vehicle_id = r.vehicle_id and prev.meter_reading < r.meter_reading
+  ) p on true`
 
 function toContract(row: RefuelingRow) {
   return {
@@ -79,6 +89,7 @@ function toContract(row: RefuelingRow) {
     supplier_id: row.supplier_id,
     supplier: row.supplier_id ? { id: row.supplier_id, name: row.supplier_name ?? '' } : null,
     notes: row.notes,
+    consumption: row.consumption,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -243,10 +254,17 @@ export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db:
         >(
           `select r.refueled_on::text as refueled_on, r.liters::text as liters,
              r.amount_cents::text as amount_cents, r.meter_reading, s.name as supplier_name,
-             r.notes, v.name as vehicle_name, v.plate
+             r.notes, v.name as vehicle_name, v.plate,
+             (r.liters * case when v.kind = 'vehicle' then 100 else 1 end
+               / (r.meter_reading - p.meter_reading))::numeric(20, 2)::text as consumption
            from public.vehicle_refuelings r
            join public.vehicles v on v.id = r.vehicle_id
            left join public.suppliers s on s.id = r.supplier_id
+           left join lateral (
+             select max(prev.meter_reading) as meter_reading
+             from public.vehicle_refuelings prev
+             where prev.vehicle_id = r.vehicle_id and prev.meter_reading < r.meter_reading
+           ) p on true
            where ($1::date is null or r.refueled_on >= $1)
              and ($2::date is null or r.refueled_on <= $2)
              and ($3::uuid is null or r.vehicle_id = $3)
@@ -255,7 +273,17 @@ export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db:
           [from, to, vehicle, MAX_EXPORT_ROWS],
         )
         return toCsv(
-          ['Data', 'Mezzo', 'Targa', 'Litri', 'Spesa', 'Km o ore', 'Distributore', 'Note'],
+          [
+            'Data',
+            'Mezzo',
+            'Targa',
+            'Litri',
+            'Spesa',
+            'Km o ore',
+            'Distributore',
+            'Note',
+            'Consumo',
+          ],
           rows.map((r) => [
             italianDate(r.refueled_on),
             r.vehicle_name,
@@ -265,6 +293,7 @@ export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db:
             r.meter_reading,
             r.supplier_name,
             r.notes,
+            r.consumption && r.consumption.replace('.', ','),
           ]),
         )
       })

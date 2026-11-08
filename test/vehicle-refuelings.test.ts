@@ -226,6 +226,9 @@ describe('refuelings of vehicles', () => {
     await browser.call('POST', base, {
       body: fill({ refueled_on: '2025-12-20', liters: '0.5', amount: '1', meter_reading: null }),
     })
+    await browser.call('POST', base, {
+      body: fill({ refueled_on: '2026-10-25', liters: '45.2', meter_reading: 91600 }),
+    })
     const other = await scene()
     await other.browser.call('POST', other.base, { body: fill({ notes: 'Loro' }) })
 
@@ -234,10 +237,11 @@ describe('refuelings of vehicles', () => {
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-disposition']).toBe('attachment; filename="rifornimenti.csv"')
     expect(res.body.replace('\ufeff', '').trim().split('\r\n')).toEqual([
-      'Data;Mezzo;Targa;Litri;Spesa;Km o ore;Distributore;Note',
-      '02/11/2026;Escavatore;;120,00;210,50;1340;;',
-      `15/10/2026;Furgone;AB123CD;45,20;80,10;91200;"Distributore; Bianchi";'=1+1`,
-      '20/12/2025;Furgone;AB123CD;0,50;1,00;;;',
+      'Data;Mezzo;Targa;Litri;Spesa;Km o ore;Distributore;Note;Consumo',
+      '02/11/2026;Escavatore;;120,00;210,50;1340;;;',
+      '25/10/2026;Furgone;AB123CD;45,20;80,10;91600;;;11,30',
+      `15/10/2026;Furgone;AB123CD;45,20;80,10;91200;"Distributore; Bianchi";'=1+1;`,
+      '20/12/2025;Furgone;AB123CD;0,50;1,00;;;;',
     ])
     const filtered = await browser.call(
       'GET',
@@ -396,5 +400,56 @@ describe('refuelings of vehicles', () => {
 
     await browser.call('DELETE', `${base}/${older.id}`, { headers: { 'if-match': '"2"' } })
     expect(await last()).toMatchObject({ id: sameDay.id })
+  })
+
+  it('gives each refueling its consumption since the previous reading', async () => {
+    const { browser, company, base } = await scene()
+    const add = async (date: string, liters: string, meter: number | null) =>
+      (
+        await browser.call('POST', base, {
+          body: fill({ refueled_on: date, liters, meter_reading: meter }),
+        })
+      ).json<Refueling & { consumption: string | null }>()
+    // The first one has nothing to compare with; one without reading neither.
+    const first = await add('2026-10-01', '60', 90000)
+    expect(first.consumption).toBeNull()
+    expect((await add('2026-10-05', '20', null)).consumption).toBeNull()
+    // A road vehicle: 35.5 litres over 400 km.
+    const second = await add('2026-10-15', '35.5', 90400)
+    expect(second.consumption).toBe('8.88')
+    // Registered late: the reading decides; the later one now counts from it.
+    const late = await add('2026-10-10', '0.1', 90200)
+    expect(late.consumption).toBe('0.05')
+    const list = (await browser.call('GET', base)).json<{
+      data: { id: string; consumption: string | null }[]
+    }>().data
+    expect(list.map((r) => [r.id, r.consumption])).toEqual([
+      [second.id, '17.75'],
+      [late.id, '0.05'],
+      [expect.any(String), null],
+      [first.id, null],
+    ])
+    // Filtering the period does not lose the previous reading.
+    const october15 = (
+      await browser.call('GET', `${base}?filter[from]=2026-10-15&filter[to]=2026-10-15`)
+    ).json<{ data: { consumption: string | null }[] }>().data
+    expect(october15.map((r) => r.consumption)).toEqual(['17.75'])
+    // A machine: litres per hour; another company's refuelings do not count.
+    const digger = await vehicleOf(company.id, 'Escavatore')
+    await ctx.owner.query("update public.vehicles set kind = 'machine' where id = $1", [digger])
+    const other = await fx.company('Altra impresa')
+    const theirs = await vehicleOf(other.id, 'Escavatore loro')
+    await ctx.owner.query(
+      `insert into public.vehicle_refuelings
+         (company_id, vehicle_id, refueled_on, liters, amount_cents, meter_reading)
+       values ($1, $2, '2026-10-01', 50, 9000, 1100)`,
+      [other.id, theirs],
+    )
+    const machineBase = base.replace(/vehicles\/[^/]+/, `vehicles/${digger}`)
+    await browser.call('POST', machineBase, { body: fill({ meter_reading: 1000 }) })
+    const hours = await browser.call('POST', machineBase, {
+      body: fill({ refueled_on: '2026-10-20', liters: '80', meter_reading: 1040 }),
+    })
+    expect(hours.json<{ consumption: string }>().consumption).toBe('2.00')
   })
 })
