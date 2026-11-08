@@ -1688,6 +1688,7 @@ paths:
       description: |
         Permesso: sites.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
         paginazione, nello stesso formato dell'esportazione dei clienti. Stato tradotto (Da iniziare, In corso, Sospeso, Chiuso), date come 30/11/2026, budget con la virgola decimale.
+        L'ultima colonna, «Documenti squadra scaduti», vale Sì o No come team_documents_expired.
         Il file si chiama cantieri.csv.
       parameters:
         - $ref: '#/components/parameters/Search'

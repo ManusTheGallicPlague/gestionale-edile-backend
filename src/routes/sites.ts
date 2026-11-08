@@ -439,6 +439,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             'Fine prevista',
             'Budget',
             'Note',
+            'Documenti squadra scaduti',
           ],
           rows.map((r) => [
             r.code,
@@ -450,6 +451,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             r.end_on && italianDate(r.end_on),
             r.budget_cents && italianAmount(r.budget_cents),
             r.notes,
+            r.team_documents_expired ? 'Sì' : 'No',
           ]),
         )
       })

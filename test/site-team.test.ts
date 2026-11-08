@@ -425,6 +425,9 @@ describe('sites by documents of their team', () => {
     expect(
       list.json<{ data: Flag[] }>().data.map((s) => [s.name, s.team_documents_expired]),
     ).toEqual([['Villetta', true]])
+    const csv = await browser.call('GET', `/api/companies/${company.slug}/sites/export`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.trim().split('\r\n')[1]).toMatch(/;Sì$/)
     // Sent back in the body it is ignored, and stays computed.
     const updated = await browser.call('PUT', site, {
       body: {
