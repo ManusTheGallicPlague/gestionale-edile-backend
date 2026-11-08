@@ -8636,7 +8636,7 @@ components:
         purchase_order: ordine a un fornitore. warehouse_item: articolo di magazzino.
         invoice: fattura. progress_statement: SAL. price_list: prezzario.
         site_activity: attività del cronoprogramma. employee_absence: assenza di un dipendente.
-        vehicle_maintenance: manutenzione di un mezzo.
+        vehicle_maintenance: manutenzione di un mezzo. vehicle_refueling: rifornimento di un mezzo.
       enum:
         [
           client,
@@ -8658,6 +8658,7 @@ components:
           site_activity,
           employee_absence,
           vehicle_maintenance,
+          vehicle_refueling,
         ]
     AuditEntry:
       type: object
