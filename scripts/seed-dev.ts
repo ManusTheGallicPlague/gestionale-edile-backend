@@ -585,6 +585,33 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          join public.vehicles v on v.company_id = $1 and v.plate = 'AA000AA'`,
         [companyId],
       )
+      // Insurance and road tax of the van (the tax expiring soon), and its registration.
+      await client.query(
+        `insert into public.vehicle_documents (company_id, vehicle_id, kind, description,
+           issued_on, expires_on)
+         select $1, v.id, d.kind, d.description, current_date - d.issued_ago,
+           current_date + d.expires_in
+         from (values
+           ('insurance', 'Polizza RCA n. 0000123', 300, 65),
+           ('road_tax', null, 340, 25),
+           ('registration', null, 2000, null)
+         ) as d (kind, description, issued_ago, expires_in)
+         join public.vehicles v on v.company_id = $1 and v.plate = 'AA000AA'`,
+        [companyId],
+      )
+      // Their deadlines, as the API does when the document is recorded.
+      await client.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, vehicle_id,
+           vehicle_document_id)
+         select d.company_id,
+           coalesce(d.description, case d.kind when 'insurance' then 'Assicurazione'
+             else 'Bollo' end) || ' – ' || v.name,
+           d.expires_on, 'vehicle', d.vehicle_id, d.id
+         from public.vehicle_documents d
+         join public.vehicles v on v.id = d.vehicle_id
+         where d.company_id = $1 and d.expires_on is not null`,
+        [companyId],
+      )
       await client.query('delete from public.employees where company_id = $1', [companyId])
       await client.query(
         `insert into public.employees (company_id, first_name, last_name, job_title, hired_on,

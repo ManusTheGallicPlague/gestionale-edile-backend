@@ -362,6 +362,13 @@ Aggiunta l'08/11/2026, con il piano tutto spuntato: con litri e contachilometri 
 - [x] Consumo medio nel riepilogo del mezzo (`meter_distance` e `consumption` in `fuel` di `getVehicleWorkSummary`): da pieno a pieno sui rifornimenti del periodo con il contachilometri, ordinati per lettura; litri ogni 100 km per gli automezzi, litri all'ora per gli altri; calcolato nel database in `numeric`, null se mancano almeno due letture diverse; nessuna migrazione
 - [x] Consumo di ogni pieno (`consumption` in `VehicleRefueling`, quindi in elenco, creazione e modifica, e colonna «Consumo» in fondo a `rifornimenti.csv`): litri del rifornimento divisi per la distanza dalla lettura precedente più alta tra quelle più basse, anche fuori dal periodo filtrato; solo lettura, fuori dall'`ETag`
 
+### 48. Documenti dei mezzi
+Aggiunta l'08/11/2026, con il piano tutto spuntato: oltre alla revisione (già tra le manutenzioni), un mezzo ha assicurazione, bollo e taratura del tachigrafo che scadono; il titolare vuole tenerli nella scheda del mezzo e ritrovarli nello scadenziario senza ricopiarli, come i documenti dei fornitori.
+
+- [x] Documenti di un mezzo (`listVehicleDocuments`, `createVehicleDocument`, `updateVehicleDocument`, `deleteVehicleDocument` su `…/vehicles/{vehicle}/documents`, migrazione 0074 con RLS, policy, privilegi e caso avversario): tipo (`insurance`, `road_tax`, `registration`, `tachograph`, `other`), descrizione, rilascio, scadenza, note, stato calcolato come per i fornitori; ordinati per scadenza; permessi `vehicles.view` e `vehicles.update`. Con la scadenza diventano una scadenza del mezzo (tipo `vehicle`, `vehicle_document_id` in `Deadline`) tenuta allineata dal backend
+- [ ] File allegato al documento del mezzo (la scansione della polizza o del libretto), come per i documenti dei fornitori
+- [ ] Documenti dei mezzi nel registro delle modifiche (`vehicle_document` in `AuditEntity`)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -548,6 +555,8 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 08/11/2026: l'ultimo rifornimento del mezzo segue la regola dell'ultima manutenzione (data più recente, a parità l'ultimo registrato), calcolato a ogni lettura e fuori dall'`ETag`; nel CSV dei mezzi la colonna del contachilometri si chiama «Contachilometri o contaore al rifornimento» per non confondersi con quella della manutenzione.
 - 08/11/2026: consumo medio da pieno a pieno: i rifornimenti del periodo con il contachilometri si ordinano per lettura (non per data, così un pieno registrato in ritardo non sballa il conto), il primo segna solo la partenza e i litri degli altri si dividono per la differenza tra la lettura più alta e la più bassa. L'unità dipende dal tipo di mezzo (automezzo: litri ogni 100 km; macchina operatrice e attrezzatura: litri all'ora), senza un campo per l'unità: il tipo è già nella scheda. Arrotondato a due decimali.
 - 08/11/2026: il consumo di un singolo pieno si misura dalla lettura precedente più alta tra quelle più basse del mezzo, di qualunque data: due pieni con la stessa lettura non si sommano (il secondo resta senza consumo rispetto al primo), mentre il consumo medio del riepilogo li conta tutti e due. È un dato calcolato e non cambia l'`ETag` del rifornimento.
+- 08/11/2026: documenti dei mezzi come quelli dei fornitori (stesso controllo dei campi, stesso stato); la revisione resta tra le manutenzioni (`next_due_on`), qui solo assicurazione, bollo, carta di circolazione, tachigrafo e altro. La scadenza nello scadenziario ha sempre tipo `vehicle` (anche per assicurazione e bollo), così il filtro per mezzo e per tipo li trova insieme alle manutenzioni.
+- 08/11/2026: un documento si elimina con il mezzo (cascata), ma come per la prossima manutenzione la sua scadenza ferma l'eliminazione del mezzo (409 `has_documents`): un mezzo con assicurazione in corso si mette non attivo.
 
 ## Registro dei giri
 

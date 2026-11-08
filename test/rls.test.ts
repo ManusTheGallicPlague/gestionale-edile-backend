@@ -657,6 +657,64 @@ describe('the API role cannot cross companies', () => {
     )
   })
 
+  it('vehicle documents: cannot read or write across companies', async () => {
+    const vehicle = async (companyId: string) =>
+      (
+        await owner.query<{ id: string }>(
+          "insert into public.vehicles (company_id, name, kind) values ($1, 'D', 'vehicle') returning id",
+          [companyId],
+        )
+      ).rows[0]?.id
+    const vehicleB = await vehicle(companyB.id)
+    const { rows: docs } = await owner.query<{ id: string }>(
+      `insert into public.vehicle_documents (company_id, vehicle_id, kind, expires_on)
+       values ($1, $2, 'insurance', '2027-01-01') returning id`,
+      [companyB.id, vehicleB],
+    )
+    const seen = await as(alice.id, companyA.id, (c) =>
+      c.query('select * from public.vehicle_documents where company_id = $1', [companyB.id]),
+    )
+    expect(seen.rowCount).toBe(0)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.vehicle_documents (company_id, vehicle_id, kind)
+           values ($1, $2, 'road_tax')`,
+          [companyB.id, vehicleB],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/)
+    // A document of my company cannot point at their vehicle.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.vehicle_documents (company_id, vehicle_id, kind)
+           values ($1, $2, 'road_tax')`,
+          [companyA.id, vehicleB],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    // A deadline of my company cannot point at their document.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.deadlines (company_id, title, due_on, kind, vehicle_document_id)
+           values ($1, 'X', '2027-01-01', 'vehicle', $2)`,
+          [companyA.id, docs[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+    const changed = await as(alice.id, companyA.id, async (c) => {
+      const u = await c.query("update public.vehicle_documents set notes = 'x'")
+      const d = await c.query('delete from public.vehicle_documents')
+      return (u.rowCount ?? 0) + (d.rowCount ?? 0)
+    })
+    expect(changed).toBe(0)
+    await expect(auth.query('select * from public.vehicle_documents')).rejects.toThrow(
+      /permission denied/,
+    )
+  })
+
   it('vehicle refuelings: cannot read or write across companies', async () => {
     const vehicle = async (companyId: string) =>
       (

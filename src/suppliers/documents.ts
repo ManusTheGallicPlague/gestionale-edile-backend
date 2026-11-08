@@ -3,8 +3,8 @@ import type { FieldErrors } from '../http/errors.js'
 export const DOCUMENT_KINDS = ['durc', 'chamber_extract', 'insurance', 'other'] as const
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number]
 
-export interface DocumentInput {
-  kind: DocumentKind
+export interface DocumentInput<K extends string = DocumentKind> {
+  kind: K
   description: string | null
   issued_on: string | null
   expires_on: string | null
@@ -26,9 +26,11 @@ export function isIsoDate(value: string): boolean {
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value
 }
 
-export function parseDocumentInput(
+/** Reads a document of a supplier, or of a vehicle when given the vehicle kinds. */
+export function parseDocumentInput<K extends string = DocumentKind>(
   body: unknown,
-): { input: DocumentInput } | { errors: FieldErrors } {
+  kinds: readonly K[] = DOCUMENT_KINDS as unknown as readonly K[],
+): { input: DocumentInput<K> } | { errors: FieldErrors } {
   const errors: FieldErrors = {}
   const add = (field: string, message: string) => {
     ;(errors[field] ??= []).push(message)
@@ -37,7 +39,7 @@ export function parseDocumentInput(
     return { errors: { _: ['Il corpo della richiesta deve essere un oggetto JSON.'] } }
   }
   const raw = body as Record<string, unknown>
-  const text = (field: keyof DocumentInput): string | null => {
+  const text = (field: keyof DocumentInput<K>): string | null => {
     if (!(field in raw)) {
       add(field, 'Campo mancante.')
       return null
@@ -53,7 +55,7 @@ export function parseDocumentInput(
   }
 
   const kindValue = text('kind')
-  const kind = DOCUMENT_KINDS.find((k) => k === kindValue)
+  const kind = kinds.find((k) => k === kindValue)
   if (!kind && !errors.kind) add('kind', 'Scegli il tipo di documento.')
 
   const description = text('description')

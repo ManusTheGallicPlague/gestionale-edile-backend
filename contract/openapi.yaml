@@ -5305,6 +5305,108 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/vehicles/{vehicle}/documents:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/VehicleId'
+    get:
+      operationId: listVehicleDocuments
+      summary: Documenti di un mezzo
+      description: |
+        Permesso: vehicles.view (senza, 404 come per la scheda). Assicurazione, bollo, carta di
+        circolazione e gli altri documenti del mezzo, senza paginazione (sono pochi), ordinati
+        per scadenza: prima quelli che scadono prima, in fondo quelli senza.
+      responses:
+        '200':
+          description: I documenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleDocumentList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    post:
+      operationId: createVehicleDocument
+      summary: Nuovo documento del mezzo
+      description: |
+        Permesso: vehicles.update. Se il documento scade, il backend ne fa una scadenza del
+        mezzo (tipo `vehicle`, `vehicle_document_id` nella scadenza).
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleDocumentInput' }
+      responses:
+        '201':
+          description: Documento registrato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/vehicles/{vehicle}/documents/{document}:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/VehicleId'
+      - name: document
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    put:
+      operationId: updateVehicleDocument
+      summary: Modifica di un documento del mezzo
+      description: |
+        Permesso: vehicles.update. Si inviano tutti i campi. If-Match come per i mezzi. Una
+        scadenza nuova (un rinnovo) riapre la scadenza del mezzo; null la elimina.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/VehicleDocumentInput' }
+      responses:
+        '200':
+          description: Documento aggiornato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VehicleDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteVehicleDocument
+      summary: Eliminazione di un documento del mezzo
+      description: 'Permesso: vehicles.update. If-Match come per i mezzi. Elimina anche la sua scadenza.'
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '204':
+          description: Documento eliminato
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/vehicles/{vehicle}/maintenances:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -8902,6 +9004,63 @@ components:
         vacation: ferie. sick_leave: malattia. leave: permesso. injury: infortunio.
         other: altra assenza (note obbligatorie).
       enum: [vacation, sick_leave, leave, injury, other]
+    VehicleDocumentKind:
+      type: string
+      description: |
+        insurance: assicurazione RCA. road_tax: bollo. registration: carta di circolazione.
+        tachograph: taratura del tachigrafo. other: altro documento (descrizione obbligatoria).
+      enum: [insurance, road_tax, registration, tachograph, other]
+    VehicleDocumentInput:
+      type: object
+      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      required: [kind, description, issued_on, expires_on, notes]
+      properties:
+        kind: { $ref: '#/components/schemas/VehicleDocumentKind' }
+        description:
+          type: [string, 'null']
+          description: Obbligatoria se kind è other (es. numero di polizza, compagnia).
+          maxLength: 200
+        issued_on:
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        expires_on:
+          description: |
+            Non prima di issued_on. Null se il documento non scade. Il backend ne fa una
+            scadenza del mezzo e la tiene allineata (una data nuova la riapre).
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 2000
+    VehicleDocument:
+      allOf:
+        - $ref: '#/components/schemas/VehicleDocumentInput'
+        - type: object
+          required: [id, vehicle_id, status, created_at, updated_at]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            vehicle_id: { $ref: '#/components/schemas/Id' }
+            status:
+              type: string
+              description: |
+                Calcolato dal backend sulla data di oggi (ora italiana). valid: valido.
+                expiring: scade entro 30 giorni. expired: scaduto. no_expiry: senza scadenza.
+              enum: [valid, expiring, expired, no_expiry]
+            created_at:
+              type: string
+              format: date-time
+            updated_at:
+              type: string
+              format: date-time
+    VehicleDocumentList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/VehicleDocument' }
     VehicleMaintenanceKind:
       type: string
       description: |
@@ -9411,6 +9570,7 @@ components:
             - supplier_document_id
             - invoice_id
             - vehicle_maintenance_id
+            - vehicle_document_id
             - client
             - supplier
             - site_id
@@ -9452,6 +9612,14 @@ components:
                 backend la tiene allineata alla data della prossima manutenzione (una data nuova
                 la riapre) e la elimina con la manutenzione: si modifica dalla manutenzione, non
                 da qui.
+              oneOf:
+                - $ref: '#/components/schemas/Id'
+                - type: 'null'
+            vehicle_document_id:
+              description: |
+                Documento del mezzo da cui nasce la scadenza (assicurazione, bollo...). Il backend
+                la tiene allineata alla scadenza del documento (una data nuova la riapre) e la
+                elimina con il documento: si modifica dal documento, non da qui.
               oneOf:
                 - $ref: '#/components/schemas/Id'
                 - type: 'null'

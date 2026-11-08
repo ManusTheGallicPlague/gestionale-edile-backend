@@ -33,6 +33,7 @@ interface DeadlineRow extends Omit<DeadlineInput, 'amount_cents'> {
   supplier_document_id: string | null
   invoice_id: string | null
   vehicle_maintenance_id: string | null
+  vehicle_document_id: string | null
   done_at: Date | null
   client_name: string | null
   supplier_name: string | null
@@ -49,7 +50,7 @@ type Params = { company: string; deadline?: string }
 // Dates leave the database as text, never as a JavaScript Date shifted by the time zone.
 const SELECT = `select d.id, d.title, d.due_on::text as due_on, d.kind, d.amount_cents::text as amount_cents,
     d.client_id, d.supplier_id, d.site_id, d.employee_id, d.vehicle_id, d.notes, d.recurrence, d.next_deadline_id,
-    d.supplier_document_id, d.invoice_id, d.vehicle_maintenance_id, d.status, d.done_at, d.version, d.created_at, d.updated_at,
+    d.supplier_document_id, d.invoice_id, d.vehicle_maintenance_id, d.vehicle_document_id, d.status, d.done_at, d.version, d.created_at, d.updated_at,
     c.name as client_name, s.name as supplier_name, si.name as site_name,
     e.last_name || ' ' || e.first_name as employee_name, v.name as vehicle_name
   from public.deadlines d
@@ -84,6 +85,7 @@ function toContract(row: DeadlineRow) {
     supplier_document_id: row.supplier_document_id,
     invoice_id: row.invoice_id,
     vehicle_maintenance_id: row.vehicle_maintenance_id,
+    vehicle_document_id: row.vehicle_document_id,
     status: row.status,
     done_at: row.done_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),
