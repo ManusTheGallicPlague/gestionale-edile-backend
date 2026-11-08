@@ -16,6 +16,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 interface RefuelingInput {
   refueled_on: string
@@ -159,7 +160,7 @@ export function parseRefuelingInput(body: unknown): RefuelingInput {
   return { refueled_on, liters, amount_cents, meter_reading, supplier_id, notes }
 }
 
-function readPeriod(query: Record<string, unknown>) {
+function readPeriod(query: Record<string, unknown>, withVehicle = false) {
   const errors: FieldErrors = {}
   const date = (name: string): string | null => {
     const value = query[`filter[${name}]`]
@@ -177,8 +178,14 @@ function readPeriod(query: Record<string, unknown>) {
   const from = date('from')
   const to = date('to')
   if (from && to && to < from) errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
+  let vehicle: string | null = null
+  if (withVehicle) {
+    const value = query['filter[vehicle]']
+    if (typeof value === 'string' && UUID.test(value)) vehicle = value.toLowerCase()
+    else if (value !== undefined) errors['filter[vehicle]'] = ['Identificativo non valido.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { from, to }
+  return { from, to, vehicle }
 }
 
 function expectedVersion(header: string | string[] | undefined): number {
@@ -223,6 +230,51 @@ async function missingOrStale(client: PoolClient, id: string, vehicleId: string)
 }
 
 export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db: Db): void {
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/vehicle-refuelings/export',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('vehicles.view')) throw forbidden()
+        const { from, to, vehicle } = readPeriod(request.query, true)
+        const { rows } = await client.query<
+          RefuelingRow & { vehicle_name: string; plate: string | null }
+        >(
+          `select r.refueled_on::text as refueled_on, r.liters::text as liters,
+             r.amount_cents::text as amount_cents, r.meter_reading, s.name as supplier_name,
+             r.notes, v.name as vehicle_name, v.plate
+           from public.vehicle_refuelings r
+           join public.vehicles v on v.id = r.vehicle_id
+           left join public.suppliers s on s.id = r.supplier_id
+           where ($1::date is null or r.refueled_on >= $1)
+             and ($2::date is null or r.refueled_on <= $2)
+             and ($3::uuid is null or r.vehicle_id = $3)
+           order by r.refueled_on desc, v.name, r.created_at desc, r.id desc
+           limit $4`,
+          [from, to, vehicle, MAX_EXPORT_ROWS],
+        )
+        return toCsv(
+          ['Data', 'Mezzo', 'Targa', 'Litri', 'Spesa', 'Km o ore', 'Distributore', 'Note'],
+          rows.map((r) => [
+            italianDate(r.refueled_on),
+            r.vehicle_name,
+            r.plate,
+            r.liters.replace('.', ','),
+            italianAmount(r.amount_cents),
+            r.meter_reading,
+            r.supplier_name,
+            r.notes,
+          ]),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="rifornimenti.csv"')
+        .send(csv)
+    },
+  )
+
   const base = '/api/companies/:company/vehicles/:vehicle/refuelings'
 
   app.get<{ Params: Params; Querystring: Record<string, unknown> }>(base, async (request) => {

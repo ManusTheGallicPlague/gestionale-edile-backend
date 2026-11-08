@@ -299,6 +299,56 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
     expect(employee.json<object>()).not.toHaveProperty('maintenance')
   })
 
+  it('somma i rifornimenti del mezzo nel periodo, senza quelli di altri mezzi', async () => {
+    const s = await scene()
+    const fill = (company: string, vehicle: string, date: string, liters: string, cents: number) =>
+      ctx.owner.query(
+        `insert into public.vehicle_refuelings
+           (company_id, vehicle_id, refueled_on, liters, amount_cents)
+         values ($1, $2, $3, $4, $5)`,
+        [company, vehicle, date, liters, cents],
+      )
+    const empty = await s.browser.call('GET', vehicleUrl(s.slug, s.digger))
+    expect(empty.json<object>()).toMatchObject({
+      fuel: { count: 0, liters: '0.00', amount: '0.00' },
+    })
+
+    // 0.1 + 0.2: summed as numerics, never as floats.
+    await fill(s.company.id, s.digger, '2026-09-30', '60.5', 11000)
+    await fill(s.company.id, s.digger, '2026-10-01', '0.1', 10)
+    await fill(s.company.id, s.digger, '2026-10-31', '0.2', 20)
+    const [truck = ''] = (
+      await ctx.owner.query<{ id: string }>(
+        `insert into public.vehicles (company_id, name, kind) values ($1, 'Furgone', 'vehicle')
+         returning id`,
+        [s.company.id],
+      )
+    ).rows.map((r) => r.id)
+    await fill(s.company.id, truck, '2026-10-15', '40', 7000)
+    const other = await scene()
+    await fill(other.company.id, other.digger, '2026-10-15', '80', 15000)
+
+    const all = await s.browser.call('GET', vehicleUrl(s.slug, s.digger))
+    expect(all.statusCode).toBe(200)
+    expect(all.json<object>()).toMatchObject({
+      fuel: { count: 3, liters: '60.80', amount: '110.30' },
+    })
+    const october = await s.browser.call(
+      'GET',
+      vehicleUrl(s.slug, s.digger, '?filter[from]=2026-10-01&filter[to]=2026-10-31'),
+    )
+    expect(october.json<object>()).toMatchObject({
+      fuel: { count: 2, liters: '0.30', amount: '0.30' },
+    })
+    const approved = await s.browser.call(
+      'GET',
+      vehicleUrl(s.slug, s.digger, '?filter[status]=approved'),
+    )
+    expect(approved.json<object>()).toMatchObject({ fuel: { count: 3 } })
+    const employee = await s.browser.call('GET', employeeUrl(s.slug, s.verdi))
+    expect(employee.json<object>()).not.toHaveProperty('fuel')
+  })
+
   it('rifiuta filtri non validi con 422', async () => {
     const s = await scene()
     const res = await s.browser.call(

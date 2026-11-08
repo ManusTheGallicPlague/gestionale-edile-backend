@@ -290,6 +290,25 @@ async function readMaintenance(client: PoolClient, id: string, query: Record<str
   return { count: rows[0]?.count ?? 0, amount: centsToAmount(rows[0]?.cents ?? '0') }
 }
 
+/** Refuelings of a vehicle in the period of the summary: how many, litres and cost. */
+async function readFuel(client: PoolClient, id: string, query: Record<string, unknown>) {
+  const { from, to } = readFilters(query)
+  // Summed in the database: litres and cents never pass through a float.
+  const { rows } = await client.query<{ count: number; liters: string; cents: string }>(
+    `select count(*)::int as count, coalesce(sum(liters), 0)::numeric(14, 2)::text as liters,
+       coalesce(sum(amount_cents), 0)::text as cents
+     from public.vehicle_refuelings
+     where vehicle_id = $1
+       and ($2::date is null or refueled_on >= $2) and ($3::date is null or refueled_on <= $3)`,
+    [id, from ?? null, to ?? null],
+  )
+  return {
+    count: rows[0]?.count ?? 0,
+    liters: rows[0]?.liters ?? '0.00',
+    amount: centsToAmount(rows[0]?.cents ?? '0'),
+  }
+}
+
 /** Hours of an employee or a vehicle per site, for their cards. */
 export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
   const routes: { path: string; param: string; permission: Permission; source: Source }[] = [
@@ -328,6 +347,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
             return {
               ...summary,
               maintenance: await readMaintenance(client, id.toLowerCase(), request.query),
+              fuel: await readFuel(client, id.toLowerCase(), request.query),
             }
           }
           return {
