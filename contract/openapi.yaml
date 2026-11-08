@@ -4579,6 +4579,9 @@ paths:
         scheda del dipendente: ore dai rapportini, giorni con ore e costo per cantiere, dal cantiere con
         più ore. Il costo usa il costo orario attuale, come il riepilogo dei costi del cantiere;
         è null se il costo orario manca. Senza filtri conta tutti i rapportini.
+        Con le ore anche le assenze dello stesso periodo (`absences`), per tipo: i giorni di
+        calendario delle assenze di tutto il giorno, contati solo dentro filter[from] e
+        filter[to], e le ore dei permessi. filter[status] vale solo per i rapportini.
       parameters:
         - name: filter
           in: query
@@ -4598,7 +4601,7 @@ paths:
           description: Le ore per cantiere
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/WorkSummary' }
+              schema: { $ref: '#/components/schemas/EmployeeWorkSummary' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -10776,6 +10779,32 @@ components:
                   - type: 'null'
               first_date: { $ref: '#/components/schemas/Date' }
               last_date: { $ref: '#/components/schemas/Date' }
+    EmployeeWorkSummary:
+      allOf:
+        - $ref: '#/components/schemas/WorkSummary'
+        - type: object
+          required: [absences]
+          properties:
+            absences:
+              type: object
+              description: |
+                Assenze del periodo. days: giorni di calendario delle assenze di tutto il giorno
+                (un'assenza a cavallo del periodo conta solo i suoi giorni dentro); hours: ore
+                dei permessi. kinds: solo i tipi con almeno un'assenza, nell'ordine di
+                EmployeeAbsenceKind.
+              required: [days, hours, kinds]
+              properties:
+                days: { type: integer }
+                hours: { $ref: '#/components/schemas/WorkHours' }
+                kinds:
+                  type: array
+                  items:
+                    type: object
+                    required: [kind, days, hours]
+                    properties:
+                      kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
+                      days: { type: integer }
+                      hours: { $ref: '#/components/schemas/WorkHours' }
     SiteWorkSummary:
       type: object
       required: [labor, vehicles]

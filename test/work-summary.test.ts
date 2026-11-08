@@ -104,6 +104,7 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
       hours: '26.83',
       days: 4,
       cost: '764.66',
+      absences: { days: 0, hours: '0.00', kinds: [] },
       sites: [
         {
           site: { id: s.villa, name: 'Villetta', code: 'C-1' },
@@ -172,7 +173,78 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
       'GET',
       employeeUrl(s.slug, s.verdi, '?filter[from]=2027-01-01'),
     )
-    expect(nothing.json<Summary>()).toEqual({ hours: '0.00', days: 0, cost: '0.00', sites: [] })
+    expect(nothing.json<Summary>()).toEqual({
+      hours: '0.00',
+      days: 0,
+      cost: '0.00',
+      sites: [],
+      absences: { days: 0, hours: '0.00', kinds: [] },
+    })
+  })
+
+  it('conta le assenze del dipendente nel periodo, per tipo, solo dentro le date', async () => {
+    const s = await scene()
+    const other = await scene()
+    const absence = (
+      company: string,
+      employee: string,
+      kind: string,
+      starts: string,
+      ends: string,
+      hours: string | null = null,
+    ) =>
+      ctx.owner.query(
+        `insert into public.employee_absences
+           (company_id, employee_id, kind, starts_on, ends_on, hours, notes)
+         values ($1, $2, $3, $4, $5, $6, 'x')`,
+        [company, employee, kind, starts, ends, hours],
+      )
+    await absence(s.company.id, s.verdi, 'vacation', '2026-10-26', '2026-11-06')
+    await absence(s.company.id, s.verdi, 'sick_leave', '2026-11-16', '2026-11-17')
+    await absence(s.company.id, s.verdi, 'leave', '2026-11-20', '2026-11-20', '2.5')
+    await absence(s.company.id, s.verdi, 'leave', '2026-11-30', '2026-11-30', '1.25')
+    await absence(s.company.id, s.verdi, 'vacation', '2026-12-28', '2027-01-04')
+    // Absences of another employee and of another company do not count.
+    await absence(s.company.id, s.bassi, 'injury', '2026-11-02', '2026-11-30')
+    await absence(other.company.id, other.verdi, 'injury', '2026-11-02', '2026-11-30')
+    await s.report(s.villa, '2026-11-10', 'draft', { verdi: '8' })
+
+    type WithAbsences = Summary & {
+      absences: {
+        days: number
+        hours: string
+        kinds: { kind: string; days: number; hours: string }[]
+      }
+    }
+    const of = async (query: string) => {
+      const res = await s.browser.call('GET', employeeUrl(s.slug, s.verdi, query))
+      expect(res.statusCode).toBe(200)
+      return res.json<WithAbsences>().absences
+    }
+    // November: the holidays across October count only their 6 days inside.
+    expect(await of('?filter[from]=2026-11-01&filter[to]=2026-11-30')).toEqual({
+      days: 8,
+      hours: '3.75',
+      kinds: [
+        { kind: 'vacation', days: 6, hours: '0.00' },
+        { kind: 'sick_leave', days: 2, hours: '0.00' },
+        { kind: 'leave', days: 0, hours: '3.75' },
+      ],
+    })
+    // The status of the reports does not filter the absences.
+    expect(
+      (await of('?filter[from]=2026-11-01&filter[to]=2026-11-30&filter[status]=approved')).days,
+    ).toBe(8)
+    // Without dates, every absence; open on one side.
+    expect((await of('')).days).toBe(12 + 2 + 8)
+    expect((await of('?filter[from]=2026-12-31')).kinds).toEqual([
+      { kind: 'vacation', days: 5, hours: '0.00' },
+    ])
+    expect((await of('?filter[to]=2026-10-31')).days).toBe(6)
+
+    // Vehicles have no absences.
+    const vehicle = await s.browser.call('GET', vehicleUrl(s.slug, s.digger))
+    expect(vehicle.json<object>()).not.toHaveProperty('absences')
   })
 
   it('rifiuta filtri non validi con 422', async () => {

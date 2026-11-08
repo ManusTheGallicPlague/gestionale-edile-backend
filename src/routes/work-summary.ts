@@ -9,6 +9,7 @@ import { centsToAmount } from '../money.js'
 import { ValidationFailed, forbidden, notFound, type FieldErrors } from '../http/errors.js'
 import { requireSession } from '../http/request-context.js'
 import type { Permission } from '../permissions.js'
+import { ABSENCE_KINDS } from './employee-absences.js'
 
 const STATUSES = ['draft', 'submitted', 'approved'] as const
 
@@ -248,6 +249,34 @@ async function readSiteSummary(
   }
 }
 
+/**
+ * Absences of an employee in the period of the summary, per kind: calendar days of the
+ * whole-day absences, clipped to the period, and hours of the leaves.
+ */
+async function readAbsences(client: PoolClient, id: string, query: Record<string, unknown>) {
+  const { from, to } = readFilters(query)
+  const { rows } = await client.query<{ kind: string; days: number; hours: string }>(
+    `select kind,
+       coalesce(sum(least(ends_on, coalesce($3::date, ends_on))
+         - greatest(starts_on, coalesce($2::date, starts_on)) + 1)
+         filter (where hours is null), 0)::int as days,
+       coalesce(sum(hours), 0)::numeric(10, 2)::text as hours
+     from public.employee_absences
+     where employee_id = $1
+       and ($2::date is null or ends_on >= $2) and ($3::date is null or starts_on <= $3)
+     group by kind`,
+    [id, from ?? null, to ?? null],
+  )
+  const kinds = ABSENCE_KINDS.flatMap((kind) => rows.filter((r) => r.kind === kind))
+  // Hours have two decimals: sum them as hundredths, like cents.
+  const hundredths = kinds.reduce((sum, r) => sum + BigInt(r.hours.replace('.', '')), 0n)
+  return {
+    days: kinds.reduce((sum, r) => sum + r.days, 0),
+    hours: centsToAmount(hundredths.toString()),
+    kinds: kinds.map((r) => ({ kind: r.kind, days: r.days, hours: r.hours })),
+  }
+}
+
 /** Hours of an employee or a vehicle per site, for their cards. */
 export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
   const routes: { path: string; param: string; permission: Permission; source: Source }[] = [
@@ -274,13 +303,18 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           if (!permissions.has(route.permission)) throw notFound()
           const id = request.params[route.param] ?? ''
           if (!UUID.test(id)) throw notFound()
-          return readSummary(
+          const summary = await readSummary(
             client,
             route.source,
             id.toLowerCase(),
             request.query,
             permissions.has('reports.view'),
           )
+          if (!summary || route.source.table !== 'employees') return summary
+          return {
+            ...summary,
+            absences: await readAbsences(client, id.toLowerCase(), request.query),
+          }
         })
         if (!summary) throw notFound()
         return reply.send(summary)

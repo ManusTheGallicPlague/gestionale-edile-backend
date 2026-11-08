@@ -274,6 +274,7 @@ Aggiunta l'08/11/2026, con il piano tutto spuntato: con le assenze registrate, i
 Aggiunta l'08/11/2026, con il piano tutto spuntato: l'ufficio e il titolare vogliono vedere ferie e permessi della squadra nel calendario del telefono, accanto alle scadenze, senza aprire il gestionale.
 
 - [x] Assenze di tutti i dipendenti in formato iCalendar (`exportAbsencesCalendar` su `…/absences/calendar`, file `assenze.ics`, con `employees.view`): eventi di giorni interi dal primo all'ultimo giorno, senza promemoria, «Cognome Nome – Tipo» con le ore del permesso, UID stabile, stessi filtri di `listCompanyAbsences`
+- [x] Assenze del periodo nel riepilogo ore del dipendente (`absences` in `getEmployeeWorkSummary`, schema `EmployeeWorkSummary`): giorni delle assenze di tutto il giorno, solo dentro le date del filtro, e ore dei permessi, per tipo
 
 ## Decisioni prese
 
@@ -442,6 +443,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 08/11/2026: un rapportino non accetta ore per chi ha un'assenza di tutto il giorno (senza ore) in quella data; si corregge l'assenza se è sbagliata. Un'assenza registrata dopo, su giorni con ore già nei rapportini, resta accettata: la malattia si comunica spesso a cose fatte.
 - 08/11/2026: il tipo dell'assenza (malattia, infortunio) è un dato delicato: a chi ha solo i permessi dei rapportini si dice che il dipendente è assente, non perché; il tipo e le ore del permesso solo con `employees.view`.
 - 08/11/2026: le assenze nel calendario (`assenze.ics`) non hanno promemoria, a differenza delle scadenze: sono eventi di altri, e un avviso per ogni ferie sarebbe solo rumore. Sono segnate come «libero» (TRANSP:TRANSPARENT) per non occupare l'agenda di chi le importa. Con `employees.view` si vede il tipo, malattia compresa, come nel CSV.
+- 08/11/2026: nel riepilogo ore del dipendente le assenze di tutto il giorno contano i giorni di calendario (sabati e domeniche compresi, come `days` dell'assenza), tagliati sulle date del filtro; i permessi contano solo le ore. Il filtro sullo stato dei rapportini non tocca le assenze. Un mezzo non ha assenze: `WorkSummary` resta com'era e il dipendente ha il suo `EmployeeWorkSummary`.
 
 ## Registro dei giri
 
