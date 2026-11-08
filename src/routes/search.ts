@@ -129,6 +129,19 @@ const TYPES: { type: string; permission: Permission; sql: string; parent?: true 
       from public.vehicle_documents d join public.vehicles v on v.id = d.vehicle_id) x
       where title ilike $1 or notes ilike $1`,
   },
+  {
+    type: 'employee_document',
+    permission: 'employees.view',
+    parent: true,
+    sql: `select * from (select d.id, d.employee_id as parent_id,
+        coalesce(d.description, case d.kind when 'medical_check' then 'Idoneità sanitaria'
+          when 'safety_training' then 'Formazione sicurezza' when 'first_aid' then 'Primo soccorso'
+          when 'fire_safety' then 'Antincendio' when 'license' then 'Patentino'
+          else 'Documento' end) as title,
+        e.last_name || ' ' || e.first_name as subtitle, d.notes
+      from public.employee_documents d join public.employees e on e.id = d.employee_id) x
+      where title ilike $1 or notes ilike $1`,
+  },
 ]
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)

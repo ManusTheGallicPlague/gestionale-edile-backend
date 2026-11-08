@@ -83,9 +83,14 @@ async function scene(permissions: Permission[] = ALL) {
        order_date) values ($1, 2026, 5, $2, '2026-11-02')`,
     [supplier.rows[0]?.id],
   )
-  await q(
+  const employee = await q(
     `insert into public.employees (company_id, first_name, last_name, job_title) values
-       ($1, 'Luca', 'Rossi', 'Muratore')`,
+       ($1, 'Luca', 'Rossi', 'Muratore') returning id`,
+  )
+  await q(
+    `insert into public.employee_documents (company_id, employee_id, kind, expires_on, notes)
+     values ($1, $2, 'safety_training', '2027-05-01', 'Attestato ROSSI-81')`,
+    [employee.rows[0]?.id],
   )
   const vehicle = await q(
     `insert into public.vehicles (company_id, name, kind, plate) values
@@ -136,6 +141,7 @@ async function scene(permissions: Permission[] = ALL) {
     siteId: site.rows[0]?.id,
     priceListId: priceList.rows[0]?.id,
     vehicleId: vehicle.rows[0]?.id,
+    employeeId: employee.rows[0]?.id,
   }
 }
 
@@ -162,16 +168,18 @@ describe('quick search', () => {
       ['warehouse_item', 'Tavole da ponte', 'ROSSI-T'],
       ['site_activity', 'Intonaci casa Rossi', 'Villa sul lago'],
       ['vehicle_document', 'Assicurazione', 'Escavatore Rossi'],
+      ['employee_document', 'Formazione sicurezza', 'Rossi Luca'],
     ])
     const parent = (type: string) => body.items.find((h) => h.type === type)?.parent_id
     expect(parent('price_list_item')).toBe(s.priceListId)
     expect(parent('site_document')).toBe(s.siteId)
     expect(parent('site_activity')).toBe(s.siteId)
     expect(parent('vehicle_document')).toBe(s.vehicleId)
+    expect(parent('employee_document')).toBe(s.employeeId)
     expect(parent('client')).toBeNull()
   })
 
-  it('finds quotes and orders by number, employees by first name first, vehicles by plate, vehicle documents by kind', async () => {
+  it('finds quotes and orders by number, employees by first name first, vehicles by plate, documents by kind', async () => {
     const s = await scene()
     const types = async (q: string) =>
       (await s.browser.call('GET', `${s.url}?q=${encodeURIComponent(q)}`))
@@ -183,6 +191,7 @@ describe('quick search', () => {
     expect(await types('ab123')).toEqual([['vehicle', 'Escavatore Rossi']])
     expect(await types('rossi-t')).toEqual([['warehouse_item', 'Tavole da ponte']])
     expect(await types('assicuraz')).toEqual([['vehicle_document', 'Assicurazione']])
+    expect(await types('formazione sic')).toEqual([['employee_document', 'Formazione sicurezza']])
   })
 
   it('treats % and _ as plain characters', async () => {
@@ -232,11 +241,13 @@ describe('quick search', () => {
     const theirs = await ctx.owner.query<{ id: string }>(
       `select id from public.clients where company_id = $1
        union all select id from public.site_activities where company_id = $1
-       union all select id from public.vehicle_documents where company_id = $1`,
+       union all select id from public.vehicle_documents where company_id = $1
+       union all select id from public.employee_documents where company_id = $1`,
       [other.company.id],
     )
-    expect(theirs.rows).toHaveLength(4) // Two clients, one activity, one vehicle document.
-    expect(ids).toHaveLength(15)
+    // Two clients, one activity, one vehicle document, one employee document.
+    expect(theirs.rows).toHaveLength(5)
+    expect(ids).toHaveLength(16)
     for (const row of theirs.rows) expect(ids).not.toContain(row.id)
 
     const cross = await mine.browser.call('GET', `${other.url}?q=rossi`)

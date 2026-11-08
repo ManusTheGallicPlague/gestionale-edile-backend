@@ -3526,9 +3526,12 @@ paths:
         warehouse_item (warehouse.view: nome e codice dell'articolo di magazzino),
         site_activity (sites.view: nome dell'attività del cronoprogramma), vehicle_document
         (vehicles.view: descrizione o tipo per esteso, es. Assicurazione, e note, dove di
-        solito sta il numero della polizza; subtitle è il nome del mezzo).
-        parent_id è il prezzario della voce, il cantiere del documento o dell'attività o il
-        mezzo del documento del mezzo, null per gli altri tipi. Clienti e fornitori archiviati sono esclusi.
+        solito sta il numero della polizza; subtitle è il nome del mezzo), employee_document
+        (employees.view: descrizione o tipo per esteso, es. Formazione sicurezza, e note;
+        subtitle è cognome e nome del dipendente).
+        parent_id è il prezzario della voce, il cantiere del documento o dell'attività, il
+        mezzo del documento del mezzo o il dipendente del documento del dipendente, null per
+        gli altri tipi. Clienti e fornitori archiviati sono esclusi.
         I tipi escono in quest'ordine; dentro un tipo prima i titoli che iniziano con il testo,
         poi gli altri in ordine alfabetico.
       parameters:
@@ -11303,6 +11306,7 @@ components:
               warehouse_item,
               site_activity,
               vehicle_document,
+              employee_document,
             ]
         id: { type: string, format: uuid }
         parent_id:
