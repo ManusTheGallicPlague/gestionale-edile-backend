@@ -367,7 +367,7 @@ Aggiunta l'08/11/2026, con il piano tutto spuntato: oltre alla revisione (già t
 
 - [x] Documenti di un mezzo (`listVehicleDocuments`, `createVehicleDocument`, `updateVehicleDocument`, `deleteVehicleDocument` su `…/vehicles/{vehicle}/documents`, migrazione 0074 con RLS, policy, privilegi e caso avversario): tipo (`insurance`, `road_tax`, `registration`, `tachograph`, `other`), descrizione, rilascio, scadenza, note, stato calcolato come per i fornitori; ordinati per scadenza; permessi `vehicles.view` e `vehicles.update`. Con la scadenza diventano una scadenza del mezzo (tipo `vehicle`, `vehicle_document_id` in `Deadline`) tenuta allineata dal backend
 - [ ] File allegato al documento del mezzo (la scansione della polizza o del libretto), come per i documenti dei fornitori
-- [ ] Documenti dei mezzi nel registro delle modifiche (`vehicle_document` in `AuditEntity`)
+- [x] Documenti dei mezzi nel registro delle modifiche (`vehicle_document` in `AuditEntity`, migrazione 0075): chi ha registrato, rinnovato o eliminato un documento, con i nomi dei campi
 
 ## Decisioni prese
 

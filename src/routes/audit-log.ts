@@ -29,6 +29,7 @@ const ENTITIES = [
   'employee_absence',
   'vehicle_maintenance',
   'vehicle_refueling',
+  'vehicle_document',
 ] as const
 
 interface AuditRow {

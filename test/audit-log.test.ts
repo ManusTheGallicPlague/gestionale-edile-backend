@@ -355,6 +355,69 @@ describe('audit log', () => {
     ])
   })
 
+  it('records who recorded, renewed or deleted a document of a vehicle', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'vehicles.view',
+      'vehicles.update',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const vehicle = await ctx.owner.query<{ id: string }>(
+      "insert into public.vehicles (company_id, name, kind) values ($1, 'Furgone', 'vehicle') returning id",
+      [company.id],
+    )
+    const base = `/api/companies/${company.slug}/vehicles/${vehicle.rows[0]?.id}/documents`
+    const insurance = {
+      kind: 'insurance',
+      description: null,
+      issued_on: '2026-03-01',
+      expires_on: '2027-03-01',
+      notes: null,
+    }
+    const created = await browser.call('POST', base, { body: insurance })
+    expect(created.statusCode).toBe(201)
+    const id = created.json<{ id: string }>().id
+    // The same document again is not a change; the renewal is.
+    const same = await browser.call('PUT', `${base}/${id}`, {
+      headers: { 'if-match': '"1"' },
+      body: insurance,
+    })
+    expect(same.statusCode).toBe(200)
+    const renewed = await browser.call('PUT', `${base}/${id}`, {
+      headers: { 'if-match': '"2"' },
+      body: { ...insurance, expires_on: '2028-03-01' },
+    })
+    expect(renewed.statusCode).toBe(200)
+    const deleted = await browser.call('DELETE', `${base}/${id}`, {
+      headers: { 'if-match': '"3"' },
+    })
+    expect(deleted.statusCode).toBe(204)
+    // Another company with a document: not in this log.
+    const other = await fx.company()
+    const theirs = await ctx.owner.query<{ id: string }>(
+      "insert into public.vehicles (company_id, name, kind) values ($1, 'Gru', 'machine') returning id",
+      [other.id],
+    )
+    await ctx.owner.query(
+      `insert into public.vehicle_documents (company_id, vehicle_id, kind) values ($1, $2, 'road_tax')`,
+      [other.id, theirs.rows[0]?.id],
+    )
+
+    const author = { id: user.id, name: 'Utente di prova' }
+    const res = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/audit-log?filter[entity]=vehicle_document`,
+    )
+    expect(res.statusCode).toBe(200)
+    const data = res.json<{ data: Entry[] }>().data
+    expect(data.map((e) => [e.entity_id, e.action, e.fields, e.user])).toEqual([
+      [id, 'delete', expect.anything(), author],
+      [id, 'update', ['expires_on'], author],
+      [id, 'create', expect.anything(), author],
+    ])
+  })
+
   it('records the vacation carried over as a change of the employee, without the days', async () => {
     const { company, user } = await fx.companyWithUser([
       'audit.view',

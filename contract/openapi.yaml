@@ -8743,6 +8743,7 @@ components:
         invoice: fattura. progress_statement: SAL. price_list: prezzario.
         site_activity: attività del cronoprogramma. employee_absence: assenza di un dipendente.
         vehicle_maintenance: manutenzione di un mezzo. vehicle_refueling: rifornimento di un mezzo.
+        vehicle_document: documento di un mezzo (assicurazione, bollo...).
       enum:
         [
           client,
@@ -8765,6 +8766,7 @@ components:
           employee_absence,
           vehicle_maintenance,
           vehicle_refueling,
+          vehicle_document,
         ]
     AuditEntry:
       type: object
