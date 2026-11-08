@@ -632,6 +632,20 @@ describe('the API role cannot cross companies', () => {
         ),
       ),
     ).rejects.toThrow(/foreign key/)
+    // A deadline of my company cannot point at their maintenance as its next job.
+    const { rows: jobs } = await owner.query<{ id: string }>(
+      'select id from public.vehicle_maintenances where company_id = $1 limit 1',
+      [companyB.id],
+    )
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.deadlines (company_id, title, due_on, kind, vehicle_maintenance_id)
+           values ($1, 'X', '2027-01-01', 'vehicle', $2)`,
+          [companyA.id, jobs[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
     const changed = await as(alice.id, companyA.id, async (c) => {
       const u = await c.query("update public.vehicle_maintenances set notes = 'x'")
       const d = await c.query('delete from public.vehicle_maintenances')

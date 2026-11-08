@@ -544,17 +544,28 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
       )
       await client.query(
         `insert into public.vehicle_maintenances (company_id, vehicle_id, performed_on, kind,
-           description, supplier_id, amount_cents, meter_reading)
+           description, supplier_id, amount_cents, meter_reading, next_due_on)
          select $1, v.id, current_date - m.ago, m.kind, m.description,
            (select id from public.suppliers where company_id = $1 order by name limit 1),
-           m.cents, m.meter
+           m.cents, m.meter, current_date + m.next_in
          from (values
-           ('AA000AA', 200, 'service', 'Tagliando con cambio olio e filtri', 38000, 84500),
-           ('AA000AA', 40, 'tires', 'Quattro gomme invernali', 52000, 91200),
-           (null, 90, 'repair', 'Sostituzione tubo idraulico del braccio', 21550, 1340)
-         ) as m (plate, ago, kind, description, cents, meter)
+           ('AA000AA', 200, 'service', 'Tagliando con cambio olio e filtri', 38000, 84500, 165),
+           ('AA000AA', 40, 'tires', 'Quattro gomme invernali', 52000, 91200, null),
+           (null, 90, 'repair', 'Sostituzione tubo idraulico del braccio', 21550, 1340, null)
+         ) as m (plate, ago, kind, description, cents, meter, next_in)
          join public.vehicles v on v.company_id = $1
            and (v.plate = m.plate or (m.plate is null and v.kind = 'machine'))`,
+        [companyId],
+      )
+      // The next service in the calendar, as the API does when the job is recorded.
+      await client.query(
+        `insert into public.deadlines (company_id, title, due_on, kind, vehicle_id,
+           vehicle_maintenance_id)
+         select m.company_id, 'Prossimo tagliando – ' || v.name, m.next_due_on, 'vehicle',
+           m.vehicle_id, m.id
+         from public.vehicle_maintenances m
+         join public.vehicles v on v.id = m.vehicle_id
+         where m.company_id = $1 and m.next_due_on is not null`,
         [companyId],
       )
       await client.query('delete from public.employees where company_id = $1', [companyId])

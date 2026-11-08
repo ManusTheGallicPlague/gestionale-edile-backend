@@ -8750,7 +8750,9 @@ components:
       enum: [service, repair, inspection, tires, other]
     VehicleMaintenanceInput:
       type: object
-      description: I campi facoltativi si inviano comunque, con null se vuoti.
+      description: |
+        I campi facoltativi si inviano comunque, con null se vuoti; fa eccezione `next_due_on`,
+        che se manca vale null alla creazione e resta com'era nella modifica.
       required: [performed_on, kind, description, supplier_id, amount, meter_reading, notes]
       properties:
         performed_on: { $ref: '#/components/schemas/Date' }
@@ -8777,11 +8779,21 @@ components:
         notes:
           type: [string, 'null']
           maxLength: 2000
+        next_due_on:
+          description: |
+            Data della prossima manutenzione (es. il prossimo tagliando o la prossima
+            revisione), dopo `performed_on`. Il backend ne fa una scadenza del mezzo (tipo
+            `vehicle`, `vehicle_maintenance_id` nella scadenza), la tiene allineata alla data
+            (una data nuova la riapre) e la elimina quando la data si toglie o la manutenzione
+            si elimina. Un mezzo con scadenze non si elimina (409 `has_documents`).
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
     VehicleMaintenance:
       allOf:
         - $ref: '#/components/schemas/VehicleMaintenanceInput'
         - type: object
-          required: [id, vehicle_id, supplier, created_at, updated_at]
+          required: [id, vehicle_id, supplier, next_due_on, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             vehicle_id: { $ref: '#/components/schemas/Id' }
@@ -9160,6 +9172,7 @@ components:
             - next_deadline_id
             - supplier_document_id
             - invoice_id
+            - vehicle_maintenance_id
             - client
             - supplier
             - site_id
@@ -9192,6 +9205,15 @@ components:
                 Fattura da cui nasce la scadenza di pagamento. Il backend la tiene allineata alla
                 fattura (data, importo, chiusa quando la fattura è pagata) e la elimina con la
                 fattura: si modifica dalla fattura, non da qui.
+              oneOf:
+                - $ref: '#/components/schemas/Id'
+                - type: 'null'
+            vehicle_maintenance_id:
+              description: |
+                Manutenzione del mezzo da cui nasce la scadenza (la sua `next_due_on`). Il
+                backend la tiene allineata alla data della prossima manutenzione (una data nuova
+                la riapre) e la elimina con la manutenzione: si modifica dalla manutenzione, non
+                da qui.
               oneOf:
                 - $ref: '#/components/schemas/Id'
                 - type: 'null'

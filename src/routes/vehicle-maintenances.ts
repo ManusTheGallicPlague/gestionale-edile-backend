@@ -38,9 +38,12 @@ interface MaintenanceInput {
   amount_cents: string | null
   meter_reading: number | null
   notes: string | null
+  /** Undefined when the field is missing: null at creation, unchanged in an update. */
+  next_due_on?: string | null | undefined
 }
 
 interface MaintenanceRow extends MaintenanceInput {
+  next_due_on: string | null
   id: string
   vehicle_id: string
   supplier_name: string | null
@@ -59,6 +62,7 @@ const FIELDS = [
   'amount_cents',
   'meter_reading',
   'notes',
+  'next_due_on',
 ] as const
 
 /** The fields of the request body: the amount travels in euros, not in cents. */
@@ -70,12 +74,13 @@ const INPUT_FIELDS = [
   'amount',
   'meter_reading',
   'notes',
+  'next_due_on',
 ] as const
 
 // Dates leave the database as text: a JavaScript Date would shift them with the time zone.
 const SELECT = `select m.id, m.vehicle_id, m.performed_on::text as performed_on, m.kind,
     m.description, m.supplier_id, s.name as supplier_name,
-    m.amount_cents::text as amount_cents, m.meter_reading, m.notes, m.version,
+    m.amount_cents::text as amount_cents, m.meter_reading, m.notes, m.next_due_on::text as next_due_on, m.version,
     m.created_at, m.updated_at
   from public.vehicle_maintenances m
   left join public.suppliers s on s.id = m.supplier_id`
@@ -92,6 +97,7 @@ function toContract(row: MaintenanceRow) {
     amount: row.amount_cents === null ? null : centsToAmount(row.amount_cents),
     meter_reading: row.meter_reading,
     notes: row.notes,
+    next_due_on: row.next_due_on,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -166,10 +172,31 @@ export function parseMaintenanceInput(body: unknown): MaintenanceInput {
 
   const notes = text('notes', 2000)
 
+  // Optional, unlike the other fields: missing means null at creation and unchanged in an update.
+  let next_due_on: string | null | undefined
+  if ('next_due_on' in raw) {
+    next_due_on = text('next_due_on', 10)
+    if (next_due_on !== null && !errors.next_due_on) {
+      if (!isIsoDate(next_due_on)) add('next_due_on', 'Data non valida: usa il formato AAAA-MM-GG.')
+      else if (performed_on && isIsoDate(performed_on) && next_due_on <= performed_on) {
+        add('next_due_on', 'La prossima manutenzione deve venire dopo la data del lavoro.')
+      }
+    }
+  }
+
   if (Object.keys(errors).length > 0 || !performed_on || !kind || !description) {
     throw new ValidationFailed(errors)
   }
-  return { performed_on, kind, description, supplier_id, amount_cents, meter_reading, notes }
+  return {
+    performed_on,
+    kind,
+    description,
+    supplier_id,
+    amount_cents,
+    meter_reading,
+    notes,
+    next_due_on,
+  }
 }
 
 function readPeriod(query: Record<string, unknown>, withVehicle = false) {
@@ -239,6 +266,53 @@ async function missingOrStale(client: PoolClient, id: string, vehicleId: string)
   )
   if (!rowCount) throw notFound()
   throw new ApiError(412, messages.maintenanceStale, 'stale_record')
+}
+
+/** Titles of the deadline of the next maintenance, by kind of the job that sets it. */
+const NEXT_TITLE: Record<MaintenanceKind, string> = {
+  service: 'Prossimo tagliando',
+  repair: 'Controllo dopo la riparazione',
+  inspection: 'Prossima revisione',
+  tires: 'Cambio gomme',
+  other: 'Prossima manutenzione',
+}
+
+/**
+ * Keeps the deadline of the next maintenance in step: one deadline of the vehicle on the date,
+ * none without a date. A new date reopens it, as a renewal does for the supplier documents.
+ */
+async function syncNextDeadline(client: PoolClient, id: string): Promise<void> {
+  await client.query(
+    `delete from public.deadlines d using public.vehicle_maintenances m
+     where d.vehicle_maintenance_id = m.id and m.id = $1 and m.next_due_on is null`,
+    [id],
+  )
+  await client.query(
+    `insert into public.deadlines (company_id, title, due_on, kind, vehicle_id, vehicle_maintenance_id)
+     select m.company_id,
+       left(case m.kind when 'service' then $2 when 'repair' then $3 when 'inspection' then $4
+         when 'tires' then $5 else $6 end || ' – ' || v.name, 200),
+       m.next_due_on, 'vehicle', m.vehicle_id, m.id
+     from public.vehicle_maintenances m
+     join public.vehicles v on v.id = m.vehicle_id
+     where m.id = $1 and m.next_due_on is not null
+     on conflict (vehicle_maintenance_id) do update set
+       title = excluded.title,
+       status = case when deadlines.due_on = excluded.due_on then deadlines.status else 'open' end,
+       done_at = case when deadlines.due_on = excluded.due_on then deadlines.done_at end,
+       due_on = excluded.due_on,
+       version = deadlines.version + 1, updated_at = now()
+     where deadlines.title is distinct from excluded.title
+        or deadlines.due_on is distinct from excluded.due_on`,
+    [
+      id,
+      NEXT_TITLE.service,
+      NEXT_TITLE.repair,
+      NEXT_TITLE.inspection,
+      NEXT_TITLE.tires,
+      NEXT_TITLE.other,
+    ],
+  )
 }
 
 export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, db: Db): void {
@@ -331,11 +405,13 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
       await checkSupplier(client, input)
       const { rows } = await client.query<{ id: string }>(
         `insert into public.vehicle_maintenances (company_id, vehicle_id, ${FIELDS.join(', ')})
-         values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8)
+         values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9)
          returning id`,
-        [vehicleId, ...FIELDS.map((f) => input[f])],
+        [vehicleId, ...FIELDS.map((f) => input[f] ?? null)],
       )
-      return readOne(client, rows[0]?.id ?? '')
+      const id = rows[0]?.id ?? ''
+      await syncNextDeadline(client, id)
+      return readOne(client, id)
     })
     return send(reply, row, 201)
   })
@@ -352,14 +428,30 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
       const version = expectedVersion(request.headers['if-match'])
       const input = parseMaintenanceInput(request.body)
       await checkSupplier(client, input)
+      if (input.next_due_on === undefined) {
+        // The next date stays as it was: it must still come after the (new) date of the job.
+        const { rows } = await client.query<{ next_due_on: string | null }>(
+          `select next_due_on::text as next_due_on from public.vehicle_maintenances
+           where id = $1 and vehicle_id = $2`,
+          [id, vehicleId],
+        )
+        const kept = rows[0]?.next_due_on ?? null
+        if (kept !== null && kept <= input.performed_on) {
+          throw new ValidationFailed({
+            performed_on: ['La data del lavoro deve venire prima della prossima manutenzione.'],
+          })
+        }
+        input.next_due_on = kept
+      }
       const { rowCount } = await client.query(
         `update public.vehicle_maintenances
          set ${FIELDS.map((f, i) => `${f} = $${i + 1}`).join(', ')},
              version = version + 1, updated_at = now()
-         where id = $8 and vehicle_id = $9 and version = $10`,
-        [...FIELDS.map((f) => input[f]), id, vehicleId, version],
+         where id = $9 and vehicle_id = $10 and version = $11`,
+        [...FIELDS.map((f) => input[f] ?? null), id, vehicleId, version],
       )
       if (!rowCount) await missingOrStale(client, id, vehicleId)
+      await syncNextDeadline(client, id)
       return readOne(client, id)
     })
     return send(reply, row)
