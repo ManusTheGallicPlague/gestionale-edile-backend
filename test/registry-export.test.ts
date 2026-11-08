@@ -84,14 +84,24 @@ describe('sites, employees and vehicles export', () => {
        where company_id = $1 and name = 'Furgone'`,
       [company.id],
     )
+    // Two refuelings of the van: the most recent one goes in the file.
+    await ctx.owner.query(
+      `insert into public.vehicle_refuelings
+         (company_id, vehicle_id, refueled_on, liters, amount_cents, meter_reading)
+       select $1, id, d::date, l, 9000, m
+       from public.vehicles, (values ('2026-10-20', 45.5, 84600),
+                                     ('2026-09-01', 50, 83000)) r(d, l, m)
+       where company_id = $1 and name = 'Furgone'`,
+      [company.id],
+    )
     const url = `/api/companies/${company.slug}/vehicles/export`
     const res = await browser.call('GET', url)
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-disposition']).toBe('attachment; filename="mezzi.csv"')
     expect(lines(res.body)).toEqual([
-      'Nome;Tipo;Targa;Marca e modello;Costo orario;In uso;Note;Ultima manutenzione;Tipo di manutenzione;Contachilometri o contaore',
-      'Furgone;Automezzo;AB123CD;;15,00;Sì;;12/10/2026;Revisione;84200',
-      'Gru;Macchina operatrice;;;;Sì;;;;',
+      'Nome;Tipo;Targa;Marca e modello;Costo orario;In uso;Note;Ultima manutenzione;Tipo di manutenzione;Contachilometri o contaore;Ultimo rifornimento;Litri;Contachilometri o contaore al rifornimento',
+      'Furgone;Automezzo;AB123CD;;15,00;Sì;;12/10/2026;Revisione;84200;20/10/2026;45,50;84600',
+      'Gru;Macchina operatrice;;;;Sì;;;;;;;',
     ])
   })
 

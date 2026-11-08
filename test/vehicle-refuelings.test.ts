@@ -314,4 +314,87 @@ describe('refuelings of vehicles', () => {
     )
     expect(gone.rowCount).toBe(0)
   })
+
+  it('shows the last refueling in the vehicle card and in the list', async () => {
+    const { browser, company, vehicle, base } = await scene()
+    const card = `/api/companies/${company.slug}/vehicles/${vehicle}`
+    const list = `/api/companies/${company.slug}/vehicles`
+    type Card = { id: string; last_refueling: { id: string } | null }
+    const last = async () => (await browser.call('GET', card)).json<Card>().last_refueling
+    expect(await last()).toBeNull()
+
+    const older = (
+      await browser.call('POST', base, { body: fill({ refueled_on: '2026-10-01' }) })
+    ).json<Refueling>()
+    expect(await last()).toEqual({
+      id: older.id,
+      refueled_on: '2026-10-01',
+      liters: '45.20',
+      meter_reading: 91200,
+    })
+    // A refueling registered later but made earlier does not take its place.
+    await browser.call('POST', base, { body: fill({ refueled_on: '2026-09-01' }) })
+    expect(await last()).toMatchObject({ id: older.id })
+    // Same day: the one registered last wins.
+    const sameDay = (
+      await browser.call('POST', base, {
+        body: fill({ refueled_on: '2026-10-01', liters: '0.1', meter_reading: null }),
+      })
+    ).json<Refueling>()
+    expect(await last()).toEqual({
+      id: sameDay.id,
+      refueled_on: '2026-10-01',
+      liters: '0.10',
+      meter_reading: null,
+    })
+    // The ETag of the vehicle does not change.
+    expect((await browser.call('GET', card)).headers.etag).toBe('"1"')
+
+    // Moving the older refueling forward makes it the last one.
+    await browser.call('PUT', `${base}/${older.id}`, {
+      body: fill({ refueled_on: '2026-10-20', liters: '60', meter_reading: 92000 }),
+      headers: { 'if-match': '"1"' },
+    })
+    expect(await last()).toEqual({
+      id: older.id,
+      refueled_on: '2026-10-20',
+      liters: '60.00',
+      meter_reading: 92000,
+    })
+
+    // Another vehicle of the company and one of another company keep their own.
+    const bare = await vehicleOf(company.id, 'Autocarro')
+    const other = await fx.company('Altra impresa')
+    const theirVehicle = await vehicleOf(other.id, 'Camion loro')
+    await ctx.owner.query(
+      `insert into public.vehicle_refuelings (company_id, vehicle_id, refueled_on, liters, amount_cents)
+       values ($1, $2, '2026-12-01', 50, 9000)`,
+      [other.id, theirVehicle],
+    )
+    const rows = (await browser.call('GET', `${list}?sort=name`)).json<{ data: Card[] }>().data
+    expect(rows.map((v) => [v.id, v.last_refueling && v.last_refueling.id])).toEqual([
+      [bare, null],
+      [vehicle, older.id],
+    ])
+
+    // Sent in the body it is ignored; the vehicle is updated.
+    const put = await browser.call('PUT', card, {
+      body: {
+        name: 'Furgone grande',
+        kind: 'vehicle',
+        plate: null,
+        model: null,
+        hourly_cost: null,
+        active: true,
+        notes: null,
+        last_refueling: null,
+      },
+      headers: { 'if-match': '"1"' },
+    })
+    expect(put.statusCode).toBe(200)
+    expect(put.json<Card>().last_refueling).toMatchObject({ id: older.id })
+
+    await browser.call('DELETE', `${base}/${older.id}`, { headers: { 'if-match': '"2"' } })
+    expect(await last()).toMatchObject({ id: sameDay.id })
+  })
 })

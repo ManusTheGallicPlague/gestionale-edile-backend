@@ -5154,9 +5154,11 @@ paths:
       description: |
         Permesso: vehicles.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
         paginazione, nello stesso formato dell'esportazione dei clienti. Tipo tradotto (Automezzo, Macchina operatrice, Attrezzatura), costo orario con la virgola decimale.
-        Le ultime tre colonne vengono dall'intervento più recente (`last_maintenance`):
+        Dopo le note, tre colonne vengono dall'intervento più recente (`last_maintenance`):
         data (gg/mm/aaaa), tipo per esteso e contachilometri o contaore; vuote se non ce ne
-        sono. L'importazione dei mezzi le ignora.
+        sono. Le ultime tre vengono dal rifornimento più recente (`last_refueling`): data,
+        litri con la virgola e contachilometri o contaore; vuote se non ce ne sono.
+        L'importazione dei mezzi le ignora tutte e sei.
         Il file si chiama mezzi.csv.
       parameters:
         - $ref: '#/components/parameters/Search'
@@ -11815,9 +11817,17 @@ components:
       allOf:
         - $ref: '#/components/schemas/VehicleInput'
         - type: object
-          required: [id, last_maintenance, created_at, updated_at]
+          required: [id, last_maintenance, last_refueling, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            last_refueling:
+              description: |
+                Rifornimento più recente del mezzo (data più recente; a parità, l'ultimo
+                registrato), null se non ce ne sono. Solo lettura: si ignora se inviato, e
+                registrare un rifornimento non cambia l'ETag del mezzo.
+              oneOf:
+                - $ref: '#/components/schemas/VehicleLastRefueling'
+                - type: 'null'
             last_maintenance:
               description: |
                 Intervento più recente del mezzo (data più recente; a parità, l'ultimo
@@ -11832,6 +11842,18 @@ components:
             updated_at:
               type: string
               format: date-time
+    VehicleLastRefueling:
+      type: object
+      required: [id, refueled_on, liters, meter_reading]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        refueled_on: { $ref: '#/components/schemas/Date' }
+        liters: { $ref: '#/components/schemas/Liters' }
+        meter_reading:
+          type: [integer, 'null']
+          description: Contachilometri o contaore registrato in quel rifornimento.
+          minimum: 0
+          maximum: 9999999
     VehicleLastMaintenance:
       type: object
       required: [id, performed_on, kind, meter_reading, next_due_on]

@@ -48,6 +48,10 @@ interface VehicleRow extends VehicleValues {
   last_maintenance_kind: MaintenanceKind | null
   last_meter_reading: number | null
   last_next_due_on: string | null
+  last_refueling_id: string | null
+  last_refueling_on: string | null
+  last_refueling_liters: string | null
+  last_refueling_meter_reading: number | null
   version: number
   created_at: Date
   updated_at: Date
@@ -59,7 +63,9 @@ const SELECT = `select v.id, v.name, v.kind, v.plate, v.model,
     v.hourly_cost_cents::text as hourly_cost_cents, v.active, v.notes, v.version, v.created_at,
     v.updated_at, m.id as last_maintenance_id, m.performed_on::text as last_maintenance_on,
     m.kind as last_maintenance_kind, m.meter_reading as last_meter_reading,
-    m.next_due_on::text as last_next_due_on
+    m.next_due_on::text as last_next_due_on, f.id as last_refueling_id,
+    f.refueled_on::text as last_refueling_on, f.liters::text as last_refueling_liters,
+    f.meter_reading as last_refueling_meter_reading
   from public.vehicles v
   left join lateral (
     select vm.id, vm.performed_on, vm.kind, vm.meter_reading, vm.next_due_on
@@ -67,7 +73,14 @@ const SELECT = `select v.id, v.name, v.kind, v.plate, v.model,
     where vm.vehicle_id = v.id and vm.company_id = v.company_id
     order by vm.performed_on desc, vm.created_at desc, vm.id desc
     limit 1
-  ) m on true`
+  ) m on true
+  left join lateral (
+    select vr.id, vr.refueled_on, vr.liters, vr.meter_reading
+    from public.vehicle_refuelings vr
+    where vr.vehicle_id = v.id and vr.company_id = v.company_id
+    order by vr.refueled_on desc, vr.created_at desc, vr.id desc
+    limit 1
+  ) f on true`
 
 const SORTS = {
   name: 'lower(v.name) asc, v.id asc',
@@ -95,6 +108,15 @@ function toContract(row: VehicleRow) {
             kind: row.last_maintenance_kind,
             meter_reading: row.last_meter_reading,
             next_due_on: row.last_next_due_on,
+          },
+    last_refueling:
+      row.last_refueling_id === null
+        ? null
+        : {
+            id: row.last_refueling_id,
+            refueled_on: row.last_refueling_on,
+            liters: row.last_refueling_liters,
+            meter_reading: row.last_refueling_meter_reading,
           },
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
@@ -342,6 +364,9 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
             'Ultima manutenzione',
             'Tipo di manutenzione',
             'Contachilometri o contaore',
+            'Ultimo rifornimento',
+            'Litri',
+            'Contachilometri o contaore al rifornimento',
           ],
           rows.map((r) => [
             r.name,
@@ -354,6 +379,9 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
             r.last_maintenance_on && italianDate(r.last_maintenance_on),
             r.last_maintenance_kind && MAINTENANCE_KIND_NAMES[r.last_maintenance_kind],
             r.last_meter_reading,
+            r.last_refueling_on && italianDate(r.last_refueling_on),
+            r.last_refueling_liters && r.last_refueling_liters.replace('.', ','),
+            r.last_refueling_meter_reading,
           ]),
         )
       })
