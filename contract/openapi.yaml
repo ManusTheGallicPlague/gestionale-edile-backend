@@ -5445,6 +5445,114 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/employees/{employee}/documents/{document}/file:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+      - name: document
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    get:
+      operationId: getEmployeeDocumentFile
+      summary: Il file di un documento del dipendente
+      description: |
+        Permesso: employees.view. Senza permesso, o se il documento non ha un file, risponde
+        404. Il file arriva come allegato (Content-Disposition: attachment, con il nome
+        originale).
+      responses:
+        '200':
+          description: Il file
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+            Content-Disposition:
+              schema: { type: string }
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+            image/jpeg:
+              schema: { type: string, format: binary }
+            image/png:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    put:
+      operationId: setEmployeeDocumentFile
+      summary: Caricamento o sostituzione del file di un documento del dipendente
+      description: |
+        Permesso: employees.update. Il corpo è il file, con il suo Content-Type: PDF, JPEG o
+        PNG (l'attestato o il giudizio di idoneità, scansionato o fotografato), al massimo 20 MB. Il contenuto deve
+        corrispondere al tipo dichiarato (altrimenti 422 sotto file). Nome del file nella query.
+        Un file già presente viene sostituito. If-Match con la versione del documento: la
+        risposta è il documento con la versione nuova.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+        - name: file_name
+          in: query
+          required: true
+          description: Nome originale del file; si tiene solo l'ultima parte del percorso.
+          schema: { type: string, minLength: 1, maxLength: 200 }
+      requestBody:
+        required: true
+        content:
+          application/pdf:
+            schema: { type: string, format: binary }
+          image/jpeg:
+            schema: { type: string, format: binary }
+          image/png:
+            schema: { type: string, format: binary }
+      responses:
+        '200':
+          description: File salvato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '413':
+          description: File più grande di 20 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Tipo di file non ammesso.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+    delete:
+      operationId: deleteEmployeeDocumentFile
+      summary: Eliminazione del file di un documento del dipendente
+      description: |
+        Permesso: employees.update. If-Match con la versione del documento. Il documento resta,
+        senza file; la risposta è il documento con la versione nuova. Se non c'è un file, 404.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - $ref: '#/components/parameters/IfMatch'
+      responses:
+        '200':
+          description: File eliminato
+          headers:
+            ETag: { $ref: '#/components/headers/ETag' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/EmployeeDocument' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '412': { $ref: '#/components/responses/StaleRecord' }
+        '428': { $ref: '#/components/responses/PreconditionRequired' }
+
   /api/companies/{company}/vehicles/{vehicle}/documents:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -9292,10 +9400,15 @@ components:
       allOf:
         - $ref: '#/components/schemas/EmployeeDocumentInput'
         - type: object
-          required: [id, employee_id, status, created_at, updated_at]
+          required: [id, employee_id, status, file, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             employee_id: { $ref: '#/components/schemas/Id' }
+            file:
+              description: Il file allegato (l'attestato o il giudizio di idoneità), o null.
+              oneOf:
+                - $ref: '#/components/schemas/AttachedFile'
+                - type: 'null'
             status:
               type: string
               description: |
