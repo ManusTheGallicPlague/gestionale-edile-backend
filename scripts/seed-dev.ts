@@ -637,7 +637,11 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          select $1, r.id, e.id, 8, row_number() over (partition by r.id order by e.last_name)
          from public.daily_reports r
          join public.employees e on e.company_id = r.company_id and e.active
-         where r.company_id = $1`,
+         where r.company_id = $1
+           -- Nobody away the whole day works, as createDailyReport wants.
+           and not exists (select 1 from public.employee_absences a
+             where a.employee_id = e.id and a.hours is null
+               and r.report_date between a.starts_on and a.ends_on)`,
         [companyId],
       )
       await client.query(

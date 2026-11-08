@@ -700,3 +700,115 @@ describe('daily report like the previous one', () => {
     expect(bad.json()).toMatchObject({ errors: { copy_previous: ['Indica true o false.'] } })
   })
 })
+
+describe('daily reports and absences', () => {
+  async function away(
+    s: Scene,
+    employee: string,
+    kind: string,
+    from: string,
+    to: string,
+    hours: string | null = null,
+  ) {
+    await ctx.owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on, hours)
+       values ($1, $2, $3, $4, $5, $6)`,
+      [s.company.id, employee, kind, from, to, hours],
+    )
+  }
+
+  it('refuses hours of someone away the whole day, not of a leave of a few hours', async () => {
+    const s = await scene()
+    await away(s, s.verdi, 'vacation', '2026-11-03', '2026-11-05')
+    await away(s, s.bassi, 'leave', '2026-11-05', '2026-11-05', '2')
+
+    for (const date of ['2026-11-03', '2026-11-05']) {
+      const res = await s.browser.call('POST', s.base, { body: body(s, { date }) })
+      expect(res.statusCode).toBe(422)
+      const errors = res.json<{ errors: Record<string, string[]> }>().errors
+      expect(Object.keys(errors)).toEqual(['labor.0.employee_id'])
+      // The kind of the absence is not told to who writes the report.
+      expect(errors['labor.0.employee_id']?.[0]).not.toMatch(/ferie|malattia/i)
+    }
+    // Only Bassi, on leave for two hours: accepted. The vehicles do not matter.
+    const leave = await s.browser.call('POST', s.base, {
+      body: body(s, { labor: [{ employee_id: s.bassi, hours: '6', description: null }] }),
+    })
+    expect(leave.statusCode).toBe(201)
+
+    // The day after the holiday Verdi works again; moving the report back is refused.
+    const { report, etag } = await create(s, { date: '2026-11-06', site_id: s.other })
+    const moved = await s.browser.call('PUT', `${s.base}/${report.id}`, {
+      body: body(s, { date: '2026-11-04', site_id: s.other }),
+      headers: { 'if-match': etag },
+    })
+    expect(moved.statusCode).toBe(422)
+    expect(Object.keys(moved.json<{ errors: object }>().errors)).toEqual(['labor.0.employee_id'])
+    const kept = await s.browser.call('GET', `${s.base}/${report.id}`)
+    expect(kept.json()).toMatchObject({ date: '2026-11-06' })
+    expect(kept.headers.etag).toBe(etag)
+
+    // A sick leave of an employee with the same name in another company does not count.
+    const foreign = await scene()
+    await away(foreign, foreign.verdi, 'sick_leave', '2026-11-01', '2026-11-30')
+    expect(
+      (await s.browser.call('POST', s.base, { body: body(s, { date: '2026-11-07' }) })).statusCode,
+    ).toBe(201)
+  })
+
+  it('today: leaves out of the proposal who is away the whole day, and says why', async () => {
+    const s = await scene()
+    for (const employee of [s.verdi, s.bassi]) {
+      await ctx.owner.query(
+        'insert into public.site_team (company_id, site_id, employee_id) values ($1, $2, $3)',
+        [s.company.id, s.site, employee],
+      )
+    }
+    await away(s, s.verdi, 'sick_leave', '2026-11-09', '2026-11-10')
+    await away(s, s.bassi, 'leave', '2026-11-10', '2026-11-10', '2.5')
+    type Today = {
+      proposal: { labor: { employee_id: string }[] }
+      employees: {
+        id: string
+        away: boolean
+        absence: string | null
+        absence_hours: string | null
+      }[]
+    }
+    const today = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.base}/today?site=${s.site}&${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<Today>()
+    }
+    const sick = await today('date=2026-11-10')
+    expect(sick.proposal.labor.map((l) => l.employee_id)).toEqual([s.bassi])
+    expect(sick.employees.map((e) => [e.id, e.away, e.absence, e.absence_hours])).toEqual([
+      [s.bassi, false, 'leave', '2.50'],
+      [s.verdi, true, 'sick_leave', null],
+    ])
+
+    // Without employees.view the capo cantiere knows who is away, not why.
+    const chief = new Browser(ctx.app)
+    const role = await fx.role(s.company.id, 'Capo cantiere', ['reports.view'])
+    const person = await fx.user()
+    await fx.member(person.id, s.company.id, role)
+    await chief.signIn(person.email)
+    const seen = await chief.call('GET', `${s.base}/today?site=${s.site}&date=2026-11-10`)
+    expect(seen.statusCode).toBe(200)
+    expect(seen.json<Today>().proposal.labor.map((l) => l.employee_id)).toEqual([s.bassi])
+    expect(seen.json<Today>().employees.map((e) => [e.away, e.absence, e.absence_hours])).toEqual([
+      [false, null, null],
+      [true, null, null],
+    ])
+    expect(seen.body).not.toContain('sick_leave')
+
+    // «Come ieri» also leaves Verdi out, while he is sick.
+    await create(s, { date: '2026-11-08' })
+    const copied = await today('date=2026-11-09&copy_previous=true')
+    expect(copied.proposal.labor.map((l) => l.employee_id)).toEqual([s.bassi])
+
+    const back = await today('date=2026-11-11')
+    expect(back.proposal.labor.map((l) => l.employee_id).sort()).toEqual([s.verdi, s.bassi].sort())
+    expect(back.employees.every((e) => !e.away && e.absence === null)).toBe(true)
+  })
+})

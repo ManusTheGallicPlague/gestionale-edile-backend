@@ -411,6 +411,22 @@ async function checkReferences(client: PoolClient, input: ReportInput) {
   }
   await check('employees', 'labor', input.labor, 'employee_id')
   await check('vehicles', 'vehicles', input.vehicles, 'vehicle_id')
+  // No hours for someone away the whole day; a leave of a few hours does not block.
+  if (input.labor.length > 0 && isIsoDate(input.date)) {
+    // The kind of the absence (a sick leave, say) stays out: it needs employees.view.
+    const { rows: away } = await client.query<{ employee_id: string }>(
+      `select employee_id::text as employee_id from public.employee_absences
+       where employee_id = any($1::uuid[]) and hours is null
+         and $2::date between starts_on and ends_on`,
+      [input.labor.map((r) => r.id), input.date],
+    )
+    const ids = new Set(away.map((a) => a.employee_id))
+    input.labor.forEach((r, i) => {
+      if (ids.has(r.id)) {
+        errors[`labor.${i}.employee_id`] = ['Il dipendente è assente tutto il giorno.']
+      }
+    })
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
 }
 
@@ -991,6 +1007,8 @@ interface OptionRow {
   name?: string
   plate?: string | null
   in_team?: boolean
+  absence?: AbsenceKind | null
+  absence_hours?: string | null
 }
 
 /** Hours proposed for each team member in a new report: a standard working day. */
@@ -1036,17 +1054,30 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
         const employees = await client.query<OptionRow>(
           `select e.id, e.first_name, e.last_name,
              exists (select 1 from public.site_team t
-                     where t.site_id = $1 and t.employee_id = e.id) as in_team
-           from public.employees e where e.active
+                     where t.site_id = $1 and t.employee_id = e.id) as in_team,
+             a.kind as absence, a.hours::text as absence_hours
+           from public.employees e
+           left join lateral (
+             select x.kind, x.hours from public.employee_absences x
+             where x.employee_id = e.id and $2::date between x.starts_on and x.ends_on
+             order by x.starts_on limit 1
+           ) a on true
+           where e.active
            order by lower(e.last_name), lower(e.first_name), e.id`,
-          [siteRow.id],
+          [siteRow.id, date],
+        )
+        // Who is away the whole day stays out of the proposal. The kind of the absence (a
+        // sick leave, say) is for who sees the employees.
+        const seesAbsences = permissions.has('employees.view')
+        const away = new Set(
+          employees.rows.filter((e) => e.absence && e.absence_hours === null).map((e) => e.id),
         )
         const vehicles = await client.query<OptionRow>(
           `select id, name, plate from public.vehicles where active
            order by lower(name), id`,
         )
         let labor = employees.rows
-          .filter((e) => e.in_team)
+          .filter((e) => e.in_team && !away.has(e.id))
           .map((e) => ({
             employee_id: e.id,
             hours: STANDARD_DAY_HOURS,
@@ -1086,7 +1117,7 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
                order by lower(v.name), v.id`,
               [previousId],
             )
-            labor = people.rows
+            labor = people.rows.filter((p) => !away.has(p.employee_id))
             usedVehicles = machines.rows
           }
         }
@@ -1108,6 +1139,9 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
             first_name: e.first_name ?? '',
             last_name: e.last_name ?? '',
             in_team: e.in_team ?? false,
+            away: away.has(e.id),
+            absence: seesAbsences ? (e.absence ?? null) : null,
+            absence_hours: seesAbsences && e.absence ? (e.absence_hours ?? null) : null,
           })),
           vehicles: vehicles.rows.map((v) => ({
             id: v.id,

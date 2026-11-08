@@ -263,6 +263,12 @@ Aggiunta l'08/11/2026, con il piano tutto spuntato: ferie, malattie e permessi s
 - [x] Assenze nel foglio ore mensile (`exportMonthlyHours`, senza `filter[site]`): sigla dell'assenza nei suoi giorni, dopo le ore (FE, MA, PE, IN, AL, con le ore del permesso), anche per chi ha solo assenze, per il consulente del lavoro
 - [x] Assenze nella dashboard (`absences` in `getDashboard`, con `employees.view`): dipendenti attivi assenti oggi e assenze che iniziano nei prossimi 7 giorni
 
+### 33. Assenze nei rapportini e nella squadra
+Aggiunta l'08/11/2026, con il piano tutto spuntato: con le assenze registrate, il capo cantiere non deve poter segnare ore a chi è in ferie o in malattia, e deve sapere chi della squadra manca oggi.
+
+- [x] Ore nei rapportini (`createDailyReport`, `updateDailyReport`): 422 sotto `labor.N.employee_id` per un dipendente assente tutto il giorno, senza dire il tipo dell'assenza; un permesso a ore non blocca. Proposta di `getTodayDailyReport` (squadra e «come ieri») senza gli assenti tutto il giorno, `away` tra i dipendenti da scegliere, `absence` e `absence_hours` solo con `employees.view`
+- [ ] Assenze nella squadra del cantiere (`getSiteTeam`): chi della squadra è assente oggi
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -427,6 +433,8 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 08/11/2026: assenze dei dipendenti come sotto-risorsa `…/employees/{employee}/absences`, senza paginazione e senza permessi nuovi: leggerle chiede `employees.view` (senza, 404), scriverle `employees.update`, come i documenti dei fornitori. Tipi fissi `vacation`, `sick_leave`, `leave`, `injury`, `other` (con note obbligatorie). Periodo con entrambi gli estremi compresi, `days` = giorni di calendario (festivi e fine settimana non si tolgono, per ora). `hours` solo per un'assenza di un giorno, altrimenti giornata intera. Due assenze dello stesso dipendente non si sovrappongono (422 su `starts_on`, controllo con il dipendente bloccato fino al commit). Eliminare il dipendente elimina le sue assenze (`on delete cascade`). Niente registro delle modifiche per le assenze, per ora.
 - 08/11/2026: assenze nel foglio ore mensile solo senza `filter[site]` (un'assenza non è di un cantiere) e qualunque sia `filter[status]` (lo stato è dei rapportini). Sigle FE, MA, PE, IN, AL nella cella del giorno, dopo le ore se ci sono; le ore di un permesso vanno dopo la sigla («6 PE 2») e non entrano nel totale, che resta delle ore lavorate. Non ci sono colonne nuove: il file resta quello di prima per chi non ha assenze. `exportMonthlySiteHours` (Cassa Edile, per cantiere) non cambia.
 - 08/11/2026: assenze nella dashboard solo dei dipendenti attivi; `away_today` conta le persone (non le assenze) che oggi, data italiana, sono assenti; `starting_soon` conta le assenze che iniziano da domani a 7 giorni compresi (quella che inizia oggi è già in `away_today`).
+- 08/11/2026: un rapportino non accetta ore per chi ha un'assenza di tutto il giorno (senza ore) in quella data; si corregge l'assenza se è sbagliata. Un'assenza registrata dopo, su giorni con ore già nei rapportini, resta accettata: la malattia si comunica spesso a cose fatte.
+- 08/11/2026: il tipo dell'assenza (malattia, infortunio) è un dato delicato: a chi ha solo i permessi dei rapportini si dice che il dipendente è assente, non perché; il tipo e le ore del permesso solo con `employees.view`.
 
 ## Registro dei giri
 

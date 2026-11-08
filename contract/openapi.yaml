@@ -1882,6 +1882,9 @@ paths:
       description: |
         Permesso: reports.create. Nasce in bozza. Uno solo per cantiere e giorno (altrimenti
         422 su date). Dipendenti e mezzi sono quelli dell'azienda, anche fuori dalla squadra.
+        Niente ore a un dipendente assente tutto il giorno (un'assenza senza ore che comprende
+        la data): 422 sotto `labor.N.employee_id`, senza dire il tipo dell'assenza. Un permesso
+        a ore non blocca.
       security:
         - session: []
           csrf: []
@@ -1917,7 +1920,10 @@ paths:
         Con `copy_previous=true` la proposta prende persone, mezzi, ore e descrizioni delle
         righe dall'ultimo rapportino del cantiere prima di quel giorno («come ieri»), lasciando
         fuori dipendenti e mezzi non più attivi; meteo, lavori svolti e note restano vuoti.
-        Senza un rapportino precedente la proposta è quella della squadra.
+        Senza un rapportino precedente la proposta è quella della squadra. Chi è assente tutto
+        il giorno (ferie, malattia…, un'assenza senza ore) resta fuori dalla proposta e tra i
+        dipendenti da scegliere ha `away`; il tipo dell'assenza e le ore di un permesso solo
+        con employees.view.
       parameters:
         - name: site
           in: query
@@ -2159,7 +2165,9 @@ paths:
       summary: Modifica di un rapportino in bozza
       description: |
         Permesso: reports.update. Si inviano tutti i campi; le righe delle ore sostituiscono le
-        precedenti. Solo in bozza: altrimenti 409 con code report_not_draft.
+        precedenti. Solo in bozza: altrimenti 409 con code report_not_draft. Come in
+        createDailyReport, 422 sotto `labor.N.employee_id` per un dipendente assente tutto il
+        giorno.
       security:
         - session: []
           csrf: []
@@ -8840,15 +8848,29 @@ components:
         proposal: { $ref: '#/components/schemas/DailyReportInput' }
         employees:
           type: array
-          description: Dipendenti attivi, per cognome e nome; in_team se sono nella squadra.
+          description: |
+            Dipendenti attivi, per cognome e nome; in_team se sono nella squadra; away se sono
+            assenti tutto il giorno (non si possono mettere nel rapportino). Solo con
+            employees.view, altrimenti null: absence è il tipo dell'assenza in quel giorno (null
+            se non ce n'è), absence_hours le ore di un permesso a ore (null per un'assenza di
+            tutto il giorno).
           items:
             type: object
-            required: [id, first_name, last_name, in_team]
+            required: [id, first_name, last_name, in_team, away, absence, absence_hours]
             properties:
               id: { $ref: '#/components/schemas/Id' }
               first_name: { type: string }
               last_name: { type: string }
               in_team: { type: boolean }
+              away: { type: boolean }
+              absence:
+                oneOf:
+                  - $ref: '#/components/schemas/EmployeeAbsenceKind'
+                  - type: 'null'
+              absence_hours:
+                oneOf:
+                  - $ref: '#/components/schemas/Hours'
+                  - type: 'null'
         vehicles:
           type: array
           description: Mezzi attivi, per nome.
