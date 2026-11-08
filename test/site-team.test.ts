@@ -191,6 +191,91 @@ describe('site team', () => {
     ).toBe(204)
   })
 
+  it('exports the documents of the team for the safety coordinator', async () => {
+    const { browser, company, url, verdi, bassi } = await scene([...ALL, 'employees.view'])
+    await browser.call('PUT', url, { body: { employee_ids: [verdi, bassi] } })
+    // Verdi: a course renewed (the old one expired), the medical check expiring in ten days with
+    // its scan, a license without expiry. Bassi: nothing. Another employee, not in the team, has
+    // a document that must not appear.
+    const outsider = await ctx.owner.query<{ id: string }>(
+      `insert into public.employees (company_id, first_name, last_name)
+       values ($1, 'Piero', 'Fuori') returning id`,
+      [company.id],
+    )
+    const docs = await ctx.owner.query<{ id: string; kind: string }>(
+      `insert into public.employee_documents
+         (company_id, employee_id, kind, description, issued_on, expires_on, notes)
+       select $1, x.employee_id, x.kind, x.description, date '2026-01-15',
+         d.today + x.days, x.notes
+       from (select (now() at time zone 'Europe/Rome')::date as today) d,
+         (values ($2::uuid, 'safety_training', 'Corso base', -20, '=1+1'),
+                 ($2::uuid, 'safety_training', 'Aggiornamento', 400, null),
+                 ($2::uuid, 'medical_check', null, 10, 'n. 81'),
+                 ($2::uuid, 'license', 'Gru', null, null),
+                 ($3::uuid, 'first_aid', 'Segreto', 50, null))
+           as x (employee_id, kind, description, days, notes)
+       returning id, kind`,
+      [company.id, verdi, outsider.rows[0]?.id],
+    )
+    const medical = docs.rows.find((r) => r.kind === 'medical_check')?.id
+    await ctx.owner.query(
+      `insert into public.employee_document_files
+         (document_id, company_id, file_name, content_type, size_bytes, data)
+       values ($1, $2, 'idoneita.pdf', 'application/pdf', 3, 'pdf')`,
+      [medical, company.id],
+    )
+    const res = await browser.call('GET', `${url}/documents/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="documenti-squadra.csv"')
+    const day = (days: number) => {
+      const d = new Date(
+        new Date().toLocaleString('en-US', { timeZone: 'Europe/Rome' }).split(',')[0] ?? '',
+      )
+      d.setDate(d.getDate() + days)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      return `${pad(d.getDate())}/${pad(d.getMonth() + 1)}/${d.getFullYear()}`
+    }
+    const lines = res.body
+      .replace(/^\uFEFF/, '')
+      .trimEnd()
+      .split('\r\n')
+    expect(lines).toEqual([
+      'Cognome;Nome;Mansione;Documento;Descrizione;Rilascio;Scadenza;Stato;Note;File',
+      'Bassi;Anna;;;;;;Nessun documento;;',
+      `Verdi;Luca;Muratore;Idoneità sanitaria;;15/01/2026;${day(10)};In scadenza;n. 81;Sì`,
+      `Verdi;Luca;Muratore;Formazione sicurezza;Aggiornamento;15/01/2026;${day(400)};Valido;;No`,
+      `Verdi;Luca;Muratore;Formazione sicurezza;Corso base;15/01/2026;${day(-20)};Rinnovato;'=1+1;No`,
+      'Verdi;Luca;Muratore;Patentino;Gru;15/01/2026;;Senza scadenza;;No',
+    ])
+    expect(res.body).not.toContain('Segreto')
+
+    // Without the renewal the old course is expired.
+    const renewal = docs.rows.find((r) => r.kind === 'safety_training')?.id
+    await ctx.owner.query(
+      "delete from public.employee_documents where kind = 'safety_training' and employee_id = $1 and description = 'Aggiornamento'",
+      [verdi],
+    )
+    expect(renewal).toBeDefined()
+    const after = await browser.call('GET', `${url}/documents/export`)
+    expect(after.body).toContain(`Corso base;15/01/2026;${day(-20)};Scaduto;`)
+  })
+
+  it('the team documents need employees.view; another company’s site is not found', async () => {
+    const chief = await scene(['sites.view'])
+    const refused = await chief.browser.call('GET', `${chief.url}/documents/export`)
+    expect(refused.statusCode).toBe(403)
+    const blind = await scene(['employees.view'])
+    expect((await blind.browser.call('GET', `${blind.url}/documents/export`)).statusCode).toBe(404)
+    const mine = await scene([...ALL, 'employees.view'])
+    const theirs = await scene()
+    await theirs.browser.call('PUT', theirs.url, { body: { employee_ids: [theirs.verdi] } })
+    const other = `/api/companies/${mine.company.slug}/sites/${theirs.siteId}/team/documents/export`
+    expect((await mine.browser.call('GET', other)).statusCode).toBe(404)
+    const anonymous = new Browser(ctx.app)
+    expect((await anonymous.call('GET', `${mine.url}/documents/export`)).statusCode).toBe(401)
+  })
+
   it('reading needs sites.view, changing sites.update', async () => {
     const reader = await scene(['sites.view'])
     expect((await reader.browser.call('GET', reader.url)).statusCode).toBe(200)

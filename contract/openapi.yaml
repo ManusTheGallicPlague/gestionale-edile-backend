@@ -1832,6 +1832,40 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/sites/{site}/team/documents/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: exportSiteTeamDocuments
+      summary: Documenti della squadra del cantiere in CSV
+      description: |
+        Permessi: sites.view ed employees.view. Senza sites.view risponde 404, non 403; senza
+        employees.view 403. Per il coordinatore della sicurezza: una riga per ogni documento dei
+        dipendenti della squadra (idoneità sanitaria, attestati dei corsi, patentini), in ordine
+        di cognome e nome, poi di tipo e di scadenza; chi non ha documenti ha una riga con lo
+        stato «Nessun documento». Colonne: Cognome, Nome, Mansione, Documento (il tipo per
+        esteso), Descrizione, Rilascio, Scadenza (come 30/11/2026), Stato, Note, File (Sì se c'è
+        la scansione). Lo stato, nell'ora italiana: Valido, In scadenza (entro 30 giorni),
+        Scaduto, Senza scadenza, oppure Rinnovato se dello stesso tipo c'è un documento con una
+        scadenza più lontana, che è quello che conta. Stesso formato dell'esportazione dei
+        clienti. Il file si chiama documenti-squadra.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/daily-reports:
     parameters:
       - $ref: '#/components/parameters/Company'

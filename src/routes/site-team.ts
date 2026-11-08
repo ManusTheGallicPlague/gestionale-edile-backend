@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify'
+import { italianDate, toCsv } from '../csv.js'
 import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
 import type { Db } from '../db.js'
@@ -9,6 +10,11 @@ import { ValidationFailed, forbidden, notFound } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import type { AbsenceKind } from './employee-absences.js'
 import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
+import {
+  EMPLOYEE_DOCUMENT_KINDS,
+  KIND_LABEL,
+  type EmployeeDocumentKind,
+} from './employee-documents.js'
 
 const MAX_TEAM = 200
 
@@ -62,6 +68,77 @@ async function readTeam(client: PoolClient, siteId: string, seesAbsences: boolea
   }
 }
 
+interface DocumentRow {
+  first_name: string
+  last_name: string
+  job_title: string | null
+  kind: EmployeeDocumentKind | null
+  description: string | null
+  issued_on: string | null
+  expires_on: string | null
+  notes: string | null
+  status: string
+  has_file: boolean
+}
+
+/**
+ * Every document of the team, for the safety coordinator. An older document of a kind with a
+ * later expiry on file is "Rinnovato": the later one is what counts, as in filter[documents].
+ */
+async function teamDocuments(client: PoolClient, siteId: string) {
+  const { rows } = await client.query<DocumentRow>(
+    `select e.first_name, e.last_name, e.job_title, d.kind, d.description,
+       d.issued_on::text as issued_on, d.expires_on::text as expires_on, d.notes,
+       case
+         when d.id is null then 'Nessun documento'
+         when d.expires_on is null then 'Senza scadenza'
+         when exists (
+           select 1 from public.employee_documents n
+           where n.employee_id = d.employee_id and n.kind = d.kind and n.expires_on > d.expires_on
+         ) then 'Rinnovato'
+         when d.expires_on < (now() at time zone 'Europe/Rome')::date then 'Scaduto'
+         when d.expires_on <= (now() at time zone 'Europe/Rome')::date + 30 then 'In scadenza'
+         else 'Valido'
+       end as status,
+       exists (select 1 from public.employee_document_files f where f.document_id = d.id)
+         as has_file
+     from public.site_team t
+     join public.employees e on e.id = t.employee_id
+     left join public.employee_documents d on d.employee_id = e.id
+     where t.site_id = $1
+     order by lower(e.last_name), lower(e.first_name), e.id,
+       array_position($2::text[], d.kind),
+       d.expires_on desc nulls first, d.id`,
+    [siteId, EMPLOYEE_DOCUMENT_KINDS],
+  )
+  return toCsv(
+    [
+      'Cognome',
+      'Nome',
+      'Mansione',
+      'Documento',
+      'Descrizione',
+      'Rilascio',
+      'Scadenza',
+      'Stato',
+      'Note',
+      'File',
+    ],
+    rows.map((r) => [
+      r.last_name,
+      r.first_name,
+      r.job_title,
+      r.kind && KIND_LABEL[r.kind],
+      r.description,
+      r.issued_on && italianDate(r.issued_on),
+      r.expires_on && italianDate(r.expires_on),
+      r.status,
+      r.notes,
+      r.kind && (r.has_file ? 'Sì' : 'No'),
+    ]),
+  )
+}
+
 async function siteExists(client: PoolClient, id: string): Promise<boolean> {
   const { rowCount } = await client.query('select 1 from public.sites where id = $1', [id])
   return (rowCount ?? 0) > 0
@@ -96,6 +173,22 @@ export function siteTeamRoutes(app: FastifyInstance, config: Config, db: Db): vo
       if (!UUID.test(id) || !(await siteExists(client, id))) throw notFound()
       return readTeam(client, id, permissions.has('employees.view'))
     })
+  })
+
+  app.get<{ Params: Params }>(`${url}/documents/export`, async (request, reply) => {
+    const session = requireSession(request)
+    const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('sites.view')) throw notFound()
+      const id = request.params.site
+      if (!UUID.test(id) || !(await siteExists(client, id))) throw notFound()
+      if (!permissions.has('employees.view')) throw forbidden()
+      return teamDocuments(client, id)
+    })
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', 'attachment; filename="documenti-squadra.csv"')
+      .send(csv)
   })
 
   app.put<{ Params: Params }>(url, async (request) => {

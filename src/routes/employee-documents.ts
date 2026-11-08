@@ -28,7 +28,7 @@ export const EMPLOYEE_DOCUMENT_KINDS = [
 export type EmployeeDocumentKind = (typeof EMPLOYEE_DOCUMENT_KINDS)[number]
 
 /** Names of the kinds in the titles of the deadlines. */
-const KIND_LABEL: Record<EmployeeDocumentKind, string> = {
+export const KIND_LABEL: Record<EmployeeDocumentKind, string> = {
   medical_check: 'Idoneità sanitaria',
   safety_training: 'Formazione sicurezza',
   first_aid: 'Primo soccorso',
