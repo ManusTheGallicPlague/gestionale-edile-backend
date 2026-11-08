@@ -21,6 +21,7 @@ import { reportPdf, reportsPdf, type ReportPdfData } from '../daily-reports/pdf.
 import { italianQuantity } from '../quotes/pdf.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
+import { ABSENCE_CODES, type AbsenceKind } from './employee-absences.js'
 
 export const REPORT_STATUSES = ['draft', 'submitted', 'approved'] as const
 type Status = (typeof REPORT_STATUSES)[number]
@@ -614,6 +615,52 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
           }
           entry.cells[r.day - 1] = /^0+(\.0+)?$/.test(r.hours) ? null : italianQuantity(r.hours)
         }
+        // Absences are not tied to a site: they go in the file of the whole company only. A day
+        // gets the code of the absence after its hours (e.g. "6 PE 2", or "FE").
+        if (!query.siteId) {
+          const absences = await client.query<{
+            id: string
+            last_name: string
+            first_name: string
+            tax_code: string | null
+            kind: AbsenceKind
+            first_day: number
+            last_day: number
+            hours: string | null
+          }>(
+            `select e.id, e.last_name, e.first_name, e.tax_code, a.kind,
+               extract(day from greatest(a.starts_on, $1::date))::int as first_day,
+               extract(day from least(a.ends_on, ($1::date + interval '1 month' - interval '1 day')::date))::int
+                 as last_day,
+               a.hours::text as hours
+             from public.employee_absences a
+             join public.employees e on e.id = a.employee_id
+             where a.ends_on >= $1::date and a.starts_on < ($1::date + interval '1 month')`,
+            [`${query.month}-01`],
+          )
+          for (const a of absences.rows) {
+            let entry = employees.get(a.id)
+            if (!entry) {
+              entry = {
+                head: [a.last_name, a.first_name, a.tax_code ?? ''],
+                cells: Array.from({ length: days }, () => null),
+                total: '0',
+              }
+              employees.set(a.id, entry)
+            }
+            const code = ABSENCE_CODES[a.kind] + (a.hours ? ` ${italianQuantity(a.hours)}` : '')
+            for (let d = a.first_day; d <= a.last_day; d++) {
+              const cell = entry.cells[d - 1]
+              entry.cells[d - 1] = cell ? `${cell} ${code}` : code
+            }
+          }
+        }
+        // One order for the people with hours and those with absences only.
+        const order = await client.query<{ id: string }>(
+          `select id from public.employees where id = any($1::uuid[])
+           order by lower(last_name), lower(first_name), id`,
+          [[...employees.keys()]],
+        )
         return toCsv(
           [
             'Cognome',
@@ -622,7 +669,10 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             ...Array.from({ length: days }, (_, i) => String(i + 1)),
             'Totale',
           ],
-          [...employees.values()].map((e) => [...e.head, ...e.cells, italianQuantity(e.total)]),
+          order.rows.flatMap((o) => {
+            const e = employees.get(o.id)
+            return e ? [[...e.head, ...e.cells, italianQuantity(e.total)]] : []
+          }),
         )
       })
       return reply

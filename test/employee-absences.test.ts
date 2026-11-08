@@ -302,3 +302,68 @@ describe('absences of the whole company', () => {
     expect((await new Browser(ctx.app).call('GET', blind.list)).statusCode).toBe(401)
   })
 })
+
+describe('absences in the monthly timesheet', () => {
+  it('writes the code of the absence in its days, after the hours, only without a site', async () => {
+    const s = await scene([...ALL, 'reports.view'])
+    const q = (sql: string, values: unknown[]) => ctx.owner.query<{ id: string }>(sql, values)
+    const site = (
+      await q("insert into public.sites (company_id, name) values ($1, 'Villetta') returning id", [
+        s.company.id,
+      ])
+    ).rows[0]?.id
+    const report = (
+      await q(
+        "insert into public.daily_reports (company_id, site_id, report_date) values ($1, $2, '2026-11-03') returning id",
+        [s.company.id, site],
+      )
+    ).rows[0]?.id
+    await q(
+      `insert into public.daily_report_labor (company_id, report_id, employee_id, hours, position)
+       values ($1, $2, $3, 6, 0)`,
+      [s.company.id, report, s.employee],
+    )
+    const away = (
+      await q(
+        "insert into public.employees (company_id, first_name, last_name) values ($1, 'Anna', 'Assente') returning id",
+        [s.company.id],
+      )
+    ).rows[0]?.id
+    const add = (employee: unknown, kind: string, from: string, to: string, hours: string | null) =>
+      q(
+        `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on, hours, notes)
+         values ($1, $2, $3, $4, $5, $6, 'x')`,
+        [s.company.id, employee, kind, from, to, hours],
+      )
+    await add(s.employee, 'leave', '2026-11-03', '2026-11-03', '2')
+    await add(s.employee, 'sick_leave', '2026-11-30', '2026-12-04', null)
+    // Across the start of the month, and a code for every kind.
+    await add(away, 'vacation', '2026-10-28', '2026-11-02', null)
+    await add(away, 'injury', '2026-11-10', '2026-11-10', null)
+    await add(away, 'other', '2026-11-11', '2026-11-11', null)
+    // Another month and another company are left out.
+    await add(away, 'vacation', '2026-12-07', '2026-12-08', null)
+    const theirs = await scene()
+    await ctx.owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on)
+       values ($1, $2, 'vacation', '2026-11-01', '2026-11-30')`,
+      [theirs.company.id, theirs.employee],
+    )
+
+    const url = `/api/companies/${s.company.slug}/daily-reports/monthly-hours?month=2026-11`
+    const read = async (query = '') => {
+      const res = await s.browser.call('GET', `${url}${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.body.replace('﻿', '').trim().split('\r\n').slice(1)
+    }
+    const days = Array.from({ length: 30 }, (_, i) => i + 1)
+    const row = (last: string, first: string, cells: Record<number, string>, total: string) =>
+      [last, first, '', ...days.map((d) => cells[d] ?? ''), total].join(';')
+    expect(await read()).toEqual([
+      row('Assente', 'Anna', { 1: 'FE', 2: 'FE', 10: 'IN', 11: 'AL' }, '0'),
+      row('Operaio', 'Mario', { 3: '6 PE 2', 30: 'MA' }, '6'),
+    ])
+    // The file of a site has only the hours of that site.
+    expect(await read(`&filter[site]=${site}`)).toEqual([row('Operaio', 'Mario', { 3: '6' }, '6')])
+  })
+})

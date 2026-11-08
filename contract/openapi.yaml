@@ -2001,8 +2001,12 @@ paths:
         cognome e nome), con cognome, nome e codice fiscale, una colonna per ogni giorno del
         mese (1, 2, … 31; vuota se zero) e il totale. Ore con la virgola decimale (7,5). Se un
         dipendente lavora su due cantieri lo stesso giorno, le ore si sommano. Si possono tenere
-        solo i rapportini di un cantiere o di uno stato (per esempio solo gli approvati). Il
-        file si chiama ore-2026-11.csv.
+        solo i rapportini di un cantiere o di uno stato (per esempio solo gli approvati). Senza
+        filter[site] ci sono anche le assenze (listEmployeeAbsences), qualunque sia
+        filter[status]: nei giorni di assenza la cella porta la sigla, dopo le ore se ci sono
+        (FE ferie, MA malattia, PE permesso, IN infortunio, AL altro; con le ore del permesso,
+        come «6 PE 2»), e compare anche chi nel mese ha solo assenze, con totale 0. Il file si
+        chiama ore-2026-11.csv.
       parameters:
         - name: month
           in: query

@@ -17,7 +17,16 @@ import {
 import { checkCsrf, requireSession } from '../http/request-context.js'
 
 export const ABSENCE_KINDS = ['vacation', 'sick_leave', 'leave', 'injury', 'other'] as const
-type AbsenceKind = (typeof ABSENCE_KINDS)[number]
+export type AbsenceKind = (typeof ABSENCE_KINDS)[number]
+
+/** Codes of the absences in the monthly timesheet, as Italian payroll offices write them. */
+export const ABSENCE_CODES: Record<AbsenceKind, string> = {
+  vacation: 'FE',
+  sick_leave: 'MA',
+  leave: 'PE',
+  injury: 'IN',
+  other: 'AL',
+}
 
 interface AbsenceInput {
   kind: AbsenceKind
