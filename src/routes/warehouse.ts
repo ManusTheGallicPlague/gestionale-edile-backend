@@ -15,7 +15,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
-import { MAX_EXPORT_ROWS, toCsv } from '../csv.js'
+import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 import { csvScope } from '../http/files.js'
 import { ImportFailed } from '../csv-import.js'
 import { RowErrors } from '../clients/import.js'
@@ -312,6 +312,32 @@ function listQuery(query: Record<string, unknown>) {
   return { errors, single, id, date, page, perPage, done }
 }
 
+const MOVEMENT_ORDER = 'm.movement_date desc, m.created_at desc, m.id desc'
+
+/** The filters of the movement list, shared by the list and its export. */
+function movementFilters(q: ReturnType<typeof listQuery>) {
+  const itemId = q.id('filter[item]')
+  const siteId = q.id('filter[site]')
+  const kindValue = q.single('filter[kind]')
+  const kind = MOVEMENT_KINDS.find((k) => k === kindValue)
+  if (kindValue !== undefined && !kind) q.errors['filter[kind]'] = ['Tipo non valido.']
+  const from = q.date('filter[from]')
+  const to = q.date('filter[to]')
+  q.done()
+  const where = ['true']
+  const values: unknown[] = []
+  const add = (sql: (p: string) => string, value: unknown) => {
+    values.push(value)
+    where.push(sql(`$${values.length}`))
+  }
+  if (itemId) add((p) => `m.item_id = ${p}`, itemId)
+  if (siteId) add((p) => `m.site_id = ${p}`, siteId)
+  if (kind) add((p) => `m.kind = ${p}`, kind)
+  if (from) add((p) => `m.movement_date >= ${p}`, from)
+  if (to) add((p) => `m.movement_date <= ${p}`, to)
+  return { where, values }
+}
+
 async function readItem(client: PoolClient, id: string) {
   const { rows } = await client.query<ItemRow>(`${ITEM_SELECT} where i.id = $1`, [id])
   return rows[0]
@@ -565,33 +591,15 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
   app.get<{ Params: Params; Querystring: Record<string, unknown> }>(movements, async (request) => {
     const session = requireSession(request)
     const q = listQuery(request.query)
-    const itemId = q.id('filter[item]')
-    const siteId = q.id('filter[site]')
-    const kindValue = q.single('filter[kind]')
-    const kind = MOVEMENT_KINDS.find((k) => k === kindValue)
-    if (kindValue !== undefined && !kind) q.errors['filter[kind]'] = ['Tipo non valido.']
-    const from = q.date('filter[from]')
-    const to = q.date('filter[to]')
-    q.done()
+    const { where, values } = movementFilters(q)
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('warehouse.view')) throw forbidden()
-      const where = ['true']
-      const values: unknown[] = []
-      const add = (sql: (p: string) => string, value: unknown) => {
-        values.push(value)
-        where.push(sql(`$${values.length}`))
-      }
-      if (itemId) add((p) => `m.item_id = ${p}`, itemId)
-      if (siteId) add((p) => `m.site_id = ${p}`, siteId)
-      if (kind) add((p) => `m.kind = ${p}`, kind)
-      if (from) add((p) => `m.movement_date >= ${p}`, from)
-      if (to) add((p) => `m.movement_date <= ${p}`, to)
       const filters = values.length
       values.push(q.perPage, (q.page - 1) * q.perPage)
       const { rows } = await client.query<MovementRow>(
         `${MOVEMENT_SELECT} where ${where.join(' and ')}
-         order by m.movement_date desc, m.created_at desc, m.id desc
+         order by ${MOVEMENT_ORDER}
          limit $${filters + 1} offset $${filters + 2}`,
         values,
       )
@@ -606,6 +614,45 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
       }
     })
   })
+
+  app.get<{ Params: Params; Querystring: Record<string, unknown> }>(
+    `${movements}/export`,
+    async (request, reply) => {
+      const session = requireSession(request)
+      const { where, values } = movementFilters(listQuery(request.query))
+      const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('warehouse.view')) throw forbidden()
+        values.push(MAX_EXPORT_ROWS)
+        const { rows } = await client.query<MovementRow>(
+          `${MOVEMENT_SELECT} where ${where.join(' and ')}
+           order by ${MOVEMENT_ORDER} limit $${values.length}`,
+          values,
+        )
+        return toCsv(
+          ['Data', 'Tipo', 'Codice', 'Articolo', 'Unità', 'Quantità', 'Cantiere', 'Ordine', 'Note'],
+          rows.map((r) => {
+            const m = movementToContract(r)
+            return [
+              italianDate(m.date),
+              m.kind === 'in' ? 'Carico' : 'Scarico',
+              m.item.code,
+              m.item.name,
+              m.item.unit,
+              m.quantity.replace('.', ','),
+              m.site ? [m.site.code, m.site.name].filter(Boolean).join(' ') : null,
+              m.purchase_order?.number ?? null,
+              m.notes,
+            ]
+          }),
+        )
+      })
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="movimenti-magazzino.csv"')
+        .send(csv)
+    },
+  )
 
   app.post<{ Params: Params }>(movements, async (request, reply) => {
     const session = requireSession(request)

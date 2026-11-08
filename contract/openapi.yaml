@@ -3304,6 +3304,50 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/warehouse/movements/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportWarehouseMovements
+      summary: Esportazione dei movimenti di magazzino in CSV
+      description: |
+        Permesso: warehouse.view. Stessi filtri e stesso ordine dell'elenco (dal più recente),
+        senza paginazione, nello stesso formato delle altre esportazioni: ad esempio con
+        filter[site]=<id> e filter[kind]=out, il materiale scaricato su un cantiere. Colonne:
+        Data (all'italiana), Tipo (Carico o Scarico), Codice, Articolo, Unità, Quantità con la
+        virgola decimale (12,500), Cantiere (codice e nome), Ordine (numero dell'ordine da cui
+        viene il carico) e Note. Il file si chiama movimenti-magazzino.csv.
+      parameters:
+        - name: filter
+          in: query
+          description: Gli stessi filtri di listWarehouseMovements.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              item: { $ref: '#/components/schemas/Id' }
+              site: { $ref: '#/components/schemas/Id' }
+              kind: { $ref: '#/components/schemas/WarehouseMovementKind' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/warehouse/movements/{movement}:
     parameters:
       - $ref: '#/components/parameters/Company'

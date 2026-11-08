@@ -89,6 +89,73 @@ describe('warehouse', () => {
     expect((await blind.browser.call('GET', url)).statusCode).toBe(404)
   })
 
+  it('exports the movements as CSV, with the same filters and order as the list', async () => {
+    const s = await scene()
+    const cement = (await s.browser.call('POST', s.items, { body: item() })).json<Item>()
+    const sand = (
+      await s.browser.call('POST', s.items, {
+        body: item({ code: null, name: 'Sabbia lavata', unit: 'm³' }),
+      })
+    ).json<Item>()
+    const post = async (body: Record<string, unknown>) =>
+      expect((await s.browser.call('POST', s.moves, { body })).statusCode).toBe(201)
+    await post(move(s, cement.id, { date: '2026-11-02', quantity: '100' }))
+    await post(move(s, sand.id, { date: '2026-11-03', quantity: '10.25' }))
+    await post(
+      move(s, cement.id, {
+        date: '2026-11-05',
+        kind: 'out',
+        quantity: '12.5',
+        site_id: s.site,
+        notes: 'getto; platea',
+      }),
+    )
+    await post(move(s, sand.id, { date: '2026-11-06', kind: 'out', quantity: '2' }))
+    // Another company's movements never end up in the file.
+    const theirs = await scene()
+    const their = (await theirs.browser.call('POST', theirs.items, { body: item() })).json<Item>()
+    await theirs.browser.call('POST', theirs.moves, { body: move(theirs, their.id) })
+
+    const url = `${s.moves}/export`
+    const res = await s.browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe(
+      'attachment; filename="movimenti-magazzino.csv"',
+    )
+    expect(res.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Data;Tipo;Codice;Articolo;Unità;Quantità;Cantiere;Ordine;Note',
+      '06/11/2026;Scarico;;Sabbia lavata;m³;2,000;;;',
+      '05/11/2026;Scarico;CEM-325;Cemento 32.5 in sacchi;sacchi;12,500;C-1 Villetta;;"getto; platea"',
+      '03/11/2026;Carico;;Sabbia lavata;m³;10,250;;;',
+      '02/11/2026;Carico;CEM-325;Cemento 32.5 in sacchi;sacchi;100,000;;;',
+    ])
+
+    // What went to a site: the same filters as the list.
+    const toSite = await s.browser.call(
+      'GET',
+      `${url}?filter[site]=${s.site}&filter[kind]=out&filter[from]=2026-11-01`,
+    )
+    expect(toSite.body.trim().split('\r\n')).toHaveLength(2)
+    expect(toSite.body).toContain('12,500')
+    const sandOnly = await s.browser.call(
+      'GET',
+      `${url}?filter[item]=${sand.id}&filter[to]=2026-11-05`,
+    )
+    expect(sandOnly.body.trim().split('\r\n')).toHaveLength(2)
+    expect(sandOnly.body).toContain('10,250')
+    expect((await s.browser.call('GET', `${url}?filter[kind]=reso`)).statusCode).toBe(422)
+    expect((await s.browser.call('GET', `${url}?filter[from]=05/11/2026`)).statusCode).toBe(422)
+    expect((await s.browser.call('GET', `${url}?filter[site]=x`)).statusCode).toBe(422)
+
+    const theirFile = await theirs.browser.call('GET', `${theirs.moves}/export`)
+    expect(theirFile.body.trim().split('\r\n')).toHaveLength(2)
+    expect((await theirs.browser.call('GET', url)).statusCode).toBe(404)
+    const blind = await scene(['sites.view'])
+    expect((await blind.browser.call('GET', `${blind.moves}/export`)).statusCode).toBe(403)
+    expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
+  })
+
   it('creates, reads, updates and deletes an item with If-Match', async () => {
     const s = await scene()
     const created = await s.browser.call('POST', s.items, { body: item() })
