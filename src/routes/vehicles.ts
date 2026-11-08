@@ -5,7 +5,8 @@ import type { Db } from '../db.js'
 import { isForeignKeyViolation, isUniqueViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { amountToCents, centsToAmount } from '../money.js'
-import { italianAmount, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
+import { italianAmount, italianDate, MAX_EXPORT_ROWS, toCsv } from '../csv.js'
+import { MAINTENANCE_KIND_NAMES, type MaintenanceKind } from './vehicle-maintenances.js'
 import { UUID } from '../deadlines/input.js'
 import {
   ApiError,
@@ -42,6 +43,10 @@ const COLUMNS = ['name', 'kind', 'plate', 'model', 'hourly_cost_cents', 'active'
 
 interface VehicleRow extends VehicleValues {
   id: string
+  last_maintenance_id: string | null
+  last_maintenance_on: string | null
+  last_maintenance_kind: MaintenanceKind | null
+  last_meter_reading: number | null
   version: number
   created_at: Date
   updated_at: Date
@@ -51,8 +56,16 @@ type Params = { company: string; vehicle?: string }
 
 const SELECT = `select v.id, v.name, v.kind, v.plate, v.model,
     v.hourly_cost_cents::text as hourly_cost_cents, v.active, v.notes, v.version, v.created_at,
-    v.updated_at
-  from public.vehicles v`
+    v.updated_at, m.id as last_maintenance_id, m.performed_on::text as last_maintenance_on,
+    m.kind as last_maintenance_kind, m.meter_reading as last_meter_reading
+  from public.vehicles v
+  left join lateral (
+    select vm.id, vm.performed_on, vm.kind, vm.meter_reading
+    from public.vehicle_maintenances vm
+    where vm.vehicle_id = v.id and vm.company_id = v.company_id
+    order by vm.performed_on desc, vm.created_at desc, vm.id desc
+    limit 1
+  ) m on true`
 
 const SORTS = {
   name: 'lower(v.name) asc, v.id asc',
@@ -71,6 +84,15 @@ function toContract(row: VehicleRow) {
     hourly_cost: row.hourly_cost_cents === null ? null : centsToAmount(row.hourly_cost_cents),
     active: row.active,
     notes: row.notes,
+    last_maintenance:
+      row.last_maintenance_id === null
+        ? null
+        : {
+            id: row.last_maintenance_id,
+            performed_on: row.last_maintenance_on,
+            kind: row.last_maintenance_kind,
+            meter_reading: row.last_meter_reading,
+          },
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -306,7 +328,18 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
           values,
         )
         return toCsv(
-          ['Nome', 'Tipo', 'Targa', 'Marca e modello', 'Costo orario', 'In uso', 'Note'],
+          [
+            'Nome',
+            'Tipo',
+            'Targa',
+            'Marca e modello',
+            'Costo orario',
+            'In uso',
+            'Note',
+            'Ultima manutenzione',
+            'Tipo di manutenzione',
+            'Contachilometri o contaore',
+          ],
           rows.map((r) => [
             r.name,
             KIND_LABELS[r.kind],
@@ -315,6 +348,9 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
             r.hourly_cost_cents && italianAmount(r.hourly_cost_cents),
             r.active ? 'Sì' : 'No',
             r.notes,
+            r.last_maintenance_on && italianDate(r.last_maintenance_on),
+            r.last_maintenance_kind && MAINTENANCE_KIND_NAMES[r.last_maintenance_kind],
+            r.last_meter_reading,
           ]),
         )
       })

@@ -317,4 +317,87 @@ describe('maintenance of vehicles', () => {
     )
     expect(gone.rowCount).toBe(0)
   })
+
+  it('shows the last maintenance in the vehicle card and in the list', async () => {
+    const { browser, company, vehicle, base } = await scene()
+    const card = `/api/companies/${company.slug}/vehicles/${vehicle}`
+    const list = `/api/companies/${company.slug}/vehicles`
+    type Card = { id: string; last_maintenance: unknown }
+    const last = async () => (await browser.call('GET', card)).json<Card>().last_maintenance
+    expect(await last()).toBeNull()
+
+    const older = (
+      await browser.call('POST', base, { body: job({ performed_on: '2026-03-01' }) })
+    ).json<Maintenance>()
+    expect(await last()).toEqual({
+      id: older.id,
+      performed_on: '2026-03-01',
+      kind: 'service',
+      meter_reading: 500,
+    })
+    // A job registered later but done earlier does not take its place.
+    await browser.call('POST', base, { body: job({ performed_on: '2026-02-01', kind: 'tires' }) })
+    expect(await last()).toMatchObject({ id: older.id })
+    // Same day: the one registered last wins.
+    const sameDay = (
+      await browser.call('POST', base, {
+        body: job({ performed_on: '2026-03-01', kind: 'repair', meter_reading: null }),
+      })
+    ).json<Maintenance>()
+    expect(await last()).toEqual({
+      id: sameDay.id,
+      performed_on: '2026-03-01',
+      kind: 'repair',
+      meter_reading: null,
+    })
+    // The ETag of the vehicle does not change.
+    expect((await browser.call('GET', card)).headers.etag).toBe('"1"')
+
+    // Moving the older job forward makes it the last one.
+    await browser.call('PUT', `${base}/${older.id}`, {
+      body: job({ performed_on: '2026-04-01', meter_reading: 620 }),
+      headers: { 'if-match': '"1"' },
+    })
+    expect(await last()).toEqual({
+      id: older.id,
+      performed_on: '2026-04-01',
+      kind: 'service',
+      meter_reading: 620,
+    })
+
+    // Another vehicle of the company and one of another company keep their own.
+    const bare = await vehicleOf(company.id, 'Furgone')
+    const other = await fx.company('Altra impresa')
+    const theirVehicle = await vehicleOf(other.id, 'Gru loro')
+    await ctx.owner.query(
+      `insert into public.vehicle_maintenances (company_id, vehicle_id, performed_on, kind, description)
+       values ($1, $2, '2026-12-01', 'repair', 'Loro')`,
+      [other.id, theirVehicle],
+    )
+    const rows = (await browser.call('GET', `${list}?sort=name`)).json<{ data: Card[] }>().data
+    expect(rows.map((v) => [v.id, v.last_maintenance && (v.last_maintenance as Card).id])).toEqual([
+      [vehicle, older.id],
+      [bare, null],
+    ])
+
+    // Sent in the body it is ignored; the vehicle is updated.
+    const put = await browser.call('PUT', card, {
+      body: {
+        name: 'Escavatore grande',
+        kind: 'machine',
+        plate: null,
+        model: null,
+        hourly_cost: null,
+        active: true,
+        notes: null,
+        last_maintenance: null,
+      },
+      headers: { 'if-match': '"1"' },
+    })
+    expect(put.statusCode).toBe(200)
+    expect(put.json<Card>().last_maintenance).toMatchObject({ id: older.id })
+
+    await browser.call('DELETE', `${base}/${older.id}`, { headers: { 'if-match': '"2"' } })
+    expect(await last()).toMatchObject({ id: sameDay.id })
+  })
 })

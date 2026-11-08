@@ -19,10 +19,10 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 export const MAINTENANCE_KINDS = ['service', 'repair', 'inspection', 'tires', 'other'] as const
-type MaintenanceKind = (typeof MAINTENANCE_KINDS)[number]
+export type MaintenanceKind = (typeof MAINTENANCE_KINDS)[number]
 
 /** Names of the kinds in the CSV file. */
-const KIND_NAMES: Record<MaintenanceKind, string> = {
+export const MAINTENANCE_KIND_NAMES: Record<MaintenanceKind, string> = {
   service: 'Tagliando',
   repair: 'Riparazione',
   inspection: 'Revisione',
@@ -282,7 +282,7 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
             italianDate(r.performed_on),
             r.vehicle_name,
             r.plate,
-            KIND_NAMES[r.kind],
+            MAINTENANCE_KIND_NAMES[r.kind],
             r.description,
             r.supplier_name,
             r.meter_reading,

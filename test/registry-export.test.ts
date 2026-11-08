@@ -74,14 +74,24 @@ describe('sites, employees and vehicles export', () => {
        values ($1, 'Furgone', 'vehicle', 'AB123CD', 1500), ($1, 'Gru', 'machine', null, null)`,
       [company.id],
     )
+    // Two jobs on the van: the most recent one goes in the file.
+    await ctx.owner.query(
+      `insert into public.vehicle_maintenances
+         (company_id, vehicle_id, performed_on, kind, description, meter_reading)
+       select $1, id, d::date, k, 'Intervento', m
+       from public.vehicles, (values ('2026-10-12', 'inspection', 84200),
+                                     ('2026-03-02', 'service', 70100)) j(d, k, m)
+       where company_id = $1 and name = 'Furgone'`,
+      [company.id],
+    )
     const url = `/api/companies/${company.slug}/vehicles/export`
     const res = await browser.call('GET', url)
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-disposition']).toBe('attachment; filename="mezzi.csv"')
     expect(lines(res.body)).toEqual([
-      'Nome;Tipo;Targa;Marca e modello;Costo orario;In uso;Note',
-      'Furgone;Automezzo;AB123CD;;15,00;Sì;',
-      'Gru;Macchina operatrice;;;;Sì;',
+      'Nome;Tipo;Targa;Marca e modello;Costo orario;In uso;Note;Ultima manutenzione;Tipo di manutenzione;Contachilometri o contaore',
+      'Furgone;Automezzo;AB123CD;;15,00;Sì;;12/10/2026;Revisione;84200',
+      'Gru;Macchina operatrice;;;;Sì;;;;',
     ])
   })
 
