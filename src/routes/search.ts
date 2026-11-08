@@ -117,6 +117,18 @@ const TYPES: { type: string; permission: Permission; sql: string; parent?: true 
       from public.site_activities a join public.sites s on s.id = a.site_id
       where a.name ilike $1`,
   },
+  {
+    type: 'vehicle_document',
+    permission: 'vehicles.view',
+    parent: true,
+    sql: `select * from (select d.id, d.vehicle_id as parent_id,
+        coalesce(d.description, case d.kind when 'insurance' then 'Assicurazione'
+          when 'road_tax' then 'Bollo' when 'registration' then 'Carta di circolazione'
+          when 'tachograph' then 'Taratura del tachigrafo' else 'Documento' end) as title,
+        v.name as subtitle, d.notes
+      from public.vehicle_documents d join public.vehicles v on v.id = d.vehicle_id) x
+      where title ilike $1 or notes ilike $1`,
+  },
 ]
 
 const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)

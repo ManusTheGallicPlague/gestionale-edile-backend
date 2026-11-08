@@ -87,9 +87,9 @@ async function scene(permissions: Permission[] = ALL) {
     `insert into public.employees (company_id, first_name, last_name, job_title) values
        ($1, 'Luca', 'Rossi', 'Muratore')`,
   )
-  await q(
+  const vehicle = await q(
     `insert into public.vehicles (company_id, name, kind, plate) values
-       ($1, 'Escavatore Rossi', 'machine', 'AB123CD')`,
+       ($1, 'Escavatore Rossi', 'machine', 'AB123CD') returning id`,
   )
   await q(
     `insert into public.deadlines (company_id, title, due_on, kind) values
@@ -119,6 +119,11 @@ async function scene(permissions: Permission[] = ALL) {
      values ($1, $2, 'Intonaci casa Rossi', '2026-11-02', '2026-11-20')`,
     [site.rows[0]?.id],
   )
+  await q(
+    `insert into public.vehicle_documents (company_id, vehicle_id, kind, expires_on, notes)
+     values ($1, $2, 'insurance', '2027-03-01', 'Polizza ROSSI-55')`,
+    [vehicle.rows[0]?.id],
+  )
 
   const user = await fx.user()
   await fx.member(user.id, id, await fx.role(id, 'Ricerca', permissions))
@@ -130,6 +135,7 @@ async function scene(permissions: Permission[] = ALL) {
     url: `/api/companies/${company.slug}/search`,
     siteId: site.rows[0]?.id,
     priceListId: priceList.rows[0]?.id,
+    vehicleId: vehicle.rows[0]?.id,
   }
 }
 
@@ -155,15 +161,17 @@ describe('quick search', () => {
       ['site_document', 'Contratto', 'Villa sul lago'],
       ['warehouse_item', 'Tavole da ponte', 'ROSSI-T'],
       ['site_activity', 'Intonaci casa Rossi', 'Villa sul lago'],
+      ['vehicle_document', 'Assicurazione', 'Escavatore Rossi'],
     ])
     const parent = (type: string) => body.items.find((h) => h.type === type)?.parent_id
     expect(parent('price_list_item')).toBe(s.priceListId)
     expect(parent('site_document')).toBe(s.siteId)
     expect(parent('site_activity')).toBe(s.siteId)
+    expect(parent('vehicle_document')).toBe(s.vehicleId)
     expect(parent('client')).toBeNull()
   })
 
-  it('finds quotes and orders by number, employees by first name first, vehicles by plate', async () => {
+  it('finds quotes and orders by number, employees by first name first, vehicles by plate, vehicle documents by kind', async () => {
     const s = await scene()
     const types = async (q: string) =>
       (await s.browser.call('GET', `${s.url}?q=${encodeURIComponent(q)}`))
@@ -174,6 +182,7 @@ describe('quick search', () => {
     expect(await types('luca rossi')).toEqual([['employee', 'Rossi Luca']])
     expect(await types('ab123')).toEqual([['vehicle', 'Escavatore Rossi']])
     expect(await types('rossi-t')).toEqual([['warehouse_item', 'Tavole da ponte']])
+    expect(await types('assicuraz')).toEqual([['vehicle_document', 'Assicurazione']])
   })
 
   it('treats % and _ as plain characters', async () => {
@@ -222,11 +231,12 @@ describe('quick search', () => {
     const ids = res.json<Results>().items.map((h) => h.id)
     const theirs = await ctx.owner.query<{ id: string }>(
       `select id from public.clients where company_id = $1
-       union all select id from public.site_activities where company_id = $1`,
+       union all select id from public.site_activities where company_id = $1
+       union all select id from public.vehicle_documents where company_id = $1`,
       [other.company.id],
     )
-    expect(theirs.rows).toHaveLength(3) // Two clients and one activity.
-    expect(ids).toHaveLength(14)
+    expect(theirs.rows).toHaveLength(4) // Two clients, one activity, one vehicle document.
+    expect(ids).toHaveLength(15)
     for (const row of theirs.rows) expect(ids).not.toContain(row.id)
 
     const cross = await mine.browser.call('GET', `${other.url}?q=rossi`)

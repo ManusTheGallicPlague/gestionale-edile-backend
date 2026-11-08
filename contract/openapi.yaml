@@ -3524,9 +3524,11 @@ paths:
         targa), deadline (deadlines.view: titolo), price_list_item (price_lists.view: codice e
         descrizione della voce), site_document (documents.view: titolo e nome del file),
         warehouse_item (warehouse.view: nome e codice dell'articolo di magazzino),
-        site_activity (sites.view: nome dell'attività del cronoprogramma).
-        parent_id è il prezzario della voce o il cantiere del documento o dell'attività, null
-        per gli altri tipi. Clienti e fornitori archiviati sono esclusi.
+        site_activity (sites.view: nome dell'attività del cronoprogramma), vehicle_document
+        (vehicles.view: descrizione o tipo per esteso, es. Assicurazione, e note, dove di
+        solito sta il numero della polizza; subtitle è il nome del mezzo).
+        parent_id è il prezzario della voce, il cantiere del documento o dell'attività o il
+        mezzo del documento del mezzo, null per gli altri tipi. Clienti e fornitori archiviati sono esclusi.
         I tipi escono in quest'ordine; dentro un tipo prima i titoli che iniziano con il testo,
         poi gli altri in ordine alfabetico.
       parameters:
@@ -10995,10 +10997,13 @@ components:
               site_document,
               warehouse_item,
               site_activity,
+              vehicle_document,
             ]
         id: { type: string, format: uuid }
         parent_id:
-          description: Il prezzario della voce o il cantiere del documento; null per gli altri tipi.
+          description: |
+            Il prezzario della voce, il cantiere del documento o dell'attività, il mezzo del
+            documento del mezzo; null per gli altri tipi.
           oneOf:
             - { type: string, format: uuid }
             - type: 'null'
