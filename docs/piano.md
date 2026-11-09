@@ -608,6 +608,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: l'elenco dei rapportini (`l
 
 - [x] `filter[q]` in `listDailyReports` ed `exportDailyReports`: testo nei lavori eseguiti e nelle note, senza distinguere maiuscole e minuscole e senza caratteri jolly; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; il PDF del giornale dei lavori lo ignora come ignora dipendente e mezzo; nessuna migrazione, nessun permesso nuovo
 
+### 88. Ricerca nelle manutenzioni dei mezzi
+Aggiunta il 09/11/2026, con il piano tutto spuntato: l'elenco delle manutenzioni di tutti i mezzi (`listCompanyVehicleMaintenances`) e il suo CSV filtravano per periodo e mezzo, ma l'ufficio cerca per lavoro fatto («tagliando», «freni»), come nella barra dei filtri delle altre schermate «A. Elenco».
+
+- [x] `filter[q]` in `listCompanyVehicleMaintenances` ed `exportVehicleMaintenances`: testo nella descrizione e nelle note, senza distinguere maiuscole e minuscole e senza caratteri jolly, con `total_amount` sul filtro; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -858,11 +863,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: la ricerca nei costi è `filter[q]` come nelle fatture (non il parametro `search` delle anagrafiche), cerca nella descrizione e nelle note ma non nel nome del cantiere o del fornitore, che hanno già i loro filtri.
 - 09/11/2026: la ricerca negli ordini guarda anche le descrizioni delle righe (con `exists`, così un ordine con più righe trovate conta una volta), perché chi cerca un ordine ricorda il materiale più che il numero; non guarda il nome del fornitore o del cantiere, che hanno già i loro filtri.
 - 09/11/2026: la ricerca nei rapportini non guarda le descrizioni delle righe delle ore né il meteo: le lavorazioni del giorno stanno nei lavori eseguiti; il giornale dei lavori in PDF resta il cantiere intero nel periodo, senza la ricerca.
+- 09/11/2026: la ricerca nelle manutenzioni vale solo per l'elenco di tutti i mezzi e il suo CSV, non per le manutenzioni del singolo mezzo (poche righe, si leggono a colpo d'occhio); non guarda il nome dell'officina, che si vede in colonna.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 21:21 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (967 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 88: `filter[q]` nelle manutenzioni di tutti i mezzi e nel loro CSV (test su descrizione in maiuscolo e note, 0.10 + 0.20 trovati = 0.30, `%` come testo, testo di soli spazi ignorato, CSV, manutenzione di un'altra azienda esclusa, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 968 test.
 - 2026-11-09 20:37 UTC: stesso giro, terzo push: sezione 87, `filter[q]` nei rapportini e nel loro CSV (test sui lavori eseguiti in maiuscolo, sulle note, lavori eseguiti vuoti, `%` come testo, testo vuoto ignorato, rapportino di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 967 test.
 - 2026-11-09 20:31 UTC: stesso giro, secondo push: sezione 86, `filter[q]` negli ordini ai fornitori e nel loro CSV (test sul numero 2026/003, sulle note in maiuscolo, sulla descrizione di una riga, ordine con due righe trovate contato una volta con 1625.02 + 0.10 = 1625.12, `%` come testo, testo vuoto ignorato, ordine di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 966 test.
 - 2026-11-09 20:21 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 85: `filter[q]` nell'elenco dei costi e nel loro CSV (test con 0.10 + 0.20 trovati nella descrizione e nelle note = 0.30, maiuscole e spazi, pagina 2 con il totale del filtro, `%` come testo, testo vuoto ignorato, costo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 965 test.

@@ -99,6 +99,54 @@ describe('maintenance of all the vehicles', () => {
     })
   })
 
+  it('searches the description and the notes, also in the CSV', async () => {
+    const { browser, company, url } = await scene()
+    const truck = await vehicleOf(company.id, 'Camion')
+    const service = await maintenance(company.id, truck, '2026-10-01', 10)
+    const noted = await maintenance(company.id, truck, '2026-10-02', 20)
+    const other = await maintenance(company.id, truck, '2026-10-03', 40)
+    const percent = await maintenance(company.id, truck, '2026-10-04', 80)
+    await ctx.owner.query(
+      `update public.vehicle_maintenances set description = case id
+         when $1 then 'TAGLIANDO dei 50.000 km' when $2 then 'Freni'
+         when $3 then 'Gomme' else 'Sconto 100% sul ricambio' end,
+         notes = case id when $2 then 'Fatto insieme al tagliando' else null end
+       where id in ($1, $2, $3, $4)`,
+      [service, noted, other, percent],
+    )
+
+    const found = await browser.call('GET', `${url}?filter[q]=${encodeURIComponent(' tagliando ')}`)
+    expect(found.statusCode).toBe(200)
+    expect(found.json<List>().data.map((r) => r.id)).toEqual([noted, service])
+    expect(found.json<List>()).toMatchObject({ meta: { total: 2 }, total_amount: '0.30' })
+
+    // % is text, not a wildcard.
+    const wildcard = await browser.call('GET', `${url}?filter[q]=${encodeURIComponent('%')}`)
+    expect(wildcard.json<List>().data.map((r) => r.id)).toEqual([percent])
+
+    const empty = await browser.call('GET', `${url}?filter[q]=${encodeURIComponent('   ')}`)
+    expect(empty.json<List>().meta.total).toBe(4)
+
+    const csv = await browser.call('GET', `${url}/export?filter[q]=freni`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body).toContain('Freni')
+    expect(csv.body).not.toContain('Gomme')
+    expect(csv.body).not.toContain('TAGLIANDO')
+
+    // Another company's maintenance with the same words never shows up.
+    const theirs = await scene()
+    const their = await vehicleOf(theirs.company.id, 'Loro')
+    await maintenance(theirs.company.id, their, '2026-10-05', 999)
+    const again = await browser.call('GET', `${url}?filter[q]=lavoro`)
+    expect(again.json<List>().data).toEqual([])
+
+    const long = 'x'.repeat(101)
+    for (const query of [`filter[q]=${long}`, 'filter[q]=a&filter[q]=b']) {
+      expect((await browser.call('GET', `${url}?${query}`)).statusCode).toBe(422)
+      expect((await browser.call('GET', `${url}/export?${query}`)).statusCode).toBe(422)
+    }
+  })
+
   it('rejects wrong filters and pages', async () => {
     const { browser, url } = await scene()
     for (const query of [

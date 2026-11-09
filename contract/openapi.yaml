@@ -7151,8 +7151,9 @@ paths:
         - name: filter
           in: query
           description: |
-            Filtri, ad esempio filter[from]=2026-01-01&filter[to]=2026-12-31 (estremi compresi)
-            e filter[vehicle]=<id>.
+            Filtri, ad esempio filter[from]=2026-01-01&filter[to]=2026-12-31 (estremi compresi),
+            filter[vehicle]=<id> e filter[q]=testo (nella descrizione e nelle note, senza
+            distinguere maiuscole e minuscole).
           style: deepObject
           explode: true
           schema:
@@ -7161,6 +7162,9 @@ paths:
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
               vehicle: { $ref: '#/components/schemas/Id' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di manutenzioni
@@ -7183,9 +7187,9 @@ paths:
         stesso formato dell'esportazione dei clienti: per il commercialista. Tipo per esteso
         (Tagliando, Riparazione, Revisione, Gomme, Altro), date come 30/11/2026, spesa con la
         virgola, vuota se manca. Con filter[from] e filter[to] (estremi compresi) solo quelle del
-        periodo, con filter[vehicle] solo quelle di un mezzo. L'ultima colonna, «Prossima
-        manutenzione», è la data di `next_due_on`, vuota se manca. Il file si chiama
-        manutenzioni.csv.
+        periodo, con filter[vehicle] solo quelle di un mezzo, con filter[q] solo quelle con il
+        testo nella descrizione o nelle note. L'ultima colonna, «Prossima manutenzione», è la
+        data di `next_due_on`, vuota se manca. Il file si chiama manutenzioni.csv.
       parameters:
         - name: filter
           in: query
@@ -7197,6 +7201,9 @@ paths:
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
               vehicle: { $ref: '#/components/schemas/Id' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV

@@ -241,8 +241,19 @@ function readPeriod(query: Record<string, unknown>, withVehicle = false) {
     if (typeof value === 'string' && UUID.test(value)) vehicle = value.toLowerCase()
     else if (value !== undefined) errors['filter[vehicle]'] = ['Identificativo non valido.']
   }
+  let q: string | null = null
+  if (withVehicle) {
+    const value = query['filter[q]']
+    if (value !== undefined && typeof value !== 'string')
+      errors['filter[q]'] = ['Indicalo una volta sola.']
+    else if (value !== undefined) {
+      const trimmed = value.trim()
+      if (trimmed.length > 100) errors['filter[q]'] = ['Al massimo 100 caratteri.']
+      else if (trimmed) q = trimmed
+    }
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { from, to, vehicle, page, perPage }
+  return { from, to, vehicle, q, page, perPage }
 }
 
 function expectedVersion(header: string | string[] | undefined): number {
@@ -333,6 +344,10 @@ async function syncNextDeadline(client: PoolClient, id: string): Promise<void> {
   )
 }
 
+// Text search in description and notes: case-insensitive, no wildcards.
+const TEXT_MATCH = `($4::text is null
+  or strpos(lower(m.description || ' ' || coalesce(m.notes, '')), lower($4)) > 0)`
+
 export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, db: Db): void {
   app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
     '/api/companies/:company/vehicle-maintenances/export',
@@ -341,7 +356,7 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
       const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('vehicles.view')) throw forbidden()
-        const { from, to, vehicle } = readPeriod(request.query, true)
+        const { from, to, vehicle, q } = readPeriod(request.query, true)
         const { rows } = await client.query<
           MaintenanceRow & { vehicle_name: string; plate: string | null }
         >(
@@ -354,9 +369,10 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
            where ($1::date is null or m.performed_on >= $1)
              and ($2::date is null or m.performed_on <= $2)
              and ($3::uuid is null or m.vehicle_id = $3)
+             and ${TEXT_MATCH}
            order by m.performed_on desc, v.name, m.created_at desc, m.id desc
-           limit $4`,
-          [from, to, vehicle, MAX_EXPORT_ROWS],
+           limit $5`,
+          [from, to, vehicle, q, MAX_EXPORT_ROWS],
         )
         return toCsv(
           [
@@ -399,14 +415,15 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
       return withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('vehicles.view')) throw forbidden()
-        const { from, to, vehicle, page, perPage } = readPeriod(request.query, true)
+        const { from, to, vehicle, q, page, perPage } = readPeriod(request.query, true)
         const where = `where ($1::date is null or m.performed_on >= $1)
              and ($2::date is null or m.performed_on <= $2)
-             and ($3::uuid is null or m.vehicle_id = $3)`
+             and ($3::uuid is null or m.vehicle_id = $3)
+             and ${TEXT_MATCH}`
         const totals = await client.query<{ total: number; amount: string }>(
           `select count(*)::int as total, coalesce(sum(m.amount_cents), 0)::text as amount
            from public.vehicle_maintenances m ${where}`,
-          [from, to, vehicle],
+          [from, to, vehicle, q],
         )
         const { rows } = await client.query<
           MaintenanceRow & { vehicle_name: string; plate: string | null }
@@ -414,8 +431,8 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
           `${SELECT_WITH_VEHICLE}
            ${where}
            order by m.performed_on desc, v.name, m.created_at desc, m.id desc
-           limit $4 offset $5`,
-          [from, to, vehicle, perPage, (page - 1) * perPage],
+           limit $5 offset $6`,
+          [from, to, vehicle, q, perPage, (page - 1) * perPage],
         )
         const sums = totals.rows[0]
         return {
