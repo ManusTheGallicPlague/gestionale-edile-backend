@@ -39,6 +39,7 @@ import { dashboardRoutes } from './routes/dashboard.js'
 import { searchRoutes } from './routes/search.js'
 import { accountRoutes } from './routes/accounts.js'
 import { cashFlowRoutes } from './routes/cash-flow.js'
+import { vatSummaryRoutes } from './routes/vat-summary.js'
 import { workSummaryRoutes } from './routes/work-summary.js'
 import { priceListRoutes } from './routes/price-lists.js'
 import { invitationRoutes } from './routes/invitations.js'
@@ -151,6 +152,7 @@ export function buildApp(
   searchRoutes(app, db)
   accountRoutes(app, db)
   cashFlowRoutes(app, db)
+  vatSummaryRoutes(app, db)
   workSummaryRoutes(app, db)
   priceListRoutes(app, config, db)
   siteCostSummaryRoutes(app, db)

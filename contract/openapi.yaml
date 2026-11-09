@@ -3705,6 +3705,93 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/vat-summary:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: getVatSummary
+      summary: Riepilogo IVA per la liquidazione, mese per mese o trimestre per trimestre
+      description: |
+        Permesso: invoices.view. Imponibile e IVA delle fatture del registro di un anno, divise
+        per mese o trimestre della data della fattura (non della registrazione né del
+        pagamento: pagate e non pagate contano allo stesso modo), per preparare la
+        liquidazione con il commercialista. sales sono le fatture emesse, purchases le
+        ricevute. sales_split_payment_vat è la parte di sales_vat delle fatture in scissione
+        dei pagamenti, che versa la pubblica amministrazione. reverse_charge_taxable è
+        l'imponibile delle fatture ricevute con natura IVA N6.x (inversione contabile):
+        l'IVA da integrare non è nel registro e va calcolata a parte. balance è sales_vat
+        meno sales_split_payment_vat meno purchases_vat: positivo è IVA a debito, negativo a
+        credito. Niente IVA per cassa, pro rata né acconto di dicembre.
+      parameters:
+        - name: year
+          in: query
+          description: L'anno, quello in corso in Italia se manca.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+        - name: period
+          in: query
+          description: month per i mensili, quarter per i trimestrali.
+          schema:
+            type: string
+            enum: [month, quarter]
+            default: month
+      responses:
+        '200':
+          description: Il riepilogo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/VatSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/vat-summary/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportVatSummary
+      summary: Riepilogo IVA in CSV
+      description: |
+        Permesso e parametri come getVatSummary, nel formato delle altre esportazioni: importi
+        con la virgola decimale (1234,50), negativi con il meno. Una riga per periodo
+        (01/2026 o 1° trimestre 2026) e la riga Totale; colonne Periodo, Imponibile vendite,
+        IVA vendite, di cui IVA in scissione, Imponibile acquisti, IVA acquisti, Imponibile
+        acquisti in inversione contabile, Saldo IVA. Il file si chiama riepilogo-iva-2026.csv.
+      parameters:
+        - name: year
+          in: query
+          description: L'anno, quello in corso in Italia se manca.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+        - name: period
+          in: query
+          description: month per i mensili, quarter per i trimestrali.
+          schema:
+            type: string
+            enum: [month, quarter]
+            default: month
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/dashboard:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -12141,6 +12228,73 @@ components:
           description: Somma di tutte le fatture aperte.
           allOf:
             - $ref: '#/components/schemas/CashFlowAmounts'
+    VatSummaryAmounts:
+      type: object
+      description: Imponibile e IVA delle fatture emesse e ricevute, e il saldo IVA.
+      required:
+        - sales_taxable
+        - sales_vat
+        - sales_split_payment_vat
+        - purchases_taxable
+        - purchases_vat
+        - reverse_charge_taxable
+        - balance
+      properties:
+        sales_taxable: { $ref: '#/components/schemas/Amount' }
+        sales_vat: { $ref: '#/components/schemas/Amount' }
+        sales_split_payment_vat:
+          description: Parte di sales_vat in scissione dei pagamenti.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        purchases_taxable: { $ref: '#/components/schemas/Amount' }
+        purchases_vat: { $ref: '#/components/schemas/Amount' }
+        reverse_charge_taxable:
+          description: Imponibile delle fatture ricevute con natura N6.x, parte di purchases_taxable.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        balance:
+          description: IVA a debito se positivo, a credito se negativo.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+    VatSummaryPeriod:
+      allOf:
+        - $ref: '#/components/schemas/VatSummaryAmounts'
+        - type: object
+          required: [period, from, to]
+          properties:
+            period:
+              type: string
+              pattern: '^\d{4}-(0[1-9]|1[0-2]|Q[1-4])$'
+              description: AAAA-MM per i mesi, AAAA-Q1 … AAAA-Q4 per i trimestri.
+            from:
+              description: Primo giorno del periodo.
+              allOf:
+                - $ref: '#/components/schemas/Date'
+            to:
+              description: Ultimo giorno del periodo, compreso.
+              allOf:
+                - $ref: '#/components/schemas/Date'
+    VatSummary:
+      type: object
+      required: [year, period, periods, total]
+      properties:
+        year:
+          type: integer
+          minimum: 2000
+          maximum: 2100
+        period:
+          type: string
+          enum: [month, quarter]
+        periods:
+          type: array
+          minItems: 4
+          maxItems: 12
+          description: Tutti i mesi o i trimestri dell'anno, anche quelli a zero, in ordine.
+          items: { $ref: '#/components/schemas/VatSummaryPeriod' }
+        total:
+          description: Somma dell'anno.
+          allOf:
+            - $ref: '#/components/schemas/VatSummaryAmounts'
     DashboardInvoices:
       type: object
       description: |
