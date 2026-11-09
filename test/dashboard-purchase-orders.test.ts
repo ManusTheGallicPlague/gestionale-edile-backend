@@ -83,6 +83,7 @@ describe('purchase orders in the dashboard', () => {
       due_soon: 2,
       received_uninvoiced: null,
       received_uninvoiced_total: null,
+      over_invoiced: null,
     })
   })
 
@@ -110,6 +111,7 @@ describe('purchase orders in the dashboard', () => {
       due_soon: 0,
       received_uninvoiced: 0,
       received_uninvoiced_total: '0.00',
+      over_invoiced: 0,
     })
   })
 
@@ -134,6 +136,27 @@ describe('purchase orders in the dashboard', () => {
     }>().purchase_orders
     expect(orders.received_uninvoiced).toBe(2)
     expect(orders.received_uninvoiced_total).toBe('777.77')
+    // The invoiced order: 30.00 ordered, 1.00 billed, not over; then 29.01 more: over by 1 cent.
+    expect(
+      res.json<{ purchase_orders: { over_invoiced: number } }>().purchase_orders.over_invoiced,
+    ).toBe(0)
+    await ctx.owner.query(
+      `insert into public.invoices (company_id, direction, number, invoice_date, supplier_id,
+         taxable_cents, vat_cents, purchase_order_id)
+       values ($1, 'received', 'F/2', '2026-11-03', $2, 2901, 0, $3)`,
+      [s.company.id, s.supplierId, invoiced],
+    )
+    const after = await s.browser.call('GET', s.url)
+    expect(
+      after.json<{ purchase_orders: { over_invoiced: number } }>().purchase_orders.over_invoiced,
+    ).toBe(1)
+    const over = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/purchase-orders?filter[over_invoiced]=true`,
+    )
+    expect(over.json<{ data: { notes: string }[] }>().data.map((o) => o.notes)).toEqual([
+      'Fatturato',
+    ])
 
     // The same orders as the list filtered by received and not invoiced.
     const list = await s.browser.call(

@@ -12753,6 +12753,7 @@ components:
           due_soon,
           received_uninvoiced,
           received_uninvoiced_total,
+          over_invoiced,
         ]
       properties:
         drafts:
@@ -12780,6 +12781,12 @@ components:
           minimum: 0
           description: |
             Ordini ricevuti senza nessuna fattura ricevuta collegata; null senza invoices.view.
+        over_invoiced:
+          type: [integer, 'null']
+          minimum: 0
+          description: |
+            Ordini con l'imponibile fatturato oltre il totale, gli stessi di
+            filter[over_invoiced]=true in listPurchaseOrders; null senza invoices.view.
         received_uninvoiced_total:
           description: |
             Totale degli ordini in received_uninvoiced, da aspettarsi in fattura; null senza

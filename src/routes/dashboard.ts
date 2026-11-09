@@ -293,6 +293,7 @@ async function purchaseOrderTotals(client: PoolClient, seesInvoices: boolean) {
     due_soon: number
     uninvoiced: number
     uninvoiced_total: string
+    over_invoiced: number
   }>(
     `select count(*) filter (where o.status = 'draft')::int as drafts,
        count(*) filter (where ${ORDER_FOLLOW_UPS.awaiting})::int as awaiting,
@@ -302,7 +303,9 @@ async function purchaseOrderTotals(client: PoolClient, seesInvoices: boolean) {
        count(*) filter (where ${ORDER_FOLLOW_UPS.due_soon})::int as due_soon,
        count(*) filter (where ${uninvoiced})::int as uninvoiced,
        coalesce(sum(${orderTotal}) filter (where ${uninvoiced}), 0)::bigint::text
-         as uninvoiced_total
+         as uninvoiced_total,
+       count(*) filter (where (select coalesce(sum(i.taxable_cents), 0) from public.invoices i
+         where i.purchase_order_id = o.id) > coalesce(${orderTotal}, 0))::int as over_invoiced
      from public.purchase_orders o`,
   )
   const r = rows[0]
@@ -315,6 +318,7 @@ async function purchaseOrderTotals(client: PoolClient, seesInvoices: boolean) {
     // Whether an order has an invoice tells about invoices: only who sees them sees it.
     received_uninvoiced: seesInvoices ? (r?.uninvoiced ?? 0) : null,
     received_uninvoiced_total: seesInvoices ? centsToAmount(r?.uninvoiced_total ?? '0') : null,
+    over_invoiced: seesInvoices ? (r?.over_invoiced ?? 0) : null,
   }
 }
 
