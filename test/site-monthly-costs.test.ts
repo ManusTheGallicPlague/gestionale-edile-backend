@@ -197,6 +197,54 @@ describe('site monthly costs', () => {
     ])
   })
 
+  it('exports the months in CSV, with the invoiced columns only with invoices.view', async () => {
+    const s = await scene()
+    const res = await s.browser.call('GET', `${s.url(s.villetta)}/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-disposition']).toBe(
+      'attachment; filename="costi-mensili-cantiere.csv"',
+    )
+    expect(res.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Mese;Manodopera;Mezzi;Costi inseriti;Totale;Progressivo',
+      '08/2026;213,75;101,25;0,30;315,30;315,30',
+      '09/2026;0,00;0,00;0,00;0,00;315,30',
+      '10/2026;0,00;0,00;0,00;0,00;315,30',
+      '11/2026;213,75;101,25;1250,00;1565,00;1880,30',
+    ])
+    const billing = await scene(['costs.view', 'invoices.view'])
+    const client = await ctx.owner.query<{ id: string }>(
+      `insert into public.clients (company_id, kind, name) values ($1, 'person', 'Rossi')
+       returning id`,
+      [billing.company.id],
+    )
+    await ctx.owner.query(
+      `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+         site_id, taxable_cents, vat_cents)
+       values ($1, 'issued', '1', '2026-09-10', $2, $3, 50050, 0)`,
+      [billing.company.id, client.rows[0]?.id, billing.villetta],
+    )
+    const csv = await billing.browser.call('GET', `${billing.url(billing.villetta)}/export`)
+    expect(csv.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Mese;Manodopera;Mezzi;Costi inseriti;Totale;Progressivo;Fatturato;Fatturato progressivo',
+      '08/2026;213,75;101,25;0,30;315,30;315,30;0,00;0,00',
+      '09/2026;0,00;0,00;0,00;0,00;315,30;500,50;500,50',
+      '10/2026;0,00;0,00;0,00;0,00;315,30;0,00;500,50',
+      '11/2026;213,75;101,25;1250,00;1565,00;1880,30;0,00;500,50',
+    ])
+    const empty = await s.browser.call('GET', `${s.url(s.box)}/export`)
+    expect(empty.body.replace('\uFEFF', '').trim()).toBe(
+      'Mese;Manodopera;Mezzi;Costi inseriti;Totale;Progressivo',
+    )
+    const blind = await scene(['sites.view'])
+    expect(
+      (await blind.browser.call('GET', `${blind.url(blind.villetta)}/export`)).statusCode,
+    ).toBe(404)
+    expect((await s.browser.call('GET', `${s.url(blind.villetta)}/export`)).statusCode).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', `${s.url(s.villetta)}/export`)).statusCode).toBe(
+      401,
+    )
+  })
+
   it('has no months for a site without costs', async () => {
     const s = await scene()
     const res = await s.browser.call('GET', s.url(s.box))

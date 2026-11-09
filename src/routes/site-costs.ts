@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
 import type { Db } from '../db.js'
@@ -598,62 +598,24 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
     },
   )
 
+  const monthly = async (
+    request: FastifyRequest<{ Params: { company: string; site: string } }>,
+  ) => {
+    const session = requireSession(request)
+    const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('costs.view')) throw notFound()
+      if (!UUID.test(request.params.site)) throw notFound()
+      return readMonthlyCosts(client, request.params.site, permissions.has('invoices.view'))
+    })
+    if (!result) throw notFound()
+    return result
+  }
+
   app.get<{ Params: { company: string; site: string } }>(
     '/api/companies/:company/sites/:site/cost-summary/months',
     async (request, reply) => {
-      const session = requireSession(request)
-      const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
-        const permissions = await enterCompany(client, request.params.company)
-        if (!permissions.has('costs.view')) throw notFound()
-        if (!UUID.test(request.params.site)) throw notFound()
-        const site = await client.query<{ budget_cents: string | null }>(
-          'select budget_cents::text as budget_cents from public.sites where id = $1',
-          [request.params.site],
-        )
-        const found = site.rows[0]
-        if (!found) return null
-        const { rows } = await client.query<{
-          month: string
-          labor: string
-          vehicles: string
-          other: string
-          total: string
-          cumulative: string
-          invoiced: string
-          cumulative_invoiced: string
-        }>(
-          `with lines as (
-             select day, cents, kind from (${COST_LINES}) x where x.site_id = $1
-             union all
-             select invoice_date, taxable_cents, 'invoiced' from public.invoices
-             where $2 and site_id = $1 and direction = 'issued'
-           ), months as (
-             select generate_series(date_trunc('month', min(day)), date_trunc('month', max(day)),
-               interval '1 month')::date as month
-             from lines having count(*) > 0
-           ), sums as (
-             select m.month,
-               coalesce(sum(l.cents) filter (where l.kind = 'labor'), 0) as labor,
-               coalesce(sum(l.cents) filter (where l.kind = 'vehicles'), 0) as vehicles,
-               coalesce(sum(l.cents) filter (where l.kind = 'other'), 0) as other,
-               coalesce(sum(l.cents) filter (where l.kind <> 'invoiced'), 0) as total,
-               coalesce(sum(l.cents) filter (where l.kind = 'invoiced'), 0) as invoiced
-             from months m
-             left join lines l on l.day >= m.month and l.day < m.month + interval '1 month'
-             group by m.month
-           )
-           select to_char(month, 'YYYY-MM') as month, labor::bigint::text as labor,
-             vehicles::bigint::text as vehicles, other::bigint::text as other,
-             total::bigint::text as total,
-             (sum(total) over (order by month))::bigint::text as cumulative,
-             invoiced::bigint::text as invoiced,
-             (sum(invoiced) over (order by month))::bigint::text as cumulative_invoiced
-           from sums order by month`,
-          [request.params.site, permissions.has('invoices.view')],
-        )
-        return { budget: found.budget_cents, rows, revenue: permissions.has('invoices.view') }
-      })
-      if (!result) throw notFound()
+      const result = await monthly(request)
       return reply.send({
         budget: result.budget === null ? null : centsToAmount(result.budget),
         months: result.rows.map((r) => ({
@@ -669,6 +631,94 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
       })
     },
   )
+
+  app.get<{ Params: { company: string; site: string } }>(
+    '/api/companies/:company/sites/:site/cost-summary/months/export',
+    async (request, reply) => {
+      const result = await monthly(request)
+      const csv = toCsv(
+        [
+          'Mese',
+          'Manodopera',
+          'Mezzi',
+          'Costi inseriti',
+          'Totale',
+          'Progressivo',
+          ...(result.revenue ? ['Fatturato', 'Fatturato progressivo'] : []),
+        ],
+        result.rows.map((r) => [
+          `${r.month.slice(5)}/${r.month.slice(0, 4)}`,
+          italianAmount(r.labor),
+          italianAmount(r.vehicles),
+          italianAmount(r.other),
+          italianAmount(r.total),
+          italianAmount(r.cumulative),
+          ...(result.revenue
+            ? [italianAmount(r.invoiced), italianAmount(r.cumulative_invoiced)]
+            : []),
+        ]),
+      )
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="costi-mensili-cantiere.csv"')
+        .send(csv)
+    },
+  )
+}
+
+interface MonthRow {
+  month: string
+  labor: string
+  vehicles: string
+  other: string
+  total: string
+  cumulative: string
+  invoiced: string
+  cumulative_invoiced: string
+}
+
+/**
+ * Costs of one site per month, from the first to the last month with a cost (or, with
+ * revenue, an issued invoice), with running totals. Null when the site is not visible.
+ */
+async function readMonthlyCosts(client: PoolClient, site: string, revenue: boolean) {
+  const sites = await client.query<{ budget_cents: string | null }>(
+    'select budget_cents::text as budget_cents from public.sites where id = $1',
+    [site],
+  )
+  const found = sites.rows[0]
+  if (!found) return null
+  const { rows } = await client.query<MonthRow>(
+    `with lines as (
+       select day, cents, kind from (${COST_LINES}) x where x.site_id = $1
+       union all
+       select invoice_date, taxable_cents, 'invoiced' from public.invoices
+       where $2 and site_id = $1 and direction = 'issued'
+     ), months as (
+       select generate_series(date_trunc('month', min(day)), date_trunc('month', max(day)),
+         interval '1 month')::date as month
+       from lines having count(*) > 0
+     ), sums as (
+       select m.month,
+         coalesce(sum(l.cents) filter (where l.kind = 'labor'), 0) as labor,
+         coalesce(sum(l.cents) filter (where l.kind = 'vehicles'), 0) as vehicles,
+         coalesce(sum(l.cents) filter (where l.kind = 'other'), 0) as other,
+         coalesce(sum(l.cents) filter (where l.kind <> 'invoiced'), 0) as total,
+         coalesce(sum(l.cents) filter (where l.kind = 'invoiced'), 0) as invoiced
+       from months m
+       left join lines l on l.day >= m.month and l.day < m.month + interval '1 month'
+       group by m.month
+     )
+     select to_char(month, 'YYYY-MM') as month, labor::bigint::text as labor,
+       vehicles::bigint::text as vehicles, other::bigint::text as other,
+       total::bigint::text as total,
+       (sum(total) over (order by month))::bigint::text as cumulative,
+       invoiced::bigint::text as invoiced,
+       (sum(invoiced) over (order by month))::bigint::text as cumulative_invoiced
+     from sums order by month`,
+    [site, revenue],
+  )
+  return { budget: found.budget_cents, rows, revenue }
 }
 
 function summaryToContract(

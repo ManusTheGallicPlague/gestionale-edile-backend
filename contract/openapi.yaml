@@ -3723,6 +3723,34 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/sites/{site}/cost-summary/months/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: exportSiteMonthlyCosts
+      summary: Costi di un cantiere mese per mese in CSV
+      description: |
+        Permesso: costs.view (senza, 404 come getSiteMonthlyCosts). Le stesse righe di
+        getSiteMonthlyCosts, nello stesso formato dell'esportazione dei clienti: colonne Mese
+        (11/2026), Manodopera, Mezzi, Costi inseriti, Totale, Progressivo, importi con la virgola
+        decimale (1234,50); con invoices.view in fondo anche Fatturato e Fatturato progressivo.
+        Il file si chiama costi-mensili-cantiere.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/sites/{site}/work-summary:
     parameters:
       - $ref: '#/components/parameters/Company'

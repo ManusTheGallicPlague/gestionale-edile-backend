@@ -538,6 +538,7 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: la panoramica del cantiere 
 
 - [x] `getSiteMonthlyCosts` su `…/sites/{site}/cost-summary/months` (permesso `costs.view`, 404 senza come il riepilogo): manodopera, mezzi e costi a mano per mese, dal primo all'ultimo mese con un costo (mesi vuoti a zero), totale progressivo `cumulative` e `budget`; l'ultimo progressivo è il totale di `getSiteCostSummary`; nessuna migrazione, nessun permesso nuovo
 - [x] Fatturato per mese nello stesso grafico (`invoiced` e `cumulative_invoiced`, con `invoices.view`, altrimenti null): imponibile delle fatture emesse del cantiere per data della fattura; con il permesso i mesi comprendono anche quelli con sole fatture
+- [x] Gli stessi mesi in CSV (`exportSiteMonthlyCosts` su `…/cost-summary/months/export`, file `costi-mensili-cantiere.csv`), mese come 11/2026, colonne del fatturato solo con `invoices.view`
 
 ## Decisioni prese
 
@@ -779,6 +780,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 13:45 UTC: stesso giro, terzo push: `exportSiteMonthlyCosts` (test con e senza `invoices.view`, cantiere senza costi con la sola intestazione, 404 senza `costs.view` e da un'altra azienda, 401 senza sessione); la lettura dei mesi è ora una funzione sola per elenco e CSV. Niente a metà; piano tutto spuntato. 930 test.
 - 2026-11-09 13:37 UTC: stesso giro, secondo push: `invoiced` e `cumulative_invoiced` in `getSiteMonthlyCosts` (test con fattura prima del primo costo che apre l'elenco, 0.10 + 0.20 nello stesso mese, fattura ricevuta e fattura di un altro cantiere escluse, progressivo uguale a `revenue.invoiced` del riepilogo, cantiere con sole fatture, null senza `invoices.view`). Niente a metà; piano tutto spuntato. 929 test.
 - 2026-11-09 13:28 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (924 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 75: `getSiteMonthlyCosts` (test con costi l'ultimo e il primo giorno del mese, rapportino inviato escluso, mesi vuoti in mezzo a zero, progressivo uguale al totale del riepilogo, cantiere senza costi, 404 senza `costs.view`, con id non valido, da un'altra azienda, 401 senza sessione). Niente a metà; piano tutto spuntato. 928 test.
 - 2026-11-09 12:37 UTC: stesso giro, secondo push: `sort=period_total` e `-period_total` in `listSiteCostTotals` ed `exportSiteCostTotals` (test su un giorno e da una data in poi, pari merito per nome, senza periodo uguale a `sort=total`). Niente a metà; piano tutto spuntato. 924 test.
