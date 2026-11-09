@@ -341,6 +341,53 @@ function parseLoadInput(body: unknown): {
   return { date, lines }
 }
 
+const COUNT_NOTES = 'Rettifica d’inventario'
+
+function parseCountInput(body: unknown): {
+  date: string
+  notes: string | null
+  lines: { item_id: string; quantity: string }[]
+} {
+  const { errors, add, text } = reader(body)
+  const date = text('date', 10)
+  if (date === null && !errors.date) add('date', 'Indica la data della conta.')
+  else if (date !== null && !errors.date && !isIsoDate(date)) {
+    add('date', 'Data non valida (AAAA-MM-GG).')
+  }
+  const notes = 'notes' in (body as Record<string, unknown>) ? text('notes', 2000) : null
+  const raw = (body as Record<string, unknown>).lines
+  const lines: { item_id: string; quantity: string }[] = []
+  if (!Array.isArray(raw) || raw.length === 0) add('lines', 'Indica almeno un articolo contato.')
+  else if (raw.length > 200) add('lines', 'Al massimo 200 righe.')
+  else {
+    const seen = new Set<string>()
+    raw.forEach((item: unknown, i) => {
+      const line = (typeof item === 'object' && item !== null ? item : {}) as Record<
+        string,
+        unknown
+      >
+      const itemId = line.item_id
+      const quantity = line.quantity
+      if (typeof itemId !== 'string' || !UUID.test(itemId)) {
+        add(`lines.${i}.item_id`, 'Scegli l’articolo.')
+      } else if (seen.has(itemId.toLowerCase())) {
+        add(`lines.${i}.item_id`, 'Articolo già contato in un’altra riga.')
+      } else seen.add(itemId.toLowerCase())
+      if (typeof quantity !== 'string' || !QUANTITY.test(quantity)) {
+        add(
+          `lines.${i}.quantity`,
+          'Una quantità da zero in su, con il punto e al massimo tre decimali.',
+        )
+      }
+      if (typeof itemId === 'string' && typeof quantity === 'string') {
+        lines.push({ item_id: itemId, quantity })
+      }
+    })
+  }
+  if (Object.keys(errors).length > 0 || !date) throw new ValidationFailed(errors)
+  return { date, notes, lines }
+}
+
 function listQuery(query: Record<string, unknown>) {
   const errors: FieldErrors = {}
   const single = (name: string): string | undefined => {
@@ -860,6 +907,89 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
         return movementRows.sort((a, b) => (order_.get(a.id) ?? 0) - (order_.get(b.id) ?? 0))
       })
       return reply.code(201).send({ data: rows.map(movementToContract) })
+    },
+  )
+
+  app.post<{ Params: Params }>(
+    '/api/companies/:company/warehouse/stock-counts',
+    async (request, reply) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      const rows = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('warehouse.create')) throw forbidden()
+        const input = parseCountInput(request.body)
+        const ids = input.lines.map((l) => l.item_id)
+        // Locked in a fixed order, so two counts of the same items wait for each other.
+        const { rows: found } = await client.query<{ id: string }>(
+          `select i.id::text as id from public.warehouse_items i
+           where i.id = any($1::uuid[]) order by i.id for update`,
+          [ids],
+        )
+        const known = new Set(found.map((r) => r.id))
+        const errors: FieldErrors = {}
+        input.lines.forEach((l, i) => {
+          if (!known.has(l.item_id.toLowerCase())) {
+            errors[`lines.${i}.item_id`] = ['Articolo non trovato.']
+          }
+        })
+        if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+        const { rows: counted } = await client.query<{
+          item_id: string
+          stock: string
+          counted: string
+          too_far: boolean
+        }>(
+          `select x.item_id::text as item_id, s.stock::numeric(15, 3)::text as stock,
+             x.counted::numeric(15, 3)::text as counted,
+             abs(x.counted - s.stock) >= 100000000000 as too_far
+           from unnest($1::uuid[], $2::numeric[]) with ordinality as x (item_id, counted, n)
+           join public.warehouse_items i on i.id = x.item_id
+           cross join lateral (select ${stockSql('$3')} as stock) s
+           order by x.n`,
+          [ids, input.lines.map((l) => l.quantity), input.date],
+        )
+        counted.forEach((c, i) => {
+          if (c.too_far)
+            errors[`lines.${i}.quantity`] = ['Differenza dalla giacenza troppo grande.']
+        })
+        if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+        const { rows: created } = await client.query<{ id: string; item_id: string }>(
+          `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
+             quantity, notes, created_by)
+           select app.current_company_id(), x.item_id, $1,
+             case when x.counted > x.stock then 'in' else 'out' end, abs(x.counted - x.stock),
+             $2, $3
+           from unnest($4::uuid[], $5::numeric[], $6::numeric[])
+             with ordinality as x (item_id, counted, stock, n)
+           where x.counted <> x.stock
+           order by x.n
+           returning id, item_id::text as item_id`,
+          [
+            input.date,
+            input.notes ?? COUNT_NOTES,
+            session.user.id,
+            counted.map((c) => c.item_id),
+            counted.map((c) => c.counted),
+            counted.map((c) => c.stock),
+          ],
+        )
+        const { rows: movementRows } = await client.query<MovementRow>(
+          `${MOVEMENT_SELECT} where m.id = any($1::uuid[])`,
+          [created.map((r) => r.id)],
+        )
+        const byItem = new Map(movementRows.map((m) => [m.item_id, m]))
+        return counted.map((c) => {
+          const movement = byItem.get(c.item_id)
+          return {
+            item_id: c.item_id,
+            stock: c.stock,
+            counted: c.counted,
+            movement: movement ? movementToContract(movement) : null,
+          }
+        })
+      })
+      return reply.code(201).send({ data: rows })
     },
   )
 

@@ -3376,6 +3376,81 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/warehouse/stock-counts:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    post:
+      operationId: countWarehouseStock
+      summary: Rettifica d'inventario dalla conta fisica
+      description: |
+        Permesso: warehouse.create. Per ogni articolo indicato si manda la quantità contata a
+        una data (anche zero); il backend confronta la conta con la giacenza a quel giorno
+        (tutti i movimenti fino a quella data compresa) e registra la differenza: un carico se
+        si è contato di più, uno scarico se di meno, nessun movimento se coincide. I movimenti
+        hanno la data della conta, nessun cantiere, nessun costo (il costo medio non cambia) e
+        come note quelle indicate o «Rettifica d'inventario». I movimenti dopo quella data
+        restano e continuano a contare. Un articolo una volta sola (422 su lines.N.item_id);
+        un articolo sconosciuto o di un'altra azienda dà 422 su lines.N.item_id e non scrive
+        niente. Le righe della risposta sono nello stesso ordine della richiesta.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [date, lines]
+              properties:
+                date: { $ref: '#/components/schemas/Date' }
+                notes:
+                  type: [string, 'null']
+                  maxLength: 2000
+                lines:
+                  type: array
+                  minItems: 1
+                  maxItems: 200
+                  items:
+                    type: object
+                    required: [item_id, quantity]
+                    properties:
+                      item_id: { $ref: '#/components/schemas/Id' }
+                      quantity:
+                        description: Quantità contata, da zero in su, nell'unità dell'articolo.
+                        allOf:
+                          - $ref: '#/components/schemas/Quantity'
+      responses:
+        '201':
+          description: Conta registrata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      required: [item_id, stock, counted, movement]
+                      properties:
+                        item_id: { $ref: '#/components/schemas/Id' }
+                        stock:
+                          description: Giacenza alla data della conta, prima della rettifica.
+                          allOf:
+                            - $ref: '#/components/schemas/Quantity'
+                        counted: { $ref: '#/components/schemas/Quantity' }
+                        movement:
+                          description: Il movimento di rettifica; null se la conta coincide.
+                          oneOf:
+                            - $ref: '#/components/schemas/WarehouseMovement'
+                            - type: 'null'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/sites/{site}/cost-summary:
     parameters:
       - $ref: '#/components/parameters/Company'
