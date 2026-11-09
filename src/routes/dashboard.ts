@@ -18,24 +18,7 @@ import { BELOW_MIN, stockValueCents } from './warehouse.js'
 import { DOCUMENTS_SQL } from './vehicles.js'
 import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { readTotals } from './absence-totals.js'
-
-/**
- * Every cost of a site, one row each: labour and vehicles of approved daily reports at
- * today's hourly cost (as in the site cost summary), plus the costs entered by hand.
- */
-const COST_LINES = `
-  select r.site_id, r.report_date as day, round(l.hours * coalesce(e.hourly_cost_cents, 0)) as cents,
-    'labor' as kind
-  from public.daily_report_labor l
-  join public.daily_reports r on r.id = l.report_id and r.status = 'approved'
-  join public.employees e on e.id = l.employee_id
-  union all
-  select r.site_id, r.report_date, round(v.hours * coalesce(m.hourly_cost_cents, 0)), 'vehicles'
-  from public.daily_report_vehicles v
-  join public.daily_reports r on r.id = v.report_id and r.status = 'approved'
-  join public.vehicles m on m.id = v.vehicle_id
-  union all
-  select site_id, cost_date, amount_cents, 'other' from public.site_costs`
+import { COST_LINES } from './site-costs.js'
 
 async function siteCounts(client: PoolClient) {
   const { rows } = await client.query<{ status: string; n: number }>(

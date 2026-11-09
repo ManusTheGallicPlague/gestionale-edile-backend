@@ -2552,6 +2552,97 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/site-costs/totals:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listSiteCostTotals
+      summary: Costi di tutti i cantieri confrontati con il budget
+      description: |
+        Permessi: costs.view e sites.view (senza uno dei due, 403). Un elemento per cantiere,
+        anche senza costi (a zero). Il totale segue la regola di getSiteCostSummary: manodopera
+        e mezzi dai rapportini approvati al costo orario attuale, più i costi inseriti a mano;
+        il materiale del magazzino e gli ordini ai fornitori restano fuori. Importi senza IVA.
+        budget_remaining è il budget meno il totale, null senza budget; nell'ordinamento per
+        residuo i cantieri senza budget vanno in fondo in entrambe le direzioni.
+        filter[over_budget]=true lascia i cantieri con un budget superato, false gli altri
+        (quelli senza budget compresi). total_amount e budget_amount sommano tutti i cantieri
+        che rispettano i filtri, non solo la pagina.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: sort
+          in: query
+          description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
+          schema:
+            type: string
+            enum: [name, -name, total, -total, remaining, -remaining]
+            default: name
+        - name: filter
+          in: query
+          description: Filtri, ad esempio filter[status]=active e filter[over_budget]=true.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/SiteStatus' }
+              over_budget: { type: boolean }
+      responses:
+        '200':
+          description: Una pagina di cantieri con i loro costi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteCostTotalList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/site-costs/totals/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportSiteCostTotals
+      summary: Esportazione dei costi di tutti i cantieri in CSV
+      description: |
+        Permessi: costs.view e sites.view. Stessi filtri e ordinamento dell'elenco, senza
+        paginazione, nello stesso formato dell'esportazione dei clienti. Importi con la virgola
+        decimale (1234,50); budget e residuo vuoti senza budget; «Sopra budget» vale Sì o No.
+        Il file si chiama costi-cantieri.csv.
+      parameters:
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [name, -name, total, -total, remaining, -remaining]
+            default: name
+        - name: filter
+          in: query
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              status: { $ref: '#/components/schemas/SiteStatus' }
+              over_budget: { type: boolean }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/costs/export:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -13429,6 +13520,57 @@ components:
           description: Somma degli importi netti (dopo la ritenuta di garanzia) dei SAL filtrati.
           allOf:
             - $ref: '#/components/schemas/SignedAmount'
+    SiteCostTotal:
+      type: object
+      required: [site, labor, vehicles, manual, total, budget, budget_remaining, over_budget]
+      properties:
+        site:
+          type: object
+          required: [id, name, code, status]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            name: { type: string }
+            code: { type: [string, 'null'] }
+            status: { $ref: '#/components/schemas/SiteStatus' }
+        labor:
+          description: Manodopera dai rapportini approvati.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        vehicles:
+          description: Mezzi dai rapportini approvati.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        manual:
+          description: Costi inseriti a mano (materiali, noli, subappalti e altro).
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        total: { $ref: '#/components/schemas/Amount' }
+        budget:
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        budget_remaining:
+          description: Budget meno totale; negativo sopra budget, null senza budget.
+          oneOf:
+            - $ref: '#/components/schemas/SignedAmount'
+            - type: 'null'
+        over_budget: { type: boolean }
+    SiteCostTotalList:
+      type: object
+      required: [data, meta, total_amount, budget_amount]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/SiteCostTotal' }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+        total_amount:
+          description: Somma dei costi di tutti i cantieri filtrati.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        budget_amount:
+          description: Somma dei budget dei cantieri filtrati che ne hanno uno.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
     SiteCostList:
       type: object
       required: [data, meta, total_amount]

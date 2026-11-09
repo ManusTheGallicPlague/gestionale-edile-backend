@@ -25,7 +25,7 @@ import { COMPLIANCE, COMPLIANCE_SQL } from './suppliers.js'
 
 export const SITE_STATUSES = ['planned', 'active', 'suspended', 'completed'] as const
 type Status = (typeof SITE_STATUSES)[number]
-const STATUS_LABELS: Record<Status, string> = {
+export const STATUS_LABELS: Record<Status, string> = {
   planned: 'Da iniziare',
   active: 'In corso',
   suspended: 'Sospeso',

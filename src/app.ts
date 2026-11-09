@@ -30,6 +30,7 @@ import {
   siteCostSummaryRoutes,
   siteWarehouseMaterialRoutes,
 } from './routes/site-costs.js'
+import { siteCostTotalRoutes } from './routes/site-cost-totals.js'
 import { purchaseOrderRoutes } from './routes/purchase-orders.js'
 import { invoiceRoutes } from './routes/invoices.js'
 import { warehouseRoutes } from './routes/warehouse.js'
@@ -160,6 +161,7 @@ export function buildApp(
   workSummaryRoutes(app, db)
   priceListRoutes(app, config, db)
   siteCostSummaryRoutes(app, db)
+  siteCostTotalRoutes(app, db)
   siteWarehouseMaterialRoutes(app, db)
   estimateStructureRoutes(app, config, db)
   progressStatementRoutes(app, config, db)
