@@ -19,6 +19,7 @@ interface Total {
   vehicles: string
   manual: string
   total: string
+  period_total: string | null
   budget: string | null
   budget_remaining: string | null
   over_budget: boolean
@@ -27,6 +28,7 @@ interface TotalList {
   data: Total[]
   meta: { total: number; page: number; per_page: number }
   total_amount: string
+  period_total_amount: string | null
   budget_amount: string
 }
 
@@ -114,10 +116,12 @@ describe('site cost totals', () => {
       vehicles: '101.25',
       manual: '0.30',
       total: '315.30',
+      period_total: null,
       budget: '300.00',
       budget_remaining: '-15.30',
       over_budget: true,
     })
+    expect(list.period_total_amount).toBeNull()
     expect(list.data[0]).toMatchObject({
       total: '0.00',
       budget: '0.00',
@@ -207,6 +211,86 @@ describe('site cost totals', () => {
     ]) {
       expect((await s.browser.call('GET', `${s.base}?${query}`)).statusCode).toBe(422)
     }
+  })
+
+  it('adds the cost of a period, both ends included, keeping the budget on the whole total', async () => {
+    const s = await scene()
+    const other = await scene()
+    const read = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.base}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<TotalList>()
+    }
+    const periods = (list: TotalList) =>
+      Object.fromEntries(list.data.map((t) => [t.site.name, t.period_total]))
+
+    const week = await read('filter[from]=2026-11-04&filter[to]=2026-11-05')
+    expect(periods(week)).toEqual({
+      'Box; auto': '0.00',
+      Capannone: '0.00',
+      Condominio: '1250.00',
+      Villetta: '0.30',
+    })
+    expect(week.period_total_amount).toBe('1250.30')
+    // Budget, remaining and over_budget stay on the whole total, as without a period.
+    expect(week.total_amount).toBe('1575.29')
+    expect(week.data.find((t) => t.site.name === 'Villetta')).toMatchObject({
+      total: '315.30',
+      budget_remaining: '-15.30',
+      over_budget: true,
+    })
+
+    // A single day: the approved report counts, the submitted one of the day after never does.
+    const day = await read('filter[from]=2026-11-02&filter[to]=2026-11-02')
+    expect(periods(day)['Villetta']).toBe('315.00')
+    expect(day.period_total_amount).toBe('315.00')
+    expect((await read('filter[to]=2026-11-03')).period_total_amount).toBe('315.00')
+    const since = await read('filter[from]=2026-11-06')
+    expect(periods(since)).toMatchObject({ Capannone: '9.99', Villetta: '0.00' })
+    expect(since.period_total_amount).toBe('9.99')
+    expect((await read('filter[from]=2026-12-01')).period_total_amount).toBe('0.00')
+
+    // With the other filters the period sum covers only the sites found, on every page.
+    const notOver = await read('filter[from]=2026-11-01&filter[over_budget]=false&per_page=1')
+    expect(notOver.meta.total).toBe(2)
+    expect(notOver.period_total_amount).toBe('9.99')
+    expect((await read('filter[from]=2026-11-01&search=vill')).period_total_amount).toBe('315.30')
+
+    // The other company has the same costs and does not change these sums.
+    const theirs = await other.browser.call('GET', `${other.base}?filter[from]=2026-11-04`)
+    expect(theirs.json<TotalList>().period_total_amount).toBe('1260.29')
+    expect((await read('filter[from]=2026-11-04')).period_total_amount).toBe('1260.29')
+
+    const csv = await s.browser.call(
+      'GET',
+      `${s.base}/export?sort=-total&filter[from]=2026-11-04&filter[to]=2026-11-05`,
+    )
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Cantiere;Codice;Stato;Manodopera;Mezzi;Costi inseriti;Totale;Budget;Residuo;Sopra budget;Costo del periodo',
+      'Condominio;;In corso;0,00;0,00;1250,00;1250,00;1000,00;-250,00;Sì;1250,00',
+      'Villetta;C-1;In corso;213,75;101,25;0,30;315,30;300,00;-15,30;Sì;0,30',
+      'Capannone;C-3;Chiuso;0,00;0,00;9,99;9,99;;;No;0,00',
+      '"Box; auto";;Da iniziare;0,00;0,00;0,00;0,00;0,00;0,00;No;0,00',
+    ])
+
+    for (const query of [
+      'filter[from]=2026-13-01',
+      'filter[to]=ieri',
+      'filter[from]=2026-11-05&filter[to]=2026-11-04',
+      'filter[from]=2026-11-01&filter[from]=2026-11-02',
+    ]) {
+      const res = await s.browser.call('GET', `${s.base}?${query}`)
+      expect(res.statusCode).toBe(422)
+      expect((await s.browser.call('GET', `${s.base}/export?${query}`)).statusCode).toBe(422)
+    }
+    const backwards = await s.browser.call(
+      'GET',
+      `${s.base}?filter[from]=2026-11-05&filter[to]=2026-11-04`,
+    )
+    expect(backwards.json<{ errors: Record<string, string[]> }>().errors).toHaveProperty(
+      'filter[to]',
+    )
   })
 
   it('exports the same list as CSV', async () => {

@@ -9,6 +9,7 @@ import { requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianAmount, toCsv } from '../csv.js'
 import { COST_LINES } from './site-costs.js'
 import { SITE_STATUSES, STATUS_LABELS, escapeLike } from './sites.js'
+import { isIsoDate } from '../suppliers/documents.js'
 
 // Qualified with t.: the outer select names its text columns total and remaining, and an
 // unqualified order by would sort those strings instead of the numbers.
@@ -56,6 +57,17 @@ function readList(query: Record<string, unknown>) {
   if (overValue !== undefined && overValue !== 'true' && overValue !== 'false') {
     errors['filter[over_budget]'] = ['Indica true o false.']
   }
+  const date = (name: string) => {
+    const value = single(name)
+    if (value !== undefined && !isIsoDate(value)) {
+      errors[name] = ['Data non valida (AAAA-MM-GG).']
+      return undefined
+    }
+    return value
+  }
+  const from = date('filter[from]')
+  const to = date('filter[to]')
+  if (from && to && to < from) errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     page,
@@ -64,6 +76,8 @@ function readList(query: Record<string, unknown>) {
     search,
     status,
     overBudget: overValue === undefined ? undefined : overValue === 'true',
+    from,
+    to,
   }
 }
 
@@ -78,17 +92,31 @@ interface TotalRow {
   vehicles: string
   manual: string
   total: string
+  period: string
   budget: string | null
   remaining: string | null
 }
 
+const hasPeriod = (list: List) => list.from !== undefined || list.to !== undefined
+
 /**
  * One row per site the user can see, with the same total as the site cost summary: labour
  * and vehicles of approved daily reports at today's hourly cost, plus the costs by hand.
+ * period is the part of the total dated inside filter[from] and filter[to], both included;
+ * budget, remaining and over_budget always look at the whole total.
  */
 function totalsQuery(list: List) {
   const where = ['true']
   const values: unknown[] = []
+  const inPeriod = ['true']
+  if (list.from) {
+    values.push(list.from)
+    inPeriod.push(`day >= $${values.length}::date`)
+  }
+  if (list.to) {
+    values.push(list.to)
+    inPeriod.push(`day <= $${values.length}::date`)
+  }
   if (list.status) {
     values.push(list.status)
     where.push(`status = $${values.length}`)
@@ -103,13 +131,14 @@ function totalsQuery(list: List) {
       select site_id,
         coalesce(sum(cents) filter (where kind = 'labor'), 0) as labor,
         coalesce(sum(cents) filter (where kind = 'vehicles'), 0) as vehicles,
-        coalesce(sum(cents) filter (where kind = 'other'), 0) as manual
+        coalesce(sum(cents) filter (where kind = 'other'), 0) as manual,
+        coalesce(sum(cents) filter (where ${inPeriod.join(' and ')}), 0) as period
       from (${COST_LINES}) x group by site_id
     ), totals as (
       select s.id, s.name, s.code, s.status, s.budget_cents as budget,
         coalesce(c.labor, 0) as labor, coalesce(c.vehicles, 0) as vehicles,
         coalesce(c.manual, 0) as manual,
-        coalesce(c.labor + c.vehicles + c.manual, 0) as total,
+        coalesce(c.labor + c.vehicles + c.manual, 0) as total, coalesce(c.period, 0) as period,
         s.budget_cents - coalesce(c.labor + c.vehicles + c.manual, 0) as remaining
       from public.sites s left join costs c on c.site_id = s.id
     )
@@ -123,7 +152,7 @@ async function readTotals(client: PoolClient, list: List, limit: number, offset:
   const { rows } = await client.query<TotalRow>(
     `select id, name, code, status, labor::bigint::text as labor,
        vehicles::bigint::text as vehicles, manual::bigint::text as manual,
-       total::bigint::text as total, budget::text as budget,
+       total::bigint::text as total, period::bigint::text as period, budget::text as budget,
        remaining::bigint::text as remaining
      from (${sql}) t order by ${SORTS[list.sort]}
      limit $${filters + 1} offset $${filters + 2}`,
@@ -152,8 +181,14 @@ export function siteCostTotalRoutes(app: FastifyInstance, db: Db): void {
         await enter(client, request.params.company)
         const rows = await readTotals(client, list, list.perPage, (list.page - 1) * list.perPage)
         const { sql, values } = totalsQuery(list)
-        const sums = await client.query<{ count: number; total: string; budget: string }>(
+        const sums = await client.query<{
+          count: number
+          total: string
+          period: string
+          budget: string
+        }>(
           `select count(*)::int as count, coalesce(sum(total), 0)::bigint::text as total,
+             coalesce(sum(period), 0)::bigint::text as period,
              coalesce(sum(budget), 0)::bigint::text as budget from (${sql}) t`,
           values,
         )
@@ -164,12 +199,14 @@ export function siteCostTotalRoutes(app: FastifyInstance, db: Db): void {
             vehicles: centsToAmount(r.vehicles),
             manual: centsToAmount(r.manual),
             total: centsToAmount(r.total),
+            period_total: hasPeriod(list) ? centsToAmount(r.period) : null,
             budget: r.budget === null ? null : centsToAmount(r.budget),
             budget_remaining: r.remaining === null ? null : centsToAmount(r.remaining),
             over_budget: overBudget(r),
           })),
           meta: { total: sums.rows[0]?.count ?? 0, page: list.page, per_page: list.perPage },
           total_amount: centsToAmount(sums.rows[0]?.total ?? '0'),
+          period_total_amount: hasPeriod(list) ? centsToAmount(sums.rows[0]?.period ?? '0') : null,
           budget_amount: centsToAmount(sums.rows[0]?.budget ?? '0'),
         }
       })
@@ -184,6 +221,7 @@ export function siteCostTotalRoutes(app: FastifyInstance, db: Db): void {
       const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         await enter(client, request.params.company)
         const rows = await readTotals(client, list, MAX_EXPORT_ROWS, 0)
+        const period = hasPeriod(list)
         return toCsv(
           [
             'Cantiere',
@@ -196,6 +234,7 @@ export function siteCostTotalRoutes(app: FastifyInstance, db: Db): void {
             'Budget',
             'Residuo',
             'Sopra budget',
+            ...(period ? ['Costo del periodo'] : []),
           ],
           rows.map((r) => [
             r.name,
@@ -208,6 +247,7 @@ export function siteCostTotalRoutes(app: FastifyInstance, db: Db): void {
             r.budget === null ? null : italianAmount(r.budget),
             r.remaining === null ? null : italianAmount(r.remaining),
             overBudget(r) ? 'Sì' : 'No',
+            ...(period ? [italianAmount(r.period)] : []),
           ]),
         )
       })

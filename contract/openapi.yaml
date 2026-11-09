@@ -2568,7 +2568,11 @@ paths:
         filter[over_budget]=true lascia i cantieri con un budget superato, false gli altri
         (quelli senza budget compresi). total_amount e budget_amount sommano tutti i cantieri
         che rispettano i filtri, non solo la pagina. search cerca nel nome e nel codice del
-        cantiere.
+        cantiere. Con filter[from] e/o filter[to] (date del rapportino o del costo, estremi
+        compresi) period_total dà la parte del totale che cade nel periodo e
+        period_total_amount la somma sui cantieri filtrati; senza periodo valgono null.
+        Budget, residuo, over_budget e gli ordinamenti restano sul totale di sempre. 422 se
+        una data non è valida o la fine viene prima dell'inizio.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -2582,7 +2586,9 @@ paths:
             default: name
         - name: filter
           in: query
-          description: Filtri, ad esempio filter[status]=active e filter[over_budget]=true.
+          description: |
+            Filtri, ad esempio filter[status]=active, filter[over_budget]=true,
+            filter[from]=2026-11-01 e filter[to]=2026-11-30.
           style: deepObject
           explode: true
           schema:
@@ -2590,6 +2596,8 @@ paths:
             properties:
               status: { $ref: '#/components/schemas/SiteStatus' }
               over_budget: { type: boolean }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
       responses:
         '200':
           description: Una pagina di cantieri con i loro costi
@@ -2611,7 +2619,8 @@ paths:
         Permessi: costs.view e sites.view. Stessi filtri, ricerca e ordinamento dell'elenco,
         senza paginazione, nello stesso formato dell'esportazione dei clienti. Importi con la
         virgola decimale (1234,50); budget e residuo vuoti senza budget; «Sopra budget» vale Sì
-        o No. Il file si chiama costi-cantieri.csv.
+        o No. Con filter[from] o filter[to] c'è in fondo la colonna «Costo del periodo». Il
+        file si chiama costi-cantieri.csv.
       parameters:
         - $ref: '#/components/parameters/Search'
         - name: sort
@@ -2629,6 +2638,8 @@ paths:
             properties:
               status: { $ref: '#/components/schemas/SiteStatus' }
               over_budget: { type: boolean }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
       responses:
         '200':
           description: Il file CSV
@@ -13525,7 +13536,8 @@ components:
             - $ref: '#/components/schemas/SignedAmount'
     SiteCostTotal:
       type: object
-      required: [site, labor, vehicles, manual, total, budget, budget_remaining, over_budget]
+      required:
+        [site, labor, vehicles, manual, total, period_total, budget, budget_remaining, over_budget]
       properties:
         site:
           type: object
@@ -13548,6 +13560,12 @@ components:
           allOf:
             - $ref: '#/components/schemas/Amount'
         total: { $ref: '#/components/schemas/Amount' }
+        period_total:
+          description: |
+            Parte del totale con data dentro filter[from] e filter[to]; null senza periodo.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
         budget:
           oneOf:
             - $ref: '#/components/schemas/Amount'
@@ -13560,7 +13578,7 @@ components:
         over_budget: { type: boolean }
     SiteCostTotalList:
       type: object
-      required: [data, meta, total_amount, budget_amount]
+      required: [data, meta, total_amount, period_total_amount, budget_amount]
       properties:
         data:
           type: array
@@ -13570,6 +13588,11 @@ components:
           description: Somma dei costi di tutti i cantieri filtrati.
           allOf:
             - $ref: '#/components/schemas/Amount'
+        period_total_amount:
+          description: Somma di period_total dei cantieri filtrati; null senza periodo.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
         budget_amount:
           description: Somma dei budget dei cantieri filtrati che ne hanno uno.
           allOf:
