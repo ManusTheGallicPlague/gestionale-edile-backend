@@ -362,6 +362,13 @@ paths:
               overdue:
                 description: true per avere solo chi ha qualcosa di scaduto.
                 type: boolean
+              q:
+                description: |
+                  Testo nel nome, nella partita IVA o nel codice fiscale, senza distinguere
+                  maiuscole e minuscole e senza caratteri jolly; un testo di soli spazi è
+                  ignorato. Le somme in fondo sono quelle dei soli soggetti trovati.
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di clienti
@@ -394,6 +401,13 @@ paths:
               overdue:
                 description: true per avere solo chi ha qualcosa di scaduto.
                 type: boolean
+              q:
+                description: |
+                  Testo nel nome, nella partita IVA o nel codice fiscale, senza distinguere
+                  maiuscole e minuscole e senza caratteri jolly; un testo di soli spazi è
+                  ignorato. Le somme in fondo sono quelle dei soli soggetti trovati.
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV
@@ -875,6 +889,13 @@ paths:
               overdue:
                 description: true per avere solo chi ha qualcosa di scaduto.
                 type: boolean
+              q:
+                description: |
+                  Testo nel nome, nella partita IVA o nel codice fiscale, senza distinguere
+                  maiuscole e minuscole e senza caratteri jolly; un testo di soli spazi è
+                  ignorato. Le somme in fondo sono quelle dei soli soggetti trovati.
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di fornitori
@@ -907,6 +928,13 @@ paths:
               overdue:
                 description: true per avere solo chi ha qualcosa di scaduto.
                 type: boolean
+              q:
+                description: |
+                  Testo nel nome, nella partita IVA o nel codice fiscale, senza distinguere
+                  maiuscole e minuscole e senza caratteri jolly; un testo di soli spazi è
+                  ignorato. Le somme in fondo sono quelle dei soli soggetti trovati.
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV

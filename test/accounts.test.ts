@@ -462,6 +462,98 @@ describe('statement of account', () => {
     })
   })
 
+  it('searches the balances by name, VAT number or tax code, with totals of the search', async () => {
+    const s = await scene()
+    await ctx.owner.query(
+      "update public.clients set vat_number = 'IT01234567890', tax_code = 'BNCMRA80A01H501U' where id = $1",
+      [s.client],
+    )
+    await ctx.owner.query("update public.clients set name = 'Anna 100% Verdi_x' where id = $1", [
+      s.other,
+    ])
+    await invoice(s, s.browser, { taxable_amount: '0.10', vat_amount: '0', due_date: '2026-02-28' })
+    await invoice(s, s.browser, { taxable_amount: '0.20', vat_amount: '0' })
+    await invoice(s, s.browser, { client_id: s.other, taxable_amount: '5000', vat_amount: '0' })
+    await invoice(s, s.browser, { direction: 'received', client_id: null, supplier_id: s.supplier })
+
+    const base = `${s.base}/clients/balances`
+    const byName = await s.browser.call(
+      'GET',
+      `${base}?filter[q]=${encodeURIComponent('  BIANCHI ')}`,
+    )
+    expect(byName.statusCode).toBe(200)
+    // 0.10 + 0.20 without floats, and the totals are those of the search only.
+    expect(byName.json()).toEqual({
+      data: [
+        {
+          subject: { id: s.client, name: 'Mario Bianchi' },
+          open_invoice_count: 2,
+          outstanding: '0.30',
+          overdue: '0.10',
+          oldest_due_date: '2026-02-28',
+        },
+      ],
+      meta: { total: 1, page: 1, per_page: 25 },
+      outstanding: '0.30',
+      overdue: '0.10',
+    })
+    for (const text of ['it0123456', 'bncmra80']) {
+      expect((await s.browser.call('GET', `${base}?filter[q]=${text}`)).json()).toMatchObject({
+        data: [{ subject: { id: s.client } }],
+        meta: { total: 1 },
+      })
+    }
+    // % and _ are plain text, not wildcards.
+    expect(
+      (await s.browser.call('GET', `${base}?filter[q]=${encodeURIComponent('100%')}`)).json(),
+    ).toMatchObject({ data: [{ subject: { id: s.other } }], meta: { total: 1 } })
+    expect(
+      (await s.browser.call('GET', `${base}?filter[q]=${encodeURIComponent('a%v')}`)).json(),
+    ).toMatchObject({ meta: { total: 0 } })
+    expect(
+      (await s.browser.call('GET', `${base}?filter[q]=${encodeURIComponent('i_x')}`)).json(),
+    ).toMatchObject({ data: [{ subject: { id: s.other } }] })
+    expect((await s.browser.call('GET', `${base}?filter[q]=ixx`)).json()).toMatchObject({
+      meta: { total: 0 },
+      outstanding: '0.00',
+    })
+    // Blank text is ignored; with filter[overdue] both apply.
+    expect((await s.browser.call('GET', `${base}?filter[q]=%20%20`)).json()).toMatchObject({
+      meta: { total: 2 },
+    })
+    expect(
+      (await s.browser.call('GET', `${base}?filter[q]=verdi&filter[overdue]=true`)).json(),
+    ).toMatchObject({ data: [], meta: { total: 0 } })
+
+    expect(
+      (await s.browser.call('GET', `${s.base}/suppliers/balances?filter[q]=LATERIZI`)).json(),
+    ).toMatchObject({ data: [{ subject: { id: s.supplier } }], meta: { total: 1 } })
+    expect(
+      (await s.browser.call('GET', `${s.base}/suppliers/balances?filter[q]=bianchi`)).json(),
+    ).toMatchObject({ data: [], meta: { total: 0 } })
+
+    const csv = await s.browser.call('GET', `${base}/export?filter[q]=bianchi`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.replace(/^\uFEFF/, '').split('\r\n')).toEqual([
+      'Cliente;Fatture aperte;Scadenza più vecchia;Da incassare;Di cui scaduto',
+      'Mario Bianchi;2;28/02/2026;0,30;0,10',
+      '',
+    ])
+
+    // A namesake client of another company is not found.
+    const theirs = await scene()
+    await invoice(theirs, theirs.browser, {})
+    expect((await s.browser.call('GET', `${base}?filter[q]=mario`)).json()).toMatchObject({
+      meta: { total: 1 },
+      outstanding: '0.30',
+    })
+
+    for (const query of [`filter[q]=${'x'.repeat(101)}`, 'filter[q]=a&filter[q]=b']) {
+      expect((await s.browser.call('GET', `${base}?${query}`)).statusCode).toBe(422)
+      expect((await s.browser.call('GET', `${base}/export?${query}`)).statusCode).toBe(422)
+    }
+  })
+
   it('lists balances only with both view permissions', async () => {
     const noInvoices = await scene(['clients.view', 'suppliers.view'])
     expect(

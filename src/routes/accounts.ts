@@ -88,7 +88,8 @@ interface BalanceRow {
 
 /**
  * Open balance of each subject, highest first: $1 direction, $2 limit, $3 offset, $4 only
- * those with something overdue. A single row with a null id when the page is empty.
+ * those with something overdue, $5 text in the name, VAT number or tax code (null for any).
+ * A single row with a null id when the page is empty.
  */
 const balancesSql = (subject: Subject) =>
   `with open as (
@@ -106,7 +107,10 @@ const balancesSql = (subject: Subject) =>
    ), chosen as (
      select b.*, x.name from balances b
      join ${subject.table} x on x.id = b.subject_id
-     where not $4::boolean or b.overdue > 0
+     where (not $4::boolean or b.overdue > 0)
+       -- strpos, not like: the text has no wildcards.
+       and ($5::text is null or strpos(lower(x.name || ' ' || coalesce(x.vat_number, '') ||
+         ' ' || coalesce(x.tax_code, '')), lower($5::text)) > 0)
    ), page as (
      select * from chosen
      order by outstanding desc, name asc, subject_id asc
@@ -124,12 +128,29 @@ const balancesSql = (subject: Subject) =>
    from totals t left join page p on true
    order by p.outstanding desc, p.name asc, p.subject_id asc`
 
-/** filter[overdue]=true: only the subjects with something overdue. */
-function readOverdueFilter(query: Record<string, unknown>): boolean {
-  const value = query['filter[overdue]']
-  if (value === undefined || value === 'false') return false
-  if (value === 'true') return true
-  throw new ValidationFailed({ 'filter[overdue]': ['Valori ammessi: true, false.'] })
+/**
+ * filter[overdue]=true: only the subjects with something overdue; filter[q]: text in the
+ * name, VAT number or tax code, null when missing or blank.
+ */
+function readBalanceFilters(query: Record<string, unknown>): {
+  overdueOnly: boolean
+  text: string | null
+} {
+  const errors: FieldErrors = {}
+  const overdue = query['filter[overdue]']
+  if (overdue !== undefined && overdue !== 'true' && overdue !== 'false') {
+    errors['filter[overdue]'] = ['Valori ammessi: true, false.']
+  }
+  const value = query['filter[q]']
+  let text: string | null = null
+  if (Array.isArray(value)) errors['filter[q]'] = ['Indicalo una volta sola.']
+  else if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed.length > 100) errors['filter[q]'] = ['Al massimo 100 caratteri.']
+    else if (trimmed) text = trimmed
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { overdueOnly: overdue === 'true', text }
 }
 
 /** page and per_page of a list, as in the other lists. */
@@ -194,7 +215,7 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
       async (request) => {
         const session = requireSession(request)
         const { page, perPage } = readPaging(request.query)
-        const overdueOnly = readOverdueFilter(request.query)
+        const { overdueOnly, text } = readBalanceFilters(request.query)
         return withIdentity(db.app, { userId: session.user.id }, async (client) => {
           const permissions = await enterCompany(client, request.params.company)
           if (!permissions.has(subject.view) || !permissions.has('invoices.view')) {
@@ -205,6 +226,7 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
             perPage,
             (page - 1) * perPage,
             overdueOnly,
+            text,
           ])
           const totals = rows[0]
           const pageRows = rows.filter((r): r is BalanceRow & { id: string } => r.id !== null)
@@ -230,7 +252,7 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
       `/api/companies/:company/${subject.path}/balances/export`,
       async (request, reply) => {
         const session = requireSession(request)
-        const overdueOnly = readOverdueFilter(request.query)
+        const { overdueOnly, text } = readBalanceFilters(request.query)
         const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
           const permissions = await enterCompany(client, request.params.company)
           if (!permissions.has(subject.view) || !permissions.has('invoices.view')) {
@@ -241,6 +263,7 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
             MAX_EXPORT_ROWS,
             0,
             overdueOnly,
+            text,
           ])
           const balances = rows.filter((r) => r.id !== null)
           return toCsv(
