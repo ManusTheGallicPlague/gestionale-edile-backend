@@ -593,6 +593,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: le attività di tutti i can
 
 - [x] `filter[from]` e `filter[to]` in `listCompanyActivities` ed `exportCompanyActivities`: le attività che toccano il periodo (finiscono dal primo giorno in poi, iniziano entro l'ultimo, estremi compresi), anche uno solo dei due; 422 su date non valide, ripetute o con la fine prima dell'inizio; nessuna migrazione, nessun permesso nuovo
 
+### 85. Ricerca nei costi
+Aggiunta il 09/11/2026, con il piano tutto spuntato: l'elenco dei costi (`listSiteCosts`) e il suo CSV filtravano per cantiere, fornitore, categoria e periodo, ma non per testo, mentre la schermata «A. Elenco» di `docs/frontend.md` ha la ricerca nella barra dei filtri (per esempio tutti i costi di «gasolio» o di una bolla citata nelle note).
+
+- [x] `filter[q]` in `listSiteCosts` ed `exportSiteCosts`: testo nella descrizione e nelle note, senza distinguere maiuscole e minuscole e senza caratteri jolly, con `total_amount` sul filtro; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -840,11 +845,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: i SAL di un computo in CSV si ottengono con `filter[estimate]` sull'esportazione dei SAL dell'azienda, invece di una nuova esportazione sotto il computo: un solo formato e un solo codice.
 - 09/11/2026: nella prima nota `filter[client]` e `filter[supplier]` si possono dare insieme e valgono entrambi (elenco vuoto, perché una fattura ha o il cliente o il fornitore), come gli altri filtri, invece di un 422.
 - 09/11/2026: il periodo delle attività prende quelle che si sovrappongono al periodo, non solo quelle che iniziano o finiscono dentro: un'attività di tre mesi compare in ogni settimana in cui è aperta.
+- 09/11/2026: la ricerca nei costi è `filter[q]` come nelle fatture (non il parametro `search` delle anagrafiche), cerca nella descrizione e nelle note ma non nel nome del cantiere o del fornitore, che hanno già i loro filtri.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 20:21 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 85: `filter[q]` nell'elenco dei costi e nel loro CSV (test con 0.10 + 0.20 trovati nella descrizione e nelle note = 0.30, maiuscole e spazi, pagina 2 con il totale del filtro, `%` come testo, testo vuoto ignorato, costo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 965 test.
 - 2026-11-09 19:40 UTC: stesso giro, terzo push: sezione 84, `filter[from]` e `filter[to]` nelle attività del cronoprogramma di tutti i cantieri e nel loro CSV (test sul giorno di oggi con un'attività che inizia e una che finisce oggi, periodo futuro, solo inizio, solo fine insieme al cantiere, 422 su date non valide, ripetute e con la fine prima dell'inizio anche nel CSV). Corretta l'ora della riga del secondo push (19:35, non 19:38). Niente a metà; piano tutto spuntato. 964 test.
 - 2026-11-09 19:35 UTC: stesso giro, secondo push: sezione 83, `filter[client]` e `filter[supplier]` nella prima nota e nel suo CSV (test con 0.10 + 0.20 incassati da un cliente = 0.30, pagamento al fornitore 50.00, i due filtri insieme con elenco vuoto, CSV del solo altro cliente, cliente di un'altra azienda con elenco vuoto, 422 su id non valido e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 963 test.
 - 2026-11-09 19:22 UTC: main era di nuovo staccato (HEAD detached) e il main locale aveva due commit vecchi: riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (961 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 82: `filter[estimate]` nei SAL dell'azienda e nel loro CSV (test con i due SAL della Villetta e i totali 1300.00 e 1250.00, insieme allo stato, CSV del solo Muro, computo di un'altra azienda con elenco vuoto e totale 0.00, 422 su id non valido e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 962 test.

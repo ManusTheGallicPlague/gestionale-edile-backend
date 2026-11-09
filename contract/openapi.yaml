@@ -2598,7 +2598,9 @@ paths:
           in: query
           description: |
             Filtri, ad esempio filter[site]=<id>, filter[category]=materials,
-            filter[supplier]=<id>, filter[from]=2026-11-01 e filter[to]=2026-11-30.
+            filter[supplier]=<id>, filter[from]=2026-11-01 e filter[to]=2026-11-30 e
+            filter[q]=testo (nella descrizione e nelle note, senza distinguere maiuscole e
+            minuscole).
           style: deepObject
           explode: true
           schema:
@@ -2609,6 +2611,9 @@ paths:
               category: { $ref: '#/components/schemas/CostCategory' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di costi
@@ -2779,6 +2784,9 @@ paths:
               category: { $ref: '#/components/schemas/CostCategory' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV

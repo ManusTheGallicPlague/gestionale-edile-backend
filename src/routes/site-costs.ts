@@ -244,8 +244,12 @@ function readList(query: Record<string, unknown>) {
   const supplierId = id('filter[supplier]')
   const from = date('filter[from]')
   const to = date('filter[to]')
+  const qValue = single('filter[q]')?.trim()
+  if (qValue !== undefined && qValue.length > 100)
+    errors['filter[q]'] = ['Al massimo 100 caratteri.']
+  const q = qValue ? qValue : undefined
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? '-date', category, siteId, supplierId, from, to }
+  return { page, perPage, sort: sort ?? '-date', category, siteId, supplierId, from, to, q }
 }
 
 async function readOne(client: PoolClient, id: string) {
@@ -278,6 +282,12 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.supplierId) add((p) => `k.supplier_id = ${p}`, list.supplierId)
   if (list.from) add((p) => `k.cost_date >= ${p}`, list.from)
   if (list.to) add((p) => `k.cost_date <= ${p}`, list.to)
+  if (list.q) {
+    add(
+      (p) => `strpos(lower(k.description || ' ' || coalesce(k.notes, '')), lower(${p})) > 0`,
+      list.q,
+    )
+  }
   return { where, values }
 }
 

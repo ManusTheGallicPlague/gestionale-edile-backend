@@ -181,6 +181,54 @@ describe('site costs', () => {
     }
   })
 
+  it('searches the description and the notes with filter[q], also in the CSV', async () => {
+    const s = await scene()
+    for (const body of [
+      input(s, { description: 'Calcestruzzo C25/30', amount: '0.10' }),
+      input(s, { description: 'Ferro', amount: '0.20', notes: 'resto del calcestruzzo' }),
+      input(s, { description: 'Nolo gru', amount: '300', notes: null }),
+    ]) {
+      expect((await s.browser.call('POST', s.base, { body })).statusCode).toBe(201)
+    }
+    // A cost of another company with the same words never shows up.
+    const stranger = await scene()
+    await stranger.browser.call('POST', stranger.base, { body: input(stranger) })
+
+    type List = { data: { description: string }[]; meta: { total: number }; total_amount: string }
+    const found = await s.browser.call('GET', `${s.base}?filter[q]=%20CALCESTRUZZO%20&sort=date`)
+    expect(found.statusCode).toBe(200)
+    const list = found.json<List>()
+    expect(list.data.map((c) => c.description).sort()).toEqual(['Calcestruzzo C25/30', 'Ferro'])
+    expect(list.meta.total).toBe(2)
+    expect(list.total_amount).toBe('0.30')
+    const paged = (
+      await s.browser.call('GET', `${s.base}?filter[q]=calcestruzzo&per_page=1&page=2`)
+    ).json<List>()
+    expect(paged.data).toHaveLength(1)
+    expect(paged.total_amount).toBe('0.30')
+    // Wildcards are plain text, not patterns.
+    const literal = (await s.browser.call('GET', `${s.base}?filter[q]=%25`)).json<List>()
+    expect(literal.meta.total).toBe(0)
+    expect(literal.total_amount).toBe('0.00')
+    const empty = (await s.browser.call('GET', `${s.base}?filter[q]=%20`)).json<List>()
+    expect(empty.meta.total).toBe(3)
+
+    const csv = await s.browser.call('GET', `${s.base}/export?filter[q]=gru`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toContain('Nolo gru')
+
+    for (const path of [s.base, `${s.base}/export`]) {
+      const long = await s.browser.call('GET', `${path}?filter[q]=${'a'.repeat(101)}`)
+      expect(long.statusCode).toBe(422)
+      expect(long.json()).toMatchObject({ errors: { 'filter[q]': ['Al massimo 100 caratteri.'] } })
+      const twice = await s.browser.call('GET', `${path}?filter[q]=a&filter[q]=b`)
+      expect(twice.statusCode).toBe(422)
+      expect(twice.json()).toMatchObject({ errors: { 'filter[q]': ['Indicalo una volta sola.'] } })
+    }
+  })
+
   it('needs the costs permissions', async () => {
     const owner = await scene()
     const created = await owner.browser.call('POST', owner.base, { body: input(owner) })
