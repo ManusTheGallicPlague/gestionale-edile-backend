@@ -658,6 +658,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: l'esportazione dei computi 
 
 - [x] `filter[site]` dichiarato in `exportEstimates`; test sul CSV di un solo cantiere, sul cantiere di un'altra azienda (solo intestazione) e sul 422; test sul contratto che ogni `…/export` abbia gli stessi filtri, la stessa ricerca e lo stesso ordinamento del suo elenco; nessuna migrazione, nessun permesso nuovo
 
+### 98. Eliminazioni nel registro delle modifiche
+Aggiunta il 09/11/2026, con il piano tutto spuntato: il registro delle modifiche (`listAuditLog`) filtrava per documento, utente e periodo, ma la domanda più comune al titolare è «chi ha cancellato questo?», e tra centinaia di modifiche le eliminazioni si perdono.
+
+- [x] `filter[action]` (`create`, `update`, `delete`) in `listAuditLog` ed `exportAuditLog`, insieme agli altri filtri; 422 su valori diversi (anche `constructor`) o ripetuto; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -913,11 +918,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: la ricerca nella prima nota guarda il numero della fattura e le note del pagamento, non il nome del cliente o del fornitore, che hanno già i loro filtri.
 - 09/11/2026: la ricerca nelle assenze guarda anche il nome del dipendente, sia «Nome Cognome» sia «Cognome Nome», perché in ufficio si scrive il nome più spesso di quanto si scelga dall'elenco; vale anche per il calendario, che ha gli stessi filtri dell'elenco.
 - 09/11/2026: la ricerca nei crediti e nei debiti è `filter[q]` come negli altri elenchi con `filter` (non il parametro `search` delle anagrafiche) e guarda nome, partita IVA e codice fiscale, non email o città: servono a trovare chi ha chiamato o il mittente di un sollecito.
+- 09/11/2026: nel registro delle modifiche il filtro per azione usa i valori del contratto (`create`, `update`, `delete`), non le etichette italiane del CSV.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 23:36 UTC: stesso giro, terzo push: sezione 98, `filter[action]` nel registro delle modifiche e nel suo CSV (test sulle sole eliminazioni con autore, sulle sole creazioni in ordine, insieme a `filter[entity]`, registro di un'altra azienda vuoto e 404 sul nostro, CSV con la sola eliminazione, 422 su etichetta italiana, `constructor` e valore ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 977 test.
 - 2026-11-09 23:31 UTC: stesso giro, secondo push: sezione 97, `filter[site]` dichiarato nel contratto di `exportEstimates`, che il codice accettava già (test sul CSV di un solo cantiere, sul cantiere di un'altra azienda e sul 422; test sul contratto che confronta i parametri di ogni `…/export` con quelli del suo elenco, che falliva solo per i computi). Niente a metà; piano tutto spuntato. 977 test.
 - 2026-11-09 23:21 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (975 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 96: `filter[q]` nei crediti verso i clienti e nei debiti verso i fornitori e nei loro CSV (test sul nome in maiuscolo con spazi, 0.10 + 0.20 = 0.30 con le somme del filtro, partita IVA e codice fiscale in minuscolo, `%` e `_` come testo, testo di soli spazi ignorato, insieme a `filter[overdue]`, fornitore, CSV, cliente omonimo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 976 test.
 - 2026-11-09 22:44 UTC: stesso giro, quarto push: sezione 95, `filter[q]` nei documenti e nelle foto di un cantiere (test sul nome del file in maiuscolo con spazi, sul titolo insieme a `filter[kind]`, sulle note, `%` come testo, `_` trovato solo come carattere, testo di soli spazi ignorato, documento dell'altro cantiere e di un'altra azienda esclusi, 422 oltre 100 caratteri e ripetuto). Niente a metà; piano tutto spuntato. 975 test.

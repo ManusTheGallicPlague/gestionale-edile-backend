@@ -67,6 +67,8 @@ const ACTION_LABELS: Record<string, string> = {
   delete: 'Eliminazione',
 }
 
+const ACTIONS = ['create', 'update', 'delete'] as const
+
 interface AuditRow {
   id: string
   entity: string
@@ -121,8 +123,13 @@ function readList(query: Record<string, unknown>) {
   }
   const from = date('filter[from]')
   const to = date('filter[to]')
+  const actionValue = single('filter[action]')
+  const action = ACTIONS.find((a) => a === actionValue)
+  if (actionValue !== undefined && !action) {
+    errors['filter[action]'] = ['Valori ammessi: create, update, delete.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, entity, entityId, userId, from, to }
+  return { page, perPage, entity, entityId, userId, from, to, action }
 }
 
 /** The day of a change, on Italian time: what filter[from] and filter[to] compare. */
@@ -138,6 +145,7 @@ function auditFilters(list: ReturnType<typeof readList>) {
   if (list.entity) add((p) => `a.entity = ${p}`, list.entity)
   if (list.entityId) add((p) => `a.entity_id = ${p}`, list.entityId)
   if (list.userId) add((p) => `a.user_id = ${p}`, list.userId)
+  if (list.action) add((p) => `a.action = ${p}`, list.action)
   if (list.from) add((p) => `${LOCAL_DAY} >= ${p}::date`, list.from)
   if (list.to) add((p) => `${LOCAL_DAY} <= ${p}::date`, list.to)
   return { where, values }

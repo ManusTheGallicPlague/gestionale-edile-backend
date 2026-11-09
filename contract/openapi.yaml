@@ -8910,8 +8910,8 @@ paths:
         scadenze, computi, preventivi, cantieri e gli altri documenti di AuditEntity (anche SAL,
         prezzari, attività del cronoprogramma e assenze dei dipendenti), e quando; dal più recente. Di una modifica si
         danno i nomi dei campi cambiati, non i valori. Con filter[entity] e filter[entity_id] si ha
-        la storia di un solo documento. filter[from] e filter[to] sono giorni compresi, contati
-        sull'ora italiana.
+        la storia di un solo documento; con filter[action]=delete, chi ha eliminato cosa.
+        filter[from] e filter[to] sono giorni compresi, contati sull'ora italiana.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -8928,6 +8928,10 @@ paths:
               user: { $ref: '#/components/schemas/Id' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              action:
+                description: create, update o delete; ad esempio solo le eliminazioni.
+                type: string
+                enum: [create, update, delete]
       responses:
         '200':
           description: Una pagina del registro
@@ -8967,6 +8971,10 @@ paths:
               user: { $ref: '#/components/schemas/Id' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              action:
+                description: create, update o delete; ad esempio solo le eliminazioni.
+                type: string
+                enum: [create, update, delete]
       responses:
         '200':
           description: Il file CSV

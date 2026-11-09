@@ -89,6 +89,48 @@ describe('audit log', () => {
       expect((await browser.call('GET', `${log}?filter[entity]=${entity}`)).statusCode).toBe(200)
     }
     expect((await browser.call('GET', `${log}?filter[entity_id]=x`)).statusCode).toBe(422)
+
+    // Who deleted what: only the deletions, here with the document too.
+    const deleted = await browser.call('GET', `${log}?filter[action]=delete`)
+    expect(deleted.statusCode).toBe(200)
+    expect(deleted.json<{ data: Entry[]; meta: { total: number } }>()).toMatchObject({
+      data: [{ entity: 'estimate', entity_id: id, action: 'delete', user: author }],
+      meta: { total: 1 },
+    })
+    const creations = await browser.call('GET', `${log}?filter[action]=create`)
+    expect(creations.json<{ data: Entry[] }>().data.map((e) => e.entity)).toEqual([
+      'client',
+      'estimate',
+    ])
+    const clientUpdates = await browser.call(
+      'GET',
+      `${log}?filter[action]=update&filter[entity]=client`,
+    )
+    expect(clientUpdates.json<{ meta: { total: number } }>().meta.total).toBe(0)
+    // The other company's deletions are not in this log, nor this one's in theirs.
+    const theirs = await fx.companyWithUser(['audit.view', 'estimates.create', 'estimates.delete'])
+    const them = new Browser(ctx.app)
+    await them.signIn(theirs.user.email)
+    const theirLog = `/api/companies/${theirs.company.slug}/audit-log`
+    expect(
+      (await them.call('GET', `${theirLog}?filter[action]=delete`)).json<{
+        meta: { total: number }
+      }>().meta.total,
+    ).toBe(0)
+    expect((await them.call('GET', `${log}?filter[action]=delete`)).statusCode).toBe(404)
+    for (const query of [
+      'filter[action]=Eliminazione',
+      'filter[action]=constructor',
+      'filter[action]=delete&filter[action]=create',
+    ]) {
+      expect((await browser.call('GET', `${log}?${query}`)).statusCode).toBe(422)
+      expect((await browser.call('GET', `${log}/export?${query}`)).statusCode).toBe(422)
+    }
+    const csv = await browser.call('GET', `${log}/export?filter[action]=delete`)
+    expect(csv.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Data e ora;Utente;Documento;Id del documento;Azione;Campi',
+      expect.stringMatching(new RegExp(`;Utente di prova;Computo metrico;${id};Eliminazione;$`)),
+    ])
   })
 
   it('records price lists, schedule activities and progress statements', async () => {
