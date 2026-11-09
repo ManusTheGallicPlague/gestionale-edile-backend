@@ -11,13 +11,16 @@ import { COST_LINES } from './site-costs.js'
 import { SITE_STATUSES, STATUS_LABELS, escapeLike } from './sites.js'
 import { isIsoDate } from '../suppliers/documents.js'
 
-// Qualified with t.: the outer select names its text columns total and remaining, and an
-// unqualified order by would sort those strings instead of the numbers.
+// Qualified with t.: the outer select names its text columns total, period and remaining,
+// and an unqualified order by would sort those strings instead of the numbers. Without a
+// period, period is the whole total, so period_total sorts as total.
 const SORTS = {
   name: 't.name asc, t.id asc',
   '-name': 't.name desc, t.id desc',
   total: 't.total asc, t.name asc, t.id asc',
   '-total': 't.total desc, t.name asc, t.id asc',
+  period_total: 't.period asc, t.name asc, t.id asc',
+  '-period_total': 't.period desc, t.name asc, t.id asc',
   remaining: 't.remaining asc nulls last, t.name asc, t.id asc',
   '-remaining': 't.remaining desc nulls last, t.name asc, t.id asc',
 } as const

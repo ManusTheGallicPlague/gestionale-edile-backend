@@ -250,6 +250,19 @@ describe('site cost totals', () => {
     expect(since.period_total_amount).toBe('9.99')
     expect((await read('filter[from]=2026-12-01')).period_total_amount).toBe('0.00')
 
+    // Sorting by the cost of the period, not by the whole total; ties by name.
+    const order = async (query: string) => (await read(query)).data.map((t) => t.site.name)
+    expect(await order('filter[from]=2026-11-02&filter[to]=2026-11-02&sort=-period_total')).toEqual(
+      ['Villetta', 'Box; auto', 'Capannone', 'Condominio'],
+    )
+    expect(await order('filter[from]=2026-11-06&sort=period_total')).toEqual([
+      'Box; auto',
+      'Condominio',
+      'Villetta',
+      'Capannone',
+    ])
+    expect(await order('sort=-period_total')).toEqual(await order('sort=-total'))
+
     // With the other filters the period sum covers only the sites found, on every page.
     const notOver = await read('filter[from]=2026-11-01&filter[over_budget]=false&per_page=1')
     expect(notOver.meta.total).toBe(2)

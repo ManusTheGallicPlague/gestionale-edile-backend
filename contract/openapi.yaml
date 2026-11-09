@@ -2571,8 +2571,9 @@ paths:
         cantiere. Con filter[from] e/o filter[to] (date del rapportino o del costo, estremi
         compresi) period_total dà la parte del totale che cade nel periodo e
         period_total_amount la somma sui cantieri filtrati; senza periodo valgono null.
-        Budget, residuo, over_budget e gli ordinamenti restano sul totale di sempre. 422 se
-        una data non è valida o la fine viene prima dell'inizio.
+        Budget, residuo e over_budget restano sul totale di sempre; sort=period_total ordina per
+        costo del periodo (senza periodo coincide con sort=total). 422 se una data non è valida
+        o la fine viene prima dell'inizio.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -2582,7 +2583,7 @@ paths:
           description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
           schema:
             type: string
-            enum: [name, -name, total, -total, remaining, -remaining]
+            enum: [name, -name, total, -total, period_total, -period_total, remaining, -remaining]
             default: name
         - name: filter
           in: query
@@ -2627,7 +2628,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [name, -name, total, -total, remaining, -remaining]
+            enum: [name, -name, total, -total, period_total, -period_total, remaining, -remaining]
             default: name
         - name: filter
           in: query
