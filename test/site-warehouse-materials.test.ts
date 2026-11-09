@@ -433,3 +433,62 @@ describe('warehouse material of a site, item by item', () => {
     expect(anon.statusCode).toBe(401)
   })
 })
+
+describe('warehouse material of a site in CSV', () => {
+  it('has the same rows as the list and the total of the summary', async () => {
+    const s = await scene()
+    const coded = await s.writer.call('POST', `${s.base}/warehouse/items`, {
+      body: { code: 'CEM-01', name: 'Cemento; 32,5', unit: 'sacchi', notes: null },
+    })
+    expect(coded.statusCode).toBe(201)
+    const cement = coded.json<{ id: string }>().id
+    const sand = await item(s, '=Sabbia')
+    await move(s, cement, 'in', '10', '2026-11-01', { unit_cost: '1.00' })
+    await move(s, cement, 'out', '6', '2026-11-02', { site_id: s.site })
+    await move(s, cement, 'in', '10', '2026-11-05', { unit_cost: '2.00' })
+    await move(s, cement, 'in', '2', '2026-11-06', { site_id: s.site, site_return: true })
+    await move(s, sand, 'in', '0.5', '2026-11-06', { site_id: s.site, site_return: true })
+    // Another site's unload stays out.
+    await move(s, cement, 'out', '1', '2026-11-06', { site_id: s.other })
+
+    const url = `${s.base}/sites/${s.site}/warehouse-materials/export`
+    const res = await s.browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="materiale-cantiere.csv"')
+    // The list sorts by name: «=Sabbia» before «Cemento».
+    expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Codice;Articolo;Unità;Scaricata;Tornata;Netta;Valore;Movimenti senza costo',
+      ";'=Sabbia;sacchi;0,000;0,500;-0,500;0,00;1",
+      'CEM-01;"Cemento; 32,5";sacchi;6,000;2,000;4,000;3,00;0',
+      'Totale;;;;;;3,00;',
+    ])
+    const list = await s.browser.call('GET', `${s.base}/sites/${s.site}/warehouse-materials`)
+    expect(list.json<{ amount: string }>().amount).toBe('3.00')
+  })
+
+  it('has only the total for a site without material', async () => {
+    const s = await scene()
+    const res = await s.browser.call('GET', `${s.base}/sites/${s.site}/warehouse-materials/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Codice;Articolo;Unità;Scaricata;Tornata;Netta;Valore;Movimenti senza costo',
+      'Totale;;;;;;0,00;',
+    ])
+  })
+
+  it('needs warehouse.view and sites.view, a session and a site of the company', async () => {
+    const noWarehouse = await scene(['sites.view'])
+    const path = (s: Scene, site: string) => `${s.base}/sites/${site}/warehouse-materials/export`
+    expect(
+      (await noWarehouse.browser.call('GET', path(noWarehouse, noWarehouse.site))).statusCode,
+    ).toBe(403)
+    const noSites = await scene(['warehouse.view'])
+    expect((await noSites.browser.call('GET', path(noSites, noSites.site))).statusCode).toBe(404)
+    const s = await scene()
+    const intruder = await scene()
+    expect((await intruder.browser.call('GET', path(intruder, s.site))).statusCode).toBe(404)
+    expect((await s.browser.call('GET', path(s, 'nessuno'))).statusCode).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', path(s, s.site))).statusCode).toBe(401)
+  })
+})

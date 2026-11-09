@@ -3644,6 +3644,36 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/sites/{site}/warehouse-materials/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: exportSiteWarehouseMaterials
+      summary: Materiale del magazzino di un cantiere in CSV
+      description: |
+        Permessi: sites.view (senza, 404) e warehouse.view (senza, 403), come
+        listSiteWarehouseMaterials, con le stesse righe nello stesso ordine e lo stesso formato
+        delle altre esportazioni. Colonne: Codice, Articolo, Unità, Scaricata, Tornata, Netta
+        (quantità con la virgola decimale), Valore (1234,50, anche negativo) e Movimenti senza
+        costo; in fondo una riga Totale con il solo valore, uguale ad amount. Il file si chiama
+        materiale-cantiere.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/sites/{site}/documents:
     parameters:
       - $ref: '#/components/parameters/Company'
