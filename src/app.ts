@@ -25,7 +25,11 @@ import { siteTeamRoutes } from './routes/site-team.js'
 import { siteSubcontractorRoutes } from './routes/site-subcontractors.js'
 import { siteActivityRoutes } from './routes/site-activities.js'
 import { dailyReportRoutes, dailyReportTodayRoutes } from './routes/daily-reports.js'
-import { siteCostRoutes, siteCostSummaryRoutes } from './routes/site-costs.js'
+import {
+  siteCostRoutes,
+  siteCostSummaryRoutes,
+  siteWarehouseMaterialRoutes,
+} from './routes/site-costs.js'
 import { purchaseOrderRoutes } from './routes/purchase-orders.js'
 import { invoiceRoutes } from './routes/invoices.js'
 import { warehouseRoutes } from './routes/warehouse.js'
@@ -156,6 +160,7 @@ export function buildApp(
   workSummaryRoutes(app, db)
   priceListRoutes(app, config, db)
   siteCostSummaryRoutes(app, db)
+  siteWarehouseMaterialRoutes(app, db)
   estimateStructureRoutes(app, config, db)
   progressStatementRoutes(app, config, db)
   quoteRoutes(app, config, db)

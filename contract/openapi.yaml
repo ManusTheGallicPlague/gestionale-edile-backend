@@ -3568,6 +3568,28 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/sites/{site}/warehouse-materials:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: listSiteWarehouseMaterials
+      summary: Materiale del magazzino di un cantiere, articolo per articolo
+      description: |
+        Permessi: sites.view (senza, 404 come per la scheda) e warehouse.view (senza, 403). Per
+        ogni articolo scaricato sul cantiere o tornato dal cantiere (site_return): quantità
+        scaricata, tornata e netta, e il valore netto come in warehouse_materials del riepilogo
+        dei costi, che è la somma di amount. In ordine di nome dell'articolo, senza paginazione.
+      responses:
+        '200':
+          description: Il materiale del cantiere
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteWarehouseMaterialList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/sites/{site}/documents:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -11924,6 +11946,50 @@ components:
           oneOf:
             - $ref: '#/components/schemas/SiteWarehouseMaterials'
             - type: 'null'
+    SiteWarehouseMaterialList:
+      type: object
+      required: [data, amount]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/SiteWarehouseMaterial' }
+        amount:
+          description: Somma di amount, uguale a warehouse_materials.amount del riepilogo dei costi.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+    SiteWarehouseMaterial:
+      type: object
+      required: [item, unloaded, returned, net, amount, missing_costs]
+      properties:
+        item:
+          type: object
+          required: [id, code, name, unit]
+          properties:
+            id: { $ref: '#/components/schemas/Id' }
+            code: { type: [string, 'null'] }
+            name: { type: string }
+            unit: { type: string }
+        unloaded:
+          description: Quantità scaricata sul cantiere.
+          allOf:
+            - $ref: '#/components/schemas/Quantity'
+        returned:
+          description: Quantità tornata in magazzino dal cantiere.
+          allOf:
+            - $ref: '#/components/schemas/Quantity'
+        net:
+          description: Scaricata meno tornata; negativa se è tornato più di quanto scaricato.
+          allOf:
+            - $ref: '#/components/schemas/Quantity'
+        amount:
+          description: |
+            Scarichi meno resi, ciascuno al costo medio dell'articolo fino al suo giorno,
+            arrotondato al centesimo movimento per movimento.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+        missing_costs:
+          type: integer
+          description: Scarichi e resi senza nessun carico con costo fino a quel giorno.
     SiteWarehouseMaterials:
       type: object
       required: [amount, movements, returns, missing_costs]

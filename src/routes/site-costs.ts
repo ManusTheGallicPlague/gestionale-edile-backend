@@ -612,3 +612,72 @@ function summaryToContract(
       : null,
   }
 }
+
+interface MaterialRow {
+  id: string
+  code: string | null
+  name: string
+  unit: string
+  unloaded: string
+  returned: string
+  net: string
+  cents: string
+  missing: number
+}
+
+/** Warehouse material of one site, item by item: what went there, what came back. */
+export function siteWarehouseMaterialRoutes(app: FastifyInstance, db: Db): void {
+  app.get<{ Params: { company: string; site: string } }>(
+    '/api/companies/:company/sites/:site/warehouse-materials',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const rows = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('sites.view')) throw notFound()
+        if (!UUID.test(request.params.site)) throw notFound()
+        const site = await client.query('select 1 from public.sites where id = $1', [
+          request.params.site,
+        ])
+        if (!site.rowCount) throw notFound()
+        if (!permissions.has('warehouse.view')) throw forbidden()
+        const { rows } = await client.query<MaterialRow>(
+          `select i.id, i.code, i.name, i.unit,
+             coalesce(sum(m.quantity) filter (where m.kind = 'out'), 0)::numeric(14, 3)::text
+               as unloaded,
+             coalesce(sum(m.quantity) filter (where m.site_return), 0)::numeric(14, 3)::text
+               as returned,
+             sum(case when m.kind = 'out' then m.quantity else -m.quantity end)
+               ::numeric(14, 3)::text as net,
+             coalesce(sum(case when m.kind = 'out' then round(m.quantity * c.average)
+               else -round(m.quantity * c.average) end), 0)::bigint::text as cents,
+             (count(*) filter (where c.average is null))::int as missing
+           from public.warehouse_movements m
+           join public.warehouse_items i on i.id = m.item_id
+           cross join lateral (
+             select sum(l.quantity * l.unit_cost_cents) / nullif(sum(l.quantity), 0) as average
+             from public.warehouse_movements l
+             where l.item_id = m.item_id and l.kind = 'in' and l.unit_cost_cents is not null
+               and l.movement_date <= m.movement_date
+           ) c
+           where m.site_id = $1 and (m.kind = 'out' or m.site_return)
+           group by i.id
+           order by i.name, i.id`,
+          [request.params.site],
+        )
+        return rows
+      })
+      const total = rows.reduce((sum, r) => sum + BigInt(r.cents), 0n)
+      return reply.send({
+        data: rows.map((r) => ({
+          item: { id: r.id, code: r.code, name: r.name, unit: r.unit },
+          unloaded: r.unloaded,
+          returned: r.returned,
+          net: r.net,
+          amount: centsToAmount(r.cents),
+          missing_costs: r.missing,
+        })),
+        amount: centsToAmount(total.toString()),
+      })
+    },
+  )
+}

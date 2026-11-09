@@ -348,3 +348,88 @@ describe('material returned from a site to the warehouse', () => {
     })
   })
 })
+
+describe('warehouse material of a site, item by item', () => {
+  it('gives what went to the site and what came back, adding up to the summary', async () => {
+    const s = await scene()
+    const cement = await item(s, 'Cemento')
+    const sand = await item(s, 'Sabbia')
+    const planks = await item(s, 'Tavole')
+    await move(s, cement, 'in', '10', '2026-11-01', { unit_cost: '1.00' })
+    await move(s, cement, 'out', '6', '2026-11-02', { site_id: s.site })
+    await move(s, cement, 'in', '10', '2026-11-05', { unit_cost: '2.00' })
+    await move(s, cement, 'in', '2', '2026-11-06', { site_id: s.site, site_return: true })
+    await move(s, sand, 'in', '0.5', '2026-11-06', { site_id: s.site, site_return: true })
+    // Delivered to the site, unloaded to another site: not in this list.
+    await move(s, planks, 'in', '5', '2026-11-06', { site_id: s.site, unit_cost: '3.00' })
+    await move(s, planks, 'out', '5', '2026-11-06', { site_id: s.other })
+
+    const res = await s.browser.call('GET', `${s.base}/sites/${s.site}/warehouse-materials`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      data: [
+        {
+          item: { id: cement, code: null, name: 'Cemento', unit: 'sacchi' },
+          unloaded: '6.000',
+          returned: '2.000',
+          net: '4.000',
+          amount: '3.00',
+          missing_costs: 0,
+        },
+        {
+          item: { id: sand, code: null, name: 'Sabbia', unit: 'sacchi' },
+          unloaded: '0.000',
+          returned: '0.500',
+          net: '-0.500',
+          amount: '0.00',
+          missing_costs: 1,
+        },
+      ],
+      amount: '3.00',
+    })
+    const summary = await s.browser.call('GET', s.summary)
+    expect(summary.json()).toMatchObject({ warehouse_materials: { amount: '3.00' } })
+  })
+
+  it('is empty for a site without material', async () => {
+    const s = await scene()
+    const res = await s.browser.call('GET', `${s.base}/sites/${s.site}/warehouse-materials`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ data: [], amount: '0.00' })
+  })
+
+  it('needs warehouse.view and sites.view', async () => {
+    const noWarehouse = await scene(['sites.view'])
+    const res = await noWarehouse.browser.call(
+      'GET',
+      `${noWarehouse.base}/sites/${noWarehouse.site}/warehouse-materials`,
+    )
+    expect(res.statusCode).toBe(403)
+    const noSites = await scene(['warehouse.view'])
+    const blind = await noSites.browser.call(
+      'GET',
+      `${noSites.base}/sites/${noSites.site}/warehouse-materials`,
+    )
+    expect(blind.statusCode).toBe(404)
+  })
+
+  it('hides the sites of another company and unknown sites', async () => {
+    const s = await scene()
+    const cement = await item(s, 'Cemento')
+    await move(s, cement, 'in', '10', '2026-11-01', { unit_cost: '1.00' })
+    await move(s, cement, 'out', '4', '2026-11-02', { site_id: s.site })
+    const intruder = await scene()
+    const peek = await intruder.browser.call(
+      'GET',
+      `${intruder.base}/sites/${s.site}/warehouse-materials`,
+    )
+    expect(peek.statusCode).toBe(404)
+    const unknown = await s.browser.call('GET', `${s.base}/sites/nessuno/warehouse-materials`)
+    expect(unknown.statusCode).toBe(404)
+    const anon = await new Browser(ctx.app).call(
+      'GET',
+      `${s.base}/sites/${s.site}/warehouse-materials`,
+    )
+    expect(anon.statusCode).toBe(401)
+  })
+})
