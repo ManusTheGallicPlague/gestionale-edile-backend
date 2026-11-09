@@ -66,6 +66,7 @@ const LITERS = /^\d{1,6}(\.\d{1,2})?$/
 const SELECT = `select r.id, r.vehicle_id, r.refueled_on::text as refueled_on,
     r.liters::text as liters, r.amount_cents::text as amount_cents, r.meter_reading,
     r.supplier_id, s.name as supplier_name, r.notes, r.version, r.created_at, r.updated_at,
+    v.name as vehicle_name, v.plate,
     (r.liters * case when v.kind = 'vehicle' then 100 else 1 end
       / (r.meter_reading - p.meter_reading))::numeric(20, 2)::text as consumption
   from public.vehicle_refuelings r
@@ -173,6 +174,18 @@ export function parseRefuelingInput(body: unknown): RefuelingInput {
 
 function readPeriod(query: Record<string, unknown>, withVehicle = false) {
   const errors: FieldErrors = {}
+  const integer = (name: string, fallback: number, max?: number): number => {
+    const value = query[name]
+    if (value === undefined) return fallback
+    const n = typeof value === 'string' && /^\d{1,9}$/.test(value) ? Number(value) : NaN
+    if (!Number.isInteger(n) || n < 1 || (max !== undefined && n > max)) {
+      errors[name] = [max ? `Un numero intero da 1 a ${max}.` : 'Un numero intero da 1 in su.']
+      return fallback
+    }
+    return n
+  }
+  const page = integer('page', 1)
+  const perPage = integer('per_page', 25, 100)
   const date = (name: string): string | null => {
     const value = query[`filter[${name}]`]
     if (value === undefined) return null
@@ -196,7 +209,7 @@ function readPeriod(query: Record<string, unknown>, withVehicle = false) {
     else if (value !== undefined) errors['filter[vehicle]'] = ['Identificativo non valido.']
   }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { from, to, vehicle }
+  return { from, to, vehicle, page, perPage }
 }
 
 function expectedVersion(header: string | string[] | undefined): number {
@@ -301,6 +314,48 @@ export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db:
         .header('Content-Type', 'text/csv; charset=utf-8')
         .header('Content-Disposition', 'attachment; filename="rifornimenti.csv"')
         .send(csv)
+    },
+  )
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/vehicle-refuelings',
+    async (request) => {
+      const session = requireSession(request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('vehicles.view')) throw forbidden()
+        const { from, to, vehicle, page, perPage } = readPeriod(request.query, true)
+        const where = `where ($1::date is null or r.refueled_on >= $1)
+             and ($2::date is null or r.refueled_on <= $2)
+             and ($3::uuid is null or r.vehicle_id = $3)`
+        // Sums in the database and in bigint: litres and cents never pass through a float.
+        const totals = await client.query<{ total: number; liters: string; cents: string }>(
+          `select count(*)::int as total,
+             coalesce(sum(r.liters), 0)::numeric(14, 2)::text as liters,
+             coalesce(sum(r.amount_cents), 0)::text as cents
+           from public.vehicle_refuelings r ${where}`,
+          [from, to, vehicle],
+        )
+        const { rows } = await client.query<
+          RefuelingRow & { vehicle_name: string; plate: string | null }
+        >(
+          `${SELECT}
+           ${where}
+           order by r.refueled_on desc, v.name, r.created_at desc, r.id desc
+           limit $4 offset $5`,
+          [from, to, vehicle, perPage, (page - 1) * perPage],
+        )
+        const sums = totals.rows[0]
+        return {
+          data: rows.map((r) => ({
+            ...toContract(r),
+            vehicle: { id: r.vehicle_id, name: r.vehicle_name, plate: r.plate },
+          })),
+          meta: { total: sums?.total ?? 0, page, per_page: perPage },
+          total_liters: sums?.liters ?? '0.00',
+          total_amount: centsToAmount(sums?.cents ?? '0'),
+        }
+      })
     },
   )
 

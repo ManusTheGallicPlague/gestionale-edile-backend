@@ -7183,6 +7183,46 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/vehicle-refuelings:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listCompanyVehicleRefuelings
+      summary: Rifornimenti di tutti i mezzi
+      description: |
+        Permesso: vehicles.view (senza, 403 come per l'esportazione). Le stesse righe di
+        exportVehicleRefuelings, nello stesso ordine (dal più recente) e con gli stessi filtri,
+        a pagine, con il mezzo di ogni rifornimento e il consumo come in listVehicleRefuelings.
+        total_liters e total_amount sono le somme di tutti i rifornimenti che rispettano i
+        filtri, non solo della pagina. Con filter[vehicle] di un mezzo che non c'è l'elenco è
+        vuoto.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[from]=2026-01-01&filter[to]=2026-12-31 (estremi compresi)
+            e filter[vehicle]=<id>.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              vehicle: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Una pagina di rifornimenti
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyVehicleRefuelingList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/vehicle-refuelings/export:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -10944,6 +10984,35 @@ components:
           examples: ['1234.50']
         total_amount:
           description: Somma delle spese dell'elenco.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+    CompanyVehicleRefuelingList:
+      type: object
+      required: [data, meta, total_liters, total_amount]
+      properties:
+        data:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/VehicleRefueling'
+              - type: object
+                required: [vehicle]
+                properties:
+                  vehicle:
+                    type: object
+                    required: [id, name, plate]
+                    properties:
+                      id: { $ref: '#/components/schemas/Id' }
+                      name: { type: string }
+                      plate: { type: [string, 'null'] }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+        total_liters:
+          description: Somma dei litri di tutti i rifornimenti filtrati, con due decimali e il punto.
+          type: string
+          pattern: '^\d+\.\d{2}$'
+          examples: ['1234.50']
+        total_amount:
+          description: Somma delle spese di tutti i rifornimenti filtrati, non solo della pagina.
           allOf:
             - $ref: '#/components/schemas/SignedAmount'
     Liters:
