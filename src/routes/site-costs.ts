@@ -633,6 +633,33 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
   )
 
   app.get<{ Params: { company: string; site: string } }>(
+    '/api/companies/:company/sites/:site/cost-summary/suppliers',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const rows = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('costs.view')) throw notFound()
+        if (!UUID.test(request.params.site)) throw notFound()
+        return readSupplierCosts(client, request.params.site)
+      })
+      if (!rows) throw notFound()
+      const total = rows.reduce((sum, r) => sum + BigInt(r.total), 0n)
+      return reply.send({
+        total: centsToAmount(total.toString()),
+        suppliers: rows.map((r) => ({
+          supplier: r.supplier_id ? { id: r.supplier_id, name: r.supplier_name ?? '' } : null,
+          costs: Number(r.costs),
+          materials: centsToAmount(r.materials),
+          rentals: centsToAmount(r.rentals),
+          subcontract: centsToAmount(r.subcontract),
+          other: centsToAmount(r.other),
+          total: centsToAmount(r.total),
+        })),
+      })
+    },
+  )
+
+  app.get<{ Params: { company: string; site: string } }>(
     '/api/companies/:company/sites/:site/cost-summary/months/export',
     async (request, reply) => {
       const result = await monthly(request)
@@ -719,6 +746,39 @@ async function readMonthlyCosts(client: PoolClient, site: string, revenue: boole
     [site, revenue],
   )
   return { budget: found.budget_cents, rows, revenue }
+}
+
+interface SupplierCostRow {
+  supplier_id: string | null
+  supplier_name: string | null
+  costs: string
+  materials: string
+  rentals: string
+  subcontract: string
+  other: string
+  total: string
+}
+
+/** Costs entered by hand on one site, per supplier. Null when the site is not visible. */
+async function readSupplierCosts(client: PoolClient, site: string) {
+  const sites = await client.query('select 1 from public.sites where id = $1', [site])
+  if (!sites.rowCount) return null
+  const { rows } = await client.query<SupplierCostRow>(
+    `select k.supplier_id, p.name as supplier_name, count(*)::text as costs,
+       coalesce(sum(k.amount_cents) filter (where k.category = 'materials'), 0)::text as materials,
+       coalesce(sum(k.amount_cents) filter (where k.category = 'rentals'), 0)::text as rentals,
+       coalesce(sum(k.amount_cents) filter (where k.category = 'subcontract'), 0)::text
+         as subcontract,
+       coalesce(sum(k.amount_cents) filter (where k.category = 'other'), 0)::text as other,
+       sum(k.amount_cents)::text as total
+     from public.site_costs k
+     left join public.suppliers p on p.id = k.supplier_id
+     where k.site_id = $1
+     group by k.supplier_id, p.name
+     order by sum(k.amount_cents) desc, p.name nulls last, k.supplier_id`,
+    [site],
+  )
+  return rows
 }
 
 function summaryToContract(

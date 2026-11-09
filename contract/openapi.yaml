@@ -3751,6 +3751,31 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/sites/{site}/cost-summary/suppliers:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: getSiteSupplierCosts
+      summary: Costi inseriti a mano di un cantiere divisi per fornitore
+      description: |
+        Permesso: costs.view. Senza permesso risponde 404, non 403, come getSiteCostSummary. I
+        costi inseriti a mano del cantiere raggruppati per fornitore, divisi per categoria, con
+        quanti sono; i costi senza fornitore stanno in una riga con supplier null. Ordine dal
+        totale più alto, a pari merito per nome del fornitore (la riga senza fornitore per
+        ultima). total è la somma di tutte le righe ed è uguale a materials + rentals +
+        subcontract + other di getSiteCostSummary. Manodopera e mezzi dei rapportini non hanno
+        fornitore e restano fuori. Importi senza IVA; nessuna riga se il cantiere non ha costi
+        inseriti.
+      responses:
+        '200':
+          description: I costi per fornitore
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteSupplierCosts' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/sites/{site}/work-summary:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -13170,6 +13195,35 @@ components:
           type: array
           description: Dal mese più vecchio.
           items: { $ref: '#/components/schemas/SiteMonthCosts' }
+    SiteSupplierCosts:
+      type: object
+      required: [total, suppliers]
+      properties:
+        total:
+          description: Somma di tutte le righe.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        suppliers:
+          type: array
+          items: { $ref: '#/components/schemas/SiteSupplierCost' }
+    SiteSupplierCost:
+      type: object
+      required: [supplier, costs, materials, rentals, subcontract, other, total]
+      properties:
+        supplier:
+          description: Null per i costi senza fornitore.
+          oneOf:
+            - $ref: '#/components/schemas/SubjectRef'
+            - type: 'null'
+        costs:
+          description: Quanti costi inseriti.
+          type: integer
+          minimum: 1
+        materials: { $ref: '#/components/schemas/Amount' }
+        rentals: { $ref: '#/components/schemas/Amount' }
+        subcontract: { $ref: '#/components/schemas/Amount' }
+        other: { $ref: '#/components/schemas/Amount' }
+        total: { $ref: '#/components/schemas/Amount' }
     SiteMonthCosts:
       allOf:
         - $ref: '#/components/schemas/DashboardMonthCosts'
