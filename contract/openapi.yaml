@@ -3002,6 +3002,13 @@ paths:
                         description: Quantità maggiore di zero, nell'unità dell'articolo.
                         allOf:
                           - $ref: '#/components/schemas/Quantity'
+                      unit_cost:
+                        description: |
+                          Costo unitario senza IVA, nell'unità dell'articolo (di solito il prezzo
+                          della riga dell'ordine); si può omettere o mandare null se non si sa.
+                        oneOf:
+                          - $ref: '#/components/schemas/Amount'
+                          - type: 'null'
       responses:
         '201':
           description: Movimenti di carico registrati
@@ -11560,10 +11567,27 @@ components:
       allOf:
         - $ref: '#/components/schemas/WarehouseItemInput'
         - type: object
-          required: [id, stock, min_stock, below_min, created_at, updated_at]
+          required:
+            [id, stock, min_stock, below_min, average_cost, stock_value, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             stock: { $ref: '#/components/schemas/Quantity' }
+            average_cost:
+              description: |
+                Costo medio ponderato dei carichi con un costo (somma di quantità per costo
+                diviso la somma delle quantità), arrotondato al centesimo; null se nessun carico
+                ha un costo.
+              oneOf:
+                - $ref: '#/components/schemas/Amount'
+                - type: 'null'
+            stock_value:
+              description: |
+                Valore della giacenza al costo medio (giacenza per costo medio non arrotondato,
+                arrotondato al centesimo); zero se la giacenza non è positiva, null se non c'è
+                un costo medio.
+              oneOf:
+                - $ref: '#/components/schemas/Amount'
+                - type: 'null'
             below_min:
               type: boolean
               description: true se c'è una scorta minima e la giacenza è sotto.
@@ -11604,13 +11628,25 @@ components:
         notes:
           type: [string, 'null']
           maxLength: 2000
+        unit_cost:
+          description: |
+            Costo unitario senza IVA di un carico, nell'unità dell'articolo; dà il costo medio
+            dell'articolo e il valore della giacenza. Si può omettere; null se non si sa. Uno
+            scarico non ha costo: con kind out deve essere null o assente (422).
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
     WarehouseMovement:
       allOf:
         - $ref: '#/components/schemas/WarehouseMovementInput'
         - type: object
-          required: [id, item, site, purchase_order, created_by, created_at]
+          required: [id, item, site, unit_cost, purchase_order, created_by, created_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            unit_cost:
+              oneOf:
+                - $ref: '#/components/schemas/Amount'
+                - type: 'null'
             purchase_order:
               description: L'ordine ricevuto da cui viene il carico, se c'è.
               oneOf:

@@ -15,11 +15,12 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
-import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
+import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 import { csvScope } from '../http/files.js'
 import { ImportFailed } from '../csv-import.js'
 import { RowErrors } from '../clients/import.js'
 import { itemRowMessages, parseWarehouseItemsCsv } from '../warehouse/import.js'
+import { amountToCents, centsToAmount } from '../money.js'
 
 export const MOVEMENT_KINDS = ['in', 'out'] as const
 type Kind = (typeof MOVEMENT_KINDS)[number]
@@ -40,6 +41,8 @@ interface ItemRow extends ItemInput {
   stock: string
   min_stock: string | null
   below_min: boolean
+  average_cost_cents: string | null
+  stock_value_cents: string | null
   version: number
   created_at: Date
   updated_at: Date
@@ -52,6 +55,8 @@ interface MovementInput {
   quantity: string
   site_id: string | null
   notes: string | null
+  /** Cents, or null when unknown; always null for an unload. */
+  unit_cost_cents: string | null
 }
 
 interface MovementRow {
@@ -67,6 +72,7 @@ interface MovementRow {
   site_name: string | null
   site_code: string | null
   notes: string | null
+  unit_cost_cents: string | null
   purchase_order_id: string | null
   order_year: number | null
   order_seq: number | null
@@ -85,8 +91,16 @@ export const BELOW_MIN = `(i.min_stock is not null and ${STOCK} < i.min_stock)`
 
 const ITEM_SELECT = `select i.id, i.code, i.name, i.unit, i.notes,
     (${STOCK})::numeric(15, 3)::text as stock, i.min_stock::text as min_stock,
-    ${BELOW_MIN} as below_min, i.version, i.created_at, i.updated_at
-  from public.warehouse_items i`
+    ${BELOW_MIN} as below_min, round(c.average)::bigint::text as average_cost_cents,
+    case when c.average is null then null
+         else round(greatest(${STOCK}, 0) * c.average)::bigint::text end as stock_value_cents,
+    i.version, i.created_at, i.updated_at
+  from public.warehouse_items i
+  left join lateral (
+    select sum(m.quantity * m.unit_cost_cents) / nullif(sum(m.quantity), 0) as average
+    from public.warehouse_movements m
+    where m.item_id = i.id and m.kind = 'in' and m.unit_cost_cents is not null
+  ) c on true`
 
 const ITEM_SORTS = {
   name: 'i.name asc, i.id asc',
@@ -100,6 +114,7 @@ const ITEM_SORTS = {
 const MOVEMENT_SELECT = `select m.id, m.item_id, i.code as item_code, i.name as item_name,
     i.unit as item_unit, m.movement_date::text as movement_date, m.kind,
     m.quantity::text as quantity, m.site_id, s.name as site_name, s.code as site_code, m.notes,
+    m.unit_cost_cents::text as unit_cost_cents,
     m.purchase_order_id, o.number_year as order_year, o.number_seq as order_seq,
     m.created_by, cu.name as created_by_name, m.created_at
   from public.warehouse_movements m
@@ -118,6 +133,8 @@ function itemToContract(row: ItemRow) {
     stock: row.stock,
     min_stock: row.min_stock,
     below_min: row.below_min,
+    average_cost: row.average_cost_cents === null ? null : centsToAmount(row.average_cost_cents),
+    stock_value: row.stock_value_cents === null ? null : centsToAmount(row.stock_value_cents),
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -134,6 +151,7 @@ function movementToContract(row: MovementRow) {
     site_id: row.site_id,
     site: row.site_id ? { id: row.site_id, name: row.site_name ?? '', code: row.site_code } : null,
     notes: row.notes,
+    unit_cost: row.unit_cost_cents === null ? null : centsToAmount(row.unit_cost_cents),
     purchase_order: row.purchase_order_id
       ? {
           id: row.purchase_order_id,
@@ -199,6 +217,16 @@ function parseItemInput(body: unknown): ItemInput {
   return { code, name, unit, notes, min_stock }
 }
 
+const UNIT_COST_MESSAGE = 'Un importo da zero in su, con il punto e al massimo due decimali.'
+
+/** Optional unit cost: absent or null is unknown; otherwise an amount, as cents. */
+function unitCost(value: unknown, fail: (message: string) => void): string | null {
+  if (value === undefined || value === null) return null
+  const cents = typeof value === 'string' ? amountToCents(value.trim()) : null
+  if (cents === null) fail(UNIT_COST_MESSAGE)
+  return cents
+}
+
 function parseMovementInput(body: unknown): MovementInput {
   const { errors, add, text } = reader(body)
   const item_id = text('item_id', 36)
@@ -224,15 +252,21 @@ function parseMovementInput(body: unknown): MovementInput {
     add('site_id', 'Cantiere non trovato.')
   }
   const notes = text('notes', 2000)
+  const unit_cost_cents = unitCost((body as Record<string, unknown>).unit_cost, (m) =>
+    add('unit_cost', m),
+  )
+  if (unit_cost_cents !== null && kind === 'out') {
+    add('unit_cost', 'Uno scarico non ha costo: lascia il campo vuoto.')
+  }
   if (Object.keys(errors).length > 0 || !item_id || !date || !kind || !quantity) {
     throw new ValidationFailed(errors)
   }
-  return { item_id, date, kind, quantity, site_id, notes }
+  return { item_id, date, kind, quantity, site_id, notes, unit_cost_cents }
 }
 
 function parseLoadInput(body: unknown): {
   date: string
-  lines: { item_id: string; quantity: string }[]
+  lines: { item_id: string; quantity: string; unit_cost_cents: string | null }[]
 } {
   const { errors, add, text } = reader(body)
   const date = text('date', 10)
@@ -241,7 +275,7 @@ function parseLoadInput(body: unknown): {
     add('date', 'Data non valida (AAAA-MM-GG).')
   }
   const raw = (body as Record<string, unknown>).lines
-  const lines: { item_id: string; quantity: string }[] = []
+  const lines: { item_id: string; quantity: string; unit_cost_cents: string | null }[] = []
   if (!Array.isArray(raw) || raw.length === 0) add('lines', 'Indica almeno una riga da caricare.')
   else if (raw.length > 200) add('lines', 'Al massimo 200 righe.')
   else {
@@ -261,8 +295,9 @@ function parseLoadInput(body: unknown): {
           'Una quantità maggiore di zero, con il punto e al massimo tre decimali.',
         )
       }
+      const unit_cost_cents = unitCost(line.unit_cost, (m) => add(`lines.${i}.unit_cost`, m))
       if (typeof itemId === 'string' && typeof quantity === 'string') {
-        lines.push({ item_id: itemId, quantity })
+        lines.push({ item_id: itemId, quantity, unit_cost_cents })
       }
     })
   }
@@ -486,8 +521,16 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
           values,
         )
         return toCsv(
-          ['Codice', 'Articolo', 'Unità', 'Giacenza', 'Note'],
-          rows.map((r) => [r.code, r.name, r.unit, r.stock.replace('.', ','), r.notes]),
+          ['Codice', 'Articolo', 'Unità', 'Giacenza', 'Note', 'Costo medio', 'Valore'],
+          rows.map((r) => [
+            r.code,
+            r.name,
+            r.unit,
+            r.stock.replace('.', ','),
+            r.notes,
+            r.average_cost_cents === null ? null : italianAmount(r.average_cost_cents),
+            r.stock_value_cents === null ? null : italianAmount(r.stock_value_cents),
+          ]),
         )
       })
       return reply
@@ -630,7 +673,18 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
           values,
         )
         return toCsv(
-          ['Data', 'Tipo', 'Codice', 'Articolo', 'Unità', 'Quantità', 'Cantiere', 'Ordine', 'Note'],
+          [
+            'Data',
+            'Tipo',
+            'Codice',
+            'Articolo',
+            'Unità',
+            'Quantità',
+            'Cantiere',
+            'Ordine',
+            'Note',
+            'Costo unitario',
+          ],
           rows.map((r) => {
             const m = movementToContract(r)
             return [
@@ -643,6 +697,7 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
               m.site ? [m.site.code, m.site.name].filter(Boolean).join(' ') : null,
               m.purchase_order?.number ?? null,
               m.notes,
+              r.unit_cost_cents === null ? null : italianAmount(r.unit_cost_cents),
             ]
           }),
         )
@@ -674,8 +729,8 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
       const { rows } = await client
         .query<{ id: string }>(
           `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
-             quantity, site_id, notes, created_by)
-           values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7) returning id`,
+             quantity, site_id, notes, created_by, unit_cost_cents)
+           values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8) returning id`,
           [
             input.item_id,
             input.date,
@@ -684,6 +739,7 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
             input.site_id,
             input.notes,
             session.user.id,
+            input.unit_cost_cents,
           ],
         )
         .catch((error: unknown) => {
@@ -736,9 +792,10 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
         if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
         const { rows: created } = await client.query<{ id: string }>(
           `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
-             quantity, purchase_order_id, created_by)
-           select app.current_company_id(), x.item_id, $1, 'in', x.quantity, $2, $3
-           from unnest($4::uuid[], $5::numeric[]) with ordinality as x (item_id, quantity, n)
+             quantity, purchase_order_id, created_by, unit_cost_cents)
+           select app.current_company_id(), x.item_id, $1, 'in', x.quantity, $2, $3, x.cost
+           from unnest($4::uuid[], $5::numeric[], $6::bigint[])
+             with ordinality as x (item_id, quantity, cost, n)
            order by x.n
            returning id`,
           [
@@ -747,6 +804,7 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
             session.user.id,
             input.lines.map((l) => l.item_id),
             input.lines.map((l) => l.quantity),
+            input.lines.map((l) => l.unit_cost_cents),
           ],
         )
         const { rows: movementRows } = await client.query<MovementRow>(

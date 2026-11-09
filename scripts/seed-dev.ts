@@ -912,16 +912,17 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            returning id, code
          )
          insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
-           quantity, site_id)
+           quantity, site_id, unit_cost_cents)
          select $1, i.id, m.day::date, m.kind, m.quantity::numeric,
            case when m.kind = 'out' then (select s.id from public.sites s
-             where s.company_id = $1 and s.code = '2026-01') end
+             where s.company_id = $1 and s.code = '2026-01') end,
+           m.cost::bigint
          from i join (values
-           ('CEM-325', '2026-11-02', 'in', '200'),
-           ('CEM-325', '2026-11-04', 'out', '40'),
-           ('SAB-02', '2026-11-02', 'in', '12'),
-           ('TAV-50', '2026-11-02', 'in', '60')
-         ) as m (code, day, kind, quantity) on m.code = i.code`,
+           ('CEM-325', '2026-11-02', 'in', '200', '650'),
+           ('CEM-325', '2026-11-04', 'out', '40', null),
+           ('SAB-02', '2026-11-02', 'in', '12', '3800'),
+           ('TAV-50', '2026-11-02', 'in', '60', null)
+         ) as m (code, day, kind, quantity, cost) on m.code = i.code`,
         [companyId],
       )
       // A document and a photo on the first site, so the archive is not empty; the photo

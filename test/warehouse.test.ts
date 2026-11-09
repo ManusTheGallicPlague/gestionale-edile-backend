@@ -77,9 +77,9 @@ describe('warehouse', () => {
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-disposition']).toBe('attachment; filename="magazzino.csv"')
     expect(res.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
-      'Codice;Articolo;Unità;Giacenza;Note',
-      'CEM-325;Cemento 32.5 in sacchi;sacchi;12,500;',
-      ';Sabbia lavata;m³;0,000;cava nord',
+      'Codice;Articolo;Unità;Giacenza;Note;Costo medio;Valore',
+      'CEM-325;Cemento 32.5 in sacchi;sacchi;12,500;;;',
+      ';Sabbia lavata;m³;0,000;cava nord;;',
     ])
     const found = await s.browser.call('GET', `${url}?search=sabb`)
     expect(found.body.trim().split('\r\n')).toHaveLength(2)
@@ -124,11 +124,11 @@ describe('warehouse', () => {
       'attachment; filename="movimenti-magazzino.csv"',
     )
     expect(res.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
-      'Data;Tipo;Codice;Articolo;Unità;Quantità;Cantiere;Ordine;Note',
-      '06/11/2026;Scarico;;Sabbia lavata;m³;2,000;;;',
-      '05/11/2026;Scarico;CEM-325;Cemento 32.5 in sacchi;sacchi;12,500;C-1 Villetta;;"getto; platea"',
-      '03/11/2026;Carico;;Sabbia lavata;m³;10,250;;;',
-      '02/11/2026;Carico;CEM-325;Cemento 32.5 in sacchi;sacchi;100,000;;;',
+      'Data;Tipo;Codice;Articolo;Unità;Quantità;Cantiere;Ordine;Note;Costo unitario',
+      '06/11/2026;Scarico;;Sabbia lavata;m³;2,000;;;;',
+      '05/11/2026;Scarico;CEM-325;Cemento 32.5 in sacchi;sacchi;12,500;C-1 Villetta;;"getto; platea";',
+      '03/11/2026;Carico;;Sabbia lavata;m³;10,250;;;;',
+      '02/11/2026;Carico;CEM-325;Cemento 32.5 in sacchi;sacchi;100,000;;;;',
     ])
 
     // What went to a site: the same filters as the list.
