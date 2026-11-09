@@ -11599,12 +11599,19 @@ components:
               format: date-time
     WarehouseItemList:
       type: object
-      required: [data, meta]
+      required: [data, meta, stock_value]
       properties:
         data:
           type: array
           items: { $ref: '#/components/schemas/WarehouseItem' }
         meta: { $ref: '#/components/schemas/ListMeta' }
+        stock_value:
+          description: |
+            Somma di stock_value di tutti gli articoli che rispondono alla ricerca e ai filtri,
+            non solo di questa pagina (gli articoli senza costo medio non contano): il valore
+            delle rimanenze.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
     WarehouseMovementKind:
       type: string
       description: 'in: carico. out: scarico.'

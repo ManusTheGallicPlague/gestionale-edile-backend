@@ -431,13 +431,15 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
          limit $${filters + 1} offset $${filters + 2}`,
         values,
       )
-      const count = await client.query<{ total: number }>(
-        `select count(*)::int as total from public.warehouse_items i where ${where}`,
+      const count = await client.query<{ total: number; value: string }>(
+        `select count(*)::int as total, coalesce(sum(t.stock_value_cents::bigint), 0)::text as value
+         from (${ITEM_SELECT} where ${where}) t`,
         values.slice(0, filters),
       )
       return {
         data: rows.map(itemToContract),
         meta: { total: count.rows[0]?.total ?? 0, page: q.page, per_page: q.perPage },
+        stock_value: centsToAmount(count.rows[0]?.value ?? '0'),
       }
     })
   })

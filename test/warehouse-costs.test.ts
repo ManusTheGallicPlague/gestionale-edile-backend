@@ -105,6 +105,15 @@ describe('unit costs and stock value of the warehouse', () => {
     const list = await s.browser.call('GET', `${s.items}?sort=name`)
     expect(list.statusCode).toBe(200)
     expect(list.json<{ data: Item[] }>().data.map((i) => i.stock_value)).toEqual(['1.72', '171.88'])
+    // The total is over every item that matches, not just the page; no cost counts as nothing.
+    await newItem(s, 'Senza costo')
+    const page = await s.browser.call('GET', `${s.items}?sort=-name&per_page=1`)
+    expect(page.json<{ data: Item[]; stock_value: string }>()).toMatchObject({
+      data: [{ stock_value: null }],
+      stock_value: '173.60',
+    })
+    const found = await s.browser.call('GET', `${s.items}?search=sabb`)
+    expect(found.json<{ stock_value: string }>().stock_value).toBe('171.88')
 
     // A stock below zero is worth nothing, not a negative amount.
     await move(s, b.id, 'out', '30')
@@ -258,5 +267,8 @@ describe('unit costs and stock value of the warehouse', () => {
     // And the other company cannot read the item, its cost or its value.
     const peek = await other.browser.call('GET', `${other.items}/${a.id}`)
     expect(peek.statusCode).toBe(404)
+    // Nor does this company's value add to the other's total.
+    const total = await other.browser.call('GET', other.items)
+    expect(total.json<{ stock_value: string }>().stock_value).toBe('0.00')
   })
 })
