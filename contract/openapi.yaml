@@ -1119,6 +1119,9 @@ paths:
         da iniziare, sospesi e chiusi, e a parità in ordine di nome. Con costs.view, in costs
         la somma dei costi inseriti a mano con quel fornitore sul cantiere (zero se ha solo
         ordini), con la stessa regola di getSiteSupplierCosts; senza costs.view costs è null.
+        Con purchases.view, in orders la somma dei totali dei suoi ordini inviati o ricevuti sul
+        cantiere (le bozze no; zero se ha solo costi o bozze), con la stessa regola di total in
+        purchase_orders di getSiteCostSummary; senza purchases.view orders è null.
       responses:
         '200':
           description: I cantieri del fornitore
@@ -11308,7 +11311,7 @@ components:
           items: { $ref: '#/components/schemas/SiteSubcontractor' }
     SupplierSite:
       type: object
-      required: [site_id, code, name, status, costs]
+      required: [site_id, code, name, status, costs, orders]
       properties:
         site_id: { $ref: '#/components/schemas/Id' }
         code: { type: [string, 'null'] }
@@ -11316,6 +11319,13 @@ components:
         status: { $ref: '#/components/schemas/SiteStatus' }
         costs:
           description: Costi inseriti a mano con il fornitore sul cantiere; null senza costs.view.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        orders:
+          description: |
+            Totale senza IVA degli ordini inviati o ricevuti al fornitore per il cantiere; null
+            senza purchases.view.
           oneOf:
             - $ref: '#/components/schemas/Amount'
             - type: 'null'

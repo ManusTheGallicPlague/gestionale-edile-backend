@@ -551,6 +551,7 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: il riepilogo dei costi del 
 Aggiunta il 09/11/2026, con il piano tutto spuntato: la sezione 76 dice quanto ha speso un cantiere con ciascun fornitore; la scheda del fornitore (`listSupplierSites`) elencava i suoi cantieri senza importi, e l'ufficio vuole vedere lì quanto si è speso con lui cantiere per cantiere.
 
 - [x] `costs` in `listSupplierSites`: con `costs.view` la somma dei costi inseriti a mano con il fornitore sul cantiere (`0.00` se ha solo ordini), la stessa del suo totale in `getSiteSupplierCosts`; senza `costs.view` null; nessuna migrazione, nessun permesso nuovo
+- [x] `orders` nello stesso elenco: con `purchases.view` il totale senza IVA degli ordini inviati o ricevuti al fornitore per il cantiere (le bozze no), con la regola di `purchase_orders.total` di `getSiteCostSummary`; senza `purchases.view` null
 
 ## Decisioni prese
 
@@ -789,11 +790,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: i costi per mese del cantiere vanno dal primo all'ultimo mese con un costo, non fino al mese in corso: un cantiere chiuso non allunga il grafico con mesi vuoti; il frontend può aggiungere i mesi mancanti fino a oggi se gli servono.
 - 09/11/2026: nei costi del cantiere per fornitore entrano solo i costi inseriti a mano (manodopera e mezzi non hanno fornitore); a pari totale si ordina per nome del fornitore e la riga senza fornitore va per ultima; i fornitori archiviati restano con il loro nome.
 - 09/11/2026: `costs` in `listSupplierSites` è un campo in più, null senza `costs.view` come gli altri importi letti con un permesso diverso da quello dell'elenco; conta i soli costi inseriti a mano (gli ordini hanno il loro permesso `purchases.view` e restano fuori), su tutte le date.
+- 09/11/2026: `orders` in `listSupplierSites` conta gli ordini inviati e ricevuti, non le bozze, come il costo impegnato del riepilogo del cantiere; un cantiere con le sole bozze del fornitore resta nell'elenco con `orders` a 0.00.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 15:36 UTC: stesso giro, secondo push: `orders` in `listSupplierSites` (test con righe arrotondate una per una 1.5 × 3.33 due volte più un ordine ricevuto, bozze e ordini di un altro fornitore esclusi, cantiere con solo bozze o solo costi a 0.00, null senza `purchases.view`). Niente a metà; piano tutto spuntato. 940 test.
 - 2026-11-09 15:21 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (938 test; un primo giro di controlli è fallito solo perché modificavo i file mentre girava, rilanciato verde); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 77: `costs` in `listSupplierSites` (test con 0.10 + 0.20 sullo stesso cantiere, cantiere con solo un ordine a 0.00, costi di un altro fornitore e senza fornitore esclusi, importo uguale alla riga di `getSiteSupplierCosts`, null senza `costs.view`, costi di un'altra azienda che non contano). Niente a metà; piano tutto spuntato. 939 test.
 - 2026-11-09 14:42 UTC: stesso giro, terzo push: `filter[from]` e `filter[to]` in `getSiteSupplierCosts` ed `exportSiteSupplierCosts` (test su due giorni con estremi compresi, solo inizio, solo fine, periodo vuoto, CSV, 422 su data non valida, ripetuta e con la fine prima dell'inizio). Niente a metà; piano tutto spuntato. 938 test.
 - 2026-11-09 14:37 UTC: stesso giro, secondo push: `exportSiteSupplierCosts` (test con punto e virgola e virgolette nel nome del fornitore, riga «Senza fornitore», cantiere con un solo fornitore, 404 senza `costs.view` e da un'altra azienda, 401 senza sessione); la lettura è una funzione sola per elenco e CSV. Niente a metà; piano tutto spuntato. 936 test.

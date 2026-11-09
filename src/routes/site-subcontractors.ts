@@ -112,10 +112,15 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
         const found = await client.query('select 1 from public.suppliers where id = $1', [id])
         if (found.rowCount === 0) throw notFound()
         if (!permissions.has('sites.view')) throw forbidden()
-        const { rows } = await client.query<SupplierSiteRow & { costs: string }>(
+        const { rows } = await client.query<SupplierSiteRow & { costs: string; orders: string }>(
           `select s.id, s.code, s.name, s.status,
              (select coalesce(sum(c.amount_cents), 0) from public.site_costs c
-              where c.site_id = s.id and c.supplier_id = $1)::text as costs
+              where c.site_id = s.id and c.supplier_id = $1)::text as costs,
+             (select coalesce(sum(round(l.quantity * l.unit_price_cents)), 0)::bigint
+              from public.purchase_orders o
+              join public.purchase_order_lines l on l.order_id = o.id
+              where o.site_id = s.id and o.supplier_id = $1
+                and o.status in ('sent', 'received'))::text as orders
            from public.sites s
            where exists (select 1 from public.site_costs c
                          where c.site_id = s.id and c.supplier_id = $1)
@@ -125,6 +130,7 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
           [id],
         )
         const costs = permissions.has('costs.view')
+        const orders = permissions.has('purchases.view')
         return {
           data: rows.map((r) => ({
             site_id: r.id,
@@ -132,6 +138,7 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
             name: r.name,
             status: r.status,
             costs: costs ? centsToAmount(r.costs) : null,
+            orders: orders ? centsToAmount(r.orders) : null,
           })),
         }
       })

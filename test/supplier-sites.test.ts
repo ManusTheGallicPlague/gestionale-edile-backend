@@ -50,11 +50,26 @@ async function cost(companyId: string, siteId: string, supplierId: string, cents
   )
 }
 
-async function order(companyId: string, siteId: string, supplierId: string) {
-  await ctx.owner.query(
+async function order(companyId: string, siteId: string, supplierId: string, status = 'draft') {
+  const { rows } = await ctx.owner.query<{ id: string }>(
     `insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
-       site_id, order_date) values ($1, 2026, floor(random() * 1e6)::int + 1, $2, $3, '2026-10-01')`,
-    [companyId, supplierId, siteId],
+       site_id, order_date, status, sent_at, received_at)
+     values ($1, 2026, floor(random() * 1e6)::int + 1, $2, $3, '2026-10-01', $4,
+       case when $4 = 'draft' then null else now() end,
+       case when $4 = 'received' then now() end)
+     returning id`,
+    [companyId, supplierId, siteId, status],
+  )
+  return rows[0]?.id ?? ''
+}
+
+async function line(companyId: string, orderId: string, quantity: string, cents: number) {
+  await ctx.owner.query(
+    `insert into public.purchase_order_lines (company_id, order_id, position, description,
+       quantity, unit_price_cents)
+     values ($1, $2, (select count(*) from public.purchase_order_lines where order_id = $2),
+       'Mattoni', $3, $4)`,
+    [companyId, orderId, quantity, cents],
   )
 }
 
@@ -81,18 +96,55 @@ describe('sites of a supplier', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({
       data: [
-        { site_id: both, code: null, name: 'Condominio', status: 'active', costs: null },
-        { site_id: active, code: 'C-01', name: 'Villetta', status: 'active', costs: null },
-        { site_id: planned, code: null, name: 'Box', status: 'planned', costs: null },
-        { site_id: suspended, code: null, name: 'Scuola', status: 'suspended', costs: null },
-        { site_id: closed, code: null, name: 'Arena', status: 'completed', costs: null },
+        {
+          site_id: both,
+          code: null,
+          name: 'Condominio',
+          status: 'active',
+          costs: null,
+          orders: null,
+        },
+        {
+          site_id: active,
+          code: 'C-01',
+          name: 'Villetta',
+          status: 'active',
+          costs: null,
+          orders: null,
+        },
+        { site_id: planned, code: null, name: 'Box', status: 'planned', costs: null, orders: null },
+        {
+          site_id: suspended,
+          code: null,
+          name: 'Scuola',
+          status: 'suspended',
+          costs: null,
+          orders: null,
+        },
+        {
+          site_id: closed,
+          code: null,
+          name: 'Arena',
+          status: 'completed',
+          costs: null,
+          orders: null,
+        },
       ],
     })
     expect(res.body).not.toContain('9876')
 
     const empty = await browser.call('GET', url.replace(supplierId, other))
     expect(empty.json()).toEqual({
-      data: [{ site_id: unrelated, code: null, name: 'Niente', status: 'active', costs: null }],
+      data: [
+        {
+          site_id: unrelated,
+          code: null,
+          name: 'Niente',
+          status: 'active',
+          costs: null,
+          orders: null,
+        },
+      ],
     })
   })
 
@@ -121,9 +173,9 @@ describe('sites of a supplier', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({
       data: [
-        { site_id: a, code: null, name: 'Arena', status: 'active', costs: '0.30' },
-        { site_id: b, code: null, name: 'Box', status: 'active', costs: '9876.54' },
-        { site_id: c, code: null, name: 'Casa', status: 'active', costs: '0.00' },
+        { site_id: a, code: null, name: 'Arena', status: 'active', costs: '0.30', orders: null },
+        { site_id: b, code: null, name: 'Box', status: 'active', costs: '9876.54', orders: null },
+        { site_id: c, code: null, name: 'Casa', status: 'active', costs: '0.00', orders: null },
       ],
     })
 
@@ -138,6 +190,38 @@ describe('sites of a supplier', () => {
     expect(row?.total).toBe('0.30')
   })
 
+  it('adds the ordered amount on each site with purchases.view', async () => {
+    const { browser, company, supplierId, url } = await scene([
+      'sites.view',
+      'suppliers.view',
+      'purchases.view',
+    ])
+    const a = await site(company.id, 'Arena', 'active')
+    const b = await site(company.id, 'Box', 'active')
+    const c = await site(company.id, 'Casa', 'active')
+    // Lines rounded one by one: 1.5 × 333 = 499.5 → 500 cents, twice; plus a received order.
+    const sent = await order(company.id, a, supplierId, 'sent')
+    await line(company.id, sent, '1.5', 333)
+    await line(company.id, sent, '1.5', 333)
+    await line(company.id, await order(company.id, a, supplierId, 'received'), '2', 25)
+    // Drafts do not count, nor orders of another supplier.
+    await line(company.id, await order(company.id, a, supplierId, 'draft'), '1', 99999)
+    await line(company.id, await order(company.id, b, supplierId), '1', 88888)
+    const other = await supplier(company.id, 'Altri')
+    await line(company.id, await order(company.id, a, other, 'sent'), '1', 77777)
+    await cost(company.id, c, supplierId)
+
+    const res = await browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      data: [
+        { site_id: a, code: null, name: 'Arena', status: 'active', costs: null, orders: '10.50' },
+        { site_id: b, code: null, name: 'Box', status: 'active', costs: null, orders: '0.00' },
+        { site_id: c, code: null, name: 'Casa', status: 'active', costs: null, orders: '0.00' },
+      ],
+    })
+  })
+
   it('works for an archived supplier', async () => {
     const { browser, company } = await scene()
     const archived = await supplier(company.id, 'Archiviata', true)
@@ -149,7 +233,16 @@ describe('sites of a supplier', () => {
     )
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({
-      data: [{ site_id: s, code: null, name: 'Villetta', status: 'completed', costs: null }],
+      data: [
+        {
+          site_id: s,
+          code: null,
+          name: 'Villetta',
+          status: 'completed',
+          costs: null,
+          orders: null,
+        },
+      ],
     })
   })
 
@@ -182,7 +275,7 @@ describe('sites of a supplier', () => {
     expect((await mine.browser.call('GET', other)).statusCode).toBe(404)
     const foreign = await theirs.browser.call('GET', theirs.url)
     expect(foreign.json()).toEqual({
-      data: [{ site_id: s, code: null, name: 'Loro', status: 'active', costs: null }],
+      data: [{ site_id: s, code: null, name: 'Loro', status: 'active', costs: null, orders: null }],
     })
     expect((await mine.browser.call('GET', mine.url)).json()).toEqual({ data: [] })
     // A cost of another company on a site of mine with my supplier's id does not count.
@@ -192,7 +285,9 @@ describe('sites of a supplier', () => {
     const foreignSite = await site(theirs.company.id, 'Altro', 'active')
     await cost(theirs.company.id, foreignSite, theirs.supplierId, 999)
     expect((await counted.browser.call('GET', counted.url)).json()).toEqual({
-      data: [{ site_id: own, code: null, name: 'Mio', status: 'active', costs: '1.00' }],
+      data: [
+        { site_id: own, code: null, name: 'Mio', status: 'active', costs: '1.00', orders: null },
+      ],
     })
   })
 })
