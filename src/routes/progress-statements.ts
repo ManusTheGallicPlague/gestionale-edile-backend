@@ -199,6 +199,11 @@ function readCompanyList(query: Record<string, unknown>) {
     if (!UUID.test(clientId)) errors['filter[client]'] = ['Identificativo non valido.']
     else add((p) => `e.client_id = ${p}`, clientId)
   }
+  const estimate = single('filter[estimate]')
+  if (estimate !== undefined) {
+    if (!UUID.test(estimate)) errors['filter[estimate]'] = ['Identificativo non valido.']
+    else add((p) => `st.estimate_id = ${p}`, estimate)
+  }
   const status = single('filter[status]')
   if (status !== undefined) {
     if (status !== 'draft' && status !== 'approved') {

@@ -578,6 +578,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: le manutenzioni e i riforni
 - [x] `listCompanyVehicleMaintenances` su `…/vehicle-maintenances` (permesso `vehicles.view`, senza 403 come il CSV): stesse righe, ordine e filtri del CSV (`filter[from]`, `filter[to]`, `filter[vehicle]`), a pagine, con il mezzo (id, nome, targa) e `total_amount` di tutto il filtro; nessuna migrazione, nessun permesso nuovo
 - [x] `listCompanyVehicleRefuelings` su `…/vehicle-refuelings`, allo stesso modo per i rifornimenti (`exportVehicleRefuelings`): con il mezzo, il consumo come nella scheda del mezzo, `total_liters` e `total_amount` di tutto il filtro
 
+### 82. SAL di un solo computo nell'elenco dell'azienda
+Aggiunta il 09/11/2026, con il piano tutto spuntato: l'elenco dei SAL di tutta l'azienda (`listCompanyProgressStatements`) e il suo CSV filtravano per cantiere e cliente ma non per computo, mentre l'elenco del singolo computo (`listProgressStatements`) non ha né pagine né totali né CSV; per la schermata «A. Elenco» dei SAL di un computo serve il filtro.
+
+- [x] `filter[estimate]` in `listCompanyProgressStatements` ed `exportCompanyProgressStatements`: solo i SAL del computo, con i totali sul filtro; un computo di un'altra azienda dà un elenco vuoto; 422 su identificativo non valido o ripetuto; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -822,11 +827,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: nel CSV delle ore del cantiere dipendenti e mezzi stanno nello stesso file, distinti dalla colonna Tipo, invece di due file; nelle righe dei totali i giorni restano vuoti perché il riepilogo non li somma (lo stesso giorno conta per più persone).
 - 09/11/2026: `exportEmployeeSites` senza colonne di ore o costi: le ore per cantiere del dipendente hanno già la loro esportazione (`exportEmployeeWorkSummary`), qui solo l'elenco dei cantieri come in `exportSupplierSites` senza i permessi sugli importi.
 - 09/11/2026: `listCompanyVehicleMaintenances` risponde 403 senza `vehicles.view` (come `exportVehicleMaintenances`, perché non c'è un record nel percorso) e con `filter[vehicle]` di un mezzo che non c'è, o di un'altra azienda, dà un elenco vuoto invece di 404, come fa già il CSV.
+- 09/11/2026: i SAL di un computo in CSV si ottengono con `filter[estimate]` sull'esportazione dei SAL dell'azienda, invece di una nuova esportazione sotto il computo: un solo formato e un solo codice.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 19:22 UTC: main era di nuovo staccato (HEAD detached) e il main locale aveva due commit vecchi: riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (961 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 82: `filter[estimate]` nei SAL dell'azienda e nel loro CSV (test con i due SAL della Villetta e i totali 1300.00 e 1250.00, insieme allo stato, CSV del solo Muro, computo di un'altra azienda con elenco vuoto e totale 0.00, 422 su id non valido e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 962 test.
 - 2026-11-09 18:37 UTC: stesso giro, terzo push: `listCompanyVehicleRefuelings` (test con quattro rifornimenti su furgone ed escavatore, consumo 50.20 l su 500 km = 10.04, litri sommati senza float 90.60, pagina 2 con i totali di tutto il filtro, filtri, mezzo di un'altra azienda con elenco vuoto, 422, 403, 404 sull'azienda altrui, 401). Niente a metà; piano tutto spuntato. 961 test.
 - 2026-11-09 18:33 UTC: stesso giro, secondo push: sezione 81, `listCompanyVehicleMaintenances` (test con quattro manutenzioni su due mezzi, stesso giorno in ordine di mezzo, pagina 2 con il totale di tutto il filtro, spesa nulla che conta zero, filtri per periodo e mezzo, mezzo inesistente e di un'altra azienda con elenco vuoto, 422 su date, mezzo e pagine non validi, 403 senza `vehicles.view`, 404 sull'azienda altrui, 401). Niente a metà; piano tutto spuntato. 958 test.
 - 2026-11-09 18:21 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (953 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 80: `exportEmployeeSites` (lettura unica per elenco e CSV; test con punto e virgola e virgolette nel nome del cantiere, ordine per stato, cantiere di un altro dipendente escluso, dipendente senza cantieri, 403 senza `sites.view`, 404 senza `employees.view`, con id non valido e da un'altra azienda, 401). Niente a metà; piano tutto spuntato. 955 test.

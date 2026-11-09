@@ -4676,7 +4676,8 @@ paths:
       summary: SAL di tutti i computi dell'azienda
       description: |
         Permesso: estimates.view. Dal più recente per data del SAL. Filtri sul cantiere del
-        computo (filter[site]), sul cliente del computo (filter[client]), sullo stato
+        computo (filter[site]), sul cliente del computo (filter[client]), sul computo
+        (filter[estimate]; un computo di un'altra azienda dà un elenco vuoto), sullo stato
         (filter[status]), sulla fattura (filter[invoiced]:
         true i SAL già fatturati, false quelli senza fattura) e sulla data del SAL
         (filter[from], filter[to]). Con filter[status]=approved e filter[invoiced]=false si
@@ -4694,6 +4695,7 @@ paths:
             properties:
               site: { $ref: '#/components/schemas/Id' }
               client: { $ref: '#/components/schemas/Id' }
+              estimate: { $ref: '#/components/schemas/Id' }
               status: { $ref: '#/components/schemas/ProgressStatementStatus' }
               invoiced: { type: string, enum: ['true', 'false'] }
               from: { $ref: '#/components/schemas/Date' }
@@ -4729,6 +4731,7 @@ paths:
             properties:
               site: { $ref: '#/components/schemas/Id' }
               client: { $ref: '#/components/schemas/Id' }
+              estimate: { $ref: '#/components/schemas/Id' }
               status: { $ref: '#/components/schemas/ProgressStatementStatus' }
               invoiced: { type: string, enum: ['true', 'false'] }
               from: { $ref: '#/components/schemas/Date' }

@@ -205,6 +205,47 @@ describe('progress statements of the whole company', () => {
     expect((await s.browser.call('GET', `${s.url}?filter[client]=x`)).statusCode).toBe(422)
   })
 
+  it('filters by estimate, in the list and in the CSV', async () => {
+    const s = await scene(['estimates.view'])
+    const res = await s.browser.call('GET', `${s.url}?filter[estimate]=${s.e1.id}`)
+    expect(res.statusCode).toBe(200)
+    const list = res.json<List>()
+    expect(list.data.map((r) => r.id)).toEqual([s.v2, s.v1])
+    expect(list.meta.total).toBe(2)
+    expect(list.total_amount).toBe('1300.00')
+    expect(list.total_net_amount).toBe('1250.00')
+    const both = await s.browser.call(
+      'GET',
+      `${s.url}?filter[estimate]=${s.e1.id}&filter[status]=approved`,
+    )
+    expect(both.json<List>().data.map((r) => r.id)).toEqual([s.v1])
+    const csv = await s.browser.call('GET', `${s.url}/export?filter[estimate]=${s.e3.id}`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.replace('\ufeff', '').trim().split('\r\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toContain('Muro')
+    // An estimate of another company gives an empty list, not its SAL.
+    const other = await scene(['estimates.view'])
+    const foreign = await s.browser.call('GET', `${s.url}?filter[estimate]=${other.e1.id}`)
+    expect(foreign.statusCode).toBe(200)
+    expect(foreign.json<List>().data).toEqual([])
+    expect(foreign.json<List>().total_amount).toBe('0.00')
+    const foreignCsv = await s.browser.call(
+      'GET',
+      `${s.url}/export?filter[estimate]=${other.e1.id}`,
+    )
+    expect(foreignCsv.body.replace('\ufeff', '').trim().split('\r\n')).toHaveLength(1)
+    for (const query of [
+      'filter[estimate]=abc',
+      `filter[estimate]=${s.e1.id}&filter[estimate]=${s.e2.id}`,
+    ]) {
+      const bad = await s.browser.call('GET', `${s.url}?${query}`)
+      expect(bad.statusCode).toBe(422)
+      const badCsv = await s.browser.call('GET', `${s.url}/export?${query}`)
+      expect(badCsv.statusCode).toBe(422)
+    }
+  })
+
   it('rejects wrong filters with 422', async () => {
     const s = await scene(['estimates.view'])
     for (const query of [
