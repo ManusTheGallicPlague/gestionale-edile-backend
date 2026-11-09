@@ -1116,8 +1116,9 @@ paths:
         (404), come nella scheda; senza sites.view 403. Per la scheda del fornitore o del
         subappaltatore, al contrario di listSiteSubcontractors: i cantieri su cui il fornitore,
         anche archiviato, ha un costo o un ordine, di qualunque stato, prima quelli in corso, poi
-        da iniziare, sospesi e chiusi, e a parità in ordine di nome. Nessun importo: i costi si
-        leggono con i loro permessi.
+        da iniziare, sospesi e chiusi, e a parità in ordine di nome. Con costs.view, in costs
+        la somma dei costi inseriti a mano con quel fornitore sul cantiere (zero se ha solo
+        ordini), con la stessa regola di getSiteSupplierCosts; senza costs.view costs è null.
       responses:
         '200':
           description: I cantieri del fornitore
@@ -11307,12 +11308,17 @@ components:
           items: { $ref: '#/components/schemas/SiteSubcontractor' }
     SupplierSite:
       type: object
-      required: [site_id, code, name, status]
+      required: [site_id, code, name, status, costs]
       properties:
         site_id: { $ref: '#/components/schemas/Id' }
         code: { type: [string, 'null'] }
         name: { type: string }
         status: { $ref: '#/components/schemas/SiteStatus' }
+        costs:
+          description: Costi inseriti a mano con il fornitore sul cantiere; null senza costs.view.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
     SupplierSiteList:
       type: object
       required: [data]

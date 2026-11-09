@@ -5,6 +5,7 @@ import { enterCompany } from '../company.js'
 import { italianDate, toCsv } from '../csv.js'
 import { UUID } from '../deadlines/input.js'
 import { forbidden, notFound } from '../http/errors.js'
+import { centsToAmount } from '../money.js'
 import { requireSession } from '../http/request-context.js'
 import { DOCUMENT_KINDS, type DocumentKind } from '../suppliers/documents.js'
 import { KIND_LABEL } from './supplier-documents.js'
@@ -111,8 +112,10 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
         const found = await client.query('select 1 from public.suppliers where id = $1', [id])
         if (found.rowCount === 0) throw notFound()
         if (!permissions.has('sites.view')) throw forbidden()
-        const { rows } = await client.query<SupplierSiteRow>(
-          `select s.id, s.code, s.name, s.status
+        const { rows } = await client.query<SupplierSiteRow & { costs: string }>(
+          `select s.id, s.code, s.name, s.status,
+             (select coalesce(sum(c.amount_cents), 0) from public.site_costs c
+              where c.site_id = s.id and c.supplier_id = $1)::text as costs
            from public.sites s
            where exists (select 1 from public.site_costs c
                          where c.site_id = s.id and c.supplier_id = $1)
@@ -121,8 +124,15 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
            order by ${SITES_ORDER}`,
           [id],
         )
+        const costs = permissions.has('costs.view')
         return {
-          data: rows.map((r) => ({ site_id: r.id, code: r.code, name: r.name, status: r.status })),
+          data: rows.map((r) => ({
+            site_id: r.id,
+            code: r.code,
+            name: r.name,
+            status: r.status,
+            costs: costs ? centsToAmount(r.costs) : null,
+          })),
         }
       })
     },

@@ -547,6 +547,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: il riepilogo dei costi del 
 - [x] Gli stessi costi in CSV (`exportSiteSupplierCosts` su `…/cost-summary/suppliers/export`, file `costi-fornitori-cantiere.csv`), con «Senza fornitore» nella riga dei costi senza fornitore
 - [x] `filter[from]` e `filter[to]` nell'elenco e nel CSV: solo i costi con la data dentro il periodo (estremi compresi); 422 su date non valide, ripetute o con la fine prima dell'inizio
 
+### 77. Spesa con il fornitore in ogni cantiere
+Aggiunta il 09/11/2026, con il piano tutto spuntato: la sezione 76 dice quanto ha speso un cantiere con ciascun fornitore; la scheda del fornitore (`listSupplierSites`) elencava i suoi cantieri senza importi, e l'ufficio vuole vedere lì quanto si è speso con lui cantiere per cantiere.
+
+- [x] `costs` in `listSupplierSites`: con `costs.view` la somma dei costi inseriti a mano con il fornitore sul cantiere (`0.00` se ha solo ordini), la stessa del suo totale in `getSiteSupplierCosts`; senza `costs.view` null; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -783,11 +788,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: nei costi di tutti i cantieri il periodo non restringe le colonne esistenti: manodopera, mezzi, costi inseriti, totale, budget, residuo, `over_budget` e gli ordinamenti restano sul totale di sempre; il costo del periodo sta in `period_total` e `period_total_amount` (null senza periodo) e nel CSV in una colonna «Costo del periodo» in fondo, presente solo con un periodo. `sort=period_total` ordina per costo del periodo; senza periodo coincide con `sort=total`, senza 422, così la tabella non deve cambiare ordinamento quando si tolgono le date.
 - 09/11/2026: i costi per mese del cantiere vanno dal primo all'ultimo mese con un costo, non fino al mese in corso: un cantiere chiuso non allunga il grafico con mesi vuoti; il frontend può aggiungere i mesi mancanti fino a oggi se gli servono.
 - 09/11/2026: nei costi del cantiere per fornitore entrano solo i costi inseriti a mano (manodopera e mezzi non hanno fornitore); a pari totale si ordina per nome del fornitore e la riga senza fornitore va per ultima; i fornitori archiviati restano con il loro nome.
+- 09/11/2026: `costs` in `listSupplierSites` è un campo in più, null senza `costs.view` come gli altri importi letti con un permesso diverso da quello dell'elenco; conta i soli costi inseriti a mano (gli ordini hanno il loro permesso `purchases.view` e restano fuori), su tutte le date.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 15:21 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (938 test; un primo giro di controlli è fallito solo perché modificavo i file mentre girava, rilanciato verde); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 77: `costs` in `listSupplierSites` (test con 0.10 + 0.20 sullo stesso cantiere, cantiere con solo un ordine a 0.00, costi di un altro fornitore e senza fornitore esclusi, importo uguale alla riga di `getSiteSupplierCosts`, null senza `costs.view`, costi di un'altra azienda che non contano). Niente a metà; piano tutto spuntato. 939 test.
 - 2026-11-09 14:42 UTC: stesso giro, terzo push: `filter[from]` e `filter[to]` in `getSiteSupplierCosts` ed `exportSiteSupplierCosts` (test su due giorni con estremi compresi, solo inizio, solo fine, periodo vuoto, CSV, 422 su data non valida, ripetuta e con la fine prima dell'inizio). Niente a metà; piano tutto spuntato. 938 test.
 - 2026-11-09 14:37 UTC: stesso giro, secondo push: `exportSiteSupplierCosts` (test con punto e virgola e virgolette nel nome del fornitore, riga «Senza fornitore», cantiere con un solo fornitore, 404 senza `costs.view` e da un'altra azienda, 401 senza sessione); la lettura è una funzione sola per elenco e CSV. Niente a metà; piano tutto spuntato. 936 test.
 - 2026-11-09 14:26 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (930 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 76: `getSiteSupplierCosts` (test con due fornitori a pari totale ordinati per nome, fornitore archiviato, costi senza fornitore 0.10 + 0.20, costo di un altro cantiere escluso, totale uguale ai costi inseriti del riepilogo, cantiere senza costi, 404 senza `costs.view`, con id non valido, da un'altra azienda, 401 senza sessione). Niente a metà; piano tutto spuntato. 935 test.
