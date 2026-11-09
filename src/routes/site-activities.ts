@@ -251,6 +251,26 @@ function readCompanyList(query: Record<string, unknown>) {
     if (isFollowUp(followUp)) where.push(ACTIVITY_FOLLOW_UPS[followUp])
     else errors['filter[follow_up]'] = ['Valori ammessi: late, starting_soon, in_progress.']
   }
+  // The activities that overlap the period: they end on or after `from`, start on or before `to`.
+  const period: Partial<Record<'from' | 'to', string>> = {}
+  for (const [key, sql] of [
+    ['from', 'a.end_on >='],
+    ['to', 'a.start_on <='],
+  ] as const) {
+    const name = `filter[${key}]`
+    const value = single(name)
+    if (value === undefined) continue
+    if (!isIsoDate(value)) {
+      errors[name] = ['Data non valida (AAAA-MM-GG).']
+      continue
+    }
+    period[key] = value
+    values.push(value)
+    where.push(`${sql} $${values.length}::date`)
+  }
+  if (period.from && period.to && period.to < period.from) {
+    errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return { page, perPage, where: where.join(' and '), values }
 }

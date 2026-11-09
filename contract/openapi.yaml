@@ -4607,7 +4607,9 @@ paths:
         corso (non sospesi né chiusi): late le attività non finite (avanzamento sotto 100) con
         la fine già passata; starting_soon quelle non ancora iniziate (avanzamento 0) che
         iniziano entro 7 giorni da oggi, oggi compreso; in_progress quelle non finite in corso
-        oggi. Sono le stesse condizioni di activities in getDashboard.
+        oggi. Sono le stesse condizioni di activities in getDashboard. Con filter[from] e
+        filter[to] solo le attività che toccano il periodo (estremi compresi): finiscono dal
+        primo giorno in poi e iniziano entro l'ultimo; 422 se la fine viene prima dell'inizio.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -4620,6 +4622,8 @@ paths:
             properties:
               site: { $ref: '#/components/schemas/Id' }
               follow_up: { $ref: '#/components/schemas/ActivityFollowUp' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
       responses:
         '200':
           description: Una pagina di attività
@@ -4651,6 +4655,8 @@ paths:
             properties:
               site: { $ref: '#/components/schemas/Id' }
               follow_up: { $ref: '#/components/schemas/ActivityFollowUp' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
       responses:
         '200':
           description: Il file CSV

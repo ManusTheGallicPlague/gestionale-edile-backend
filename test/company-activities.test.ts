@@ -115,6 +115,64 @@ describe('schedule activities of the whole company', () => {
     expect(page.meta).toEqual({ total: 11, page: 2, per_page: 2 })
   })
 
+  it('filters the activities that touch a period, in the list and in the CSV', async () => {
+    const s = await scene()
+    const { rows } = await ctx.owner.query<{ day: string }>(
+      `select ((now() at time zone 'Europe/Rome')::date + t.n)::text as day
+       from unnest($1::int[]) with ordinality as t(n, i) order by i`,
+      [[-5, -1, 0, 4, 7, 9]],
+    )
+    const day = (offset: number) => rows[[-5, -1, 0, 4, 7, 9].indexOf(offset)]?.day ?? 'missing'
+    const get = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.url}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<{ data: ListedActivity[]; meta: { total: number } }>()
+    }
+    // Today only: what runs today, ends today or starts today (extremes included).
+    expect(names(await get(`filter[from]=${day(0)}&filter[to]=${day(0)}`))).toEqual([
+      'Ponteggi',
+      'Murature',
+      'Impianti',
+    ])
+    // From 7 to 9 days ahead: Intonaci starts on the 7th, Pavimenti on the 8th.
+    expect(names(await get(`filter[from]=${day(7)}&filter[to]=${day(9)}`))).toEqual([
+      'Intonaci',
+      'Pavimenti',
+    ])
+    // Only the start: everything still running from 4 days ahead.
+    expect(names(await get(`filter[from]=${day(4)}`))).toEqual([
+      'Impianti',
+      'Serramenti',
+      'Intonaci',
+      'Pavimenti',
+    ])
+    // Only the end: what started by 5 days ago, together with the site filter.
+    expect(names(await get(`filter[to]=${day(-5)}&filter[site]=${s.active}`))).toEqual([
+      'Demolizioni',
+      'Scavi',
+      'Fondazioni',
+    ])
+    expect((await get(`filter[from]=${day(-1)}&filter[to]=${day(-1)}`)).meta.total).toBe(2)
+    const csv = await s.browser.call(
+      'GET',
+      `${s.url}/export?filter[from]=${day(7)}&filter[to]=${day(9)}`,
+    )
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.replace('\ufeff', '').trim().split('\r\n')).toHaveLength(3)
+    for (const [query, field] of [
+      ['filter[from]=31/12/2026', 'filter[from]'],
+      ['filter[to]=domani', 'filter[to]'],
+      [`filter[from]=${day(4)}&filter[to]=${day(0)}`, 'filter[to]'],
+      [`filter[from]=${day(0)}&filter[from]=${day(4)}`, 'filter[from]'],
+    ] as const) {
+      for (const url of [s.url, `${s.url}/export`]) {
+        const res = await s.browser.call('GET', `${url}?${query}`)
+        expect(res.statusCode).toBe(422)
+        expect(res.json<{ errors: Record<string, unknown> }>().errors).toHaveProperty([field])
+      }
+    }
+  })
+
   it('does not show the activities of a site of another company', async () => {
     const s = await scene()
     const other = await scene()

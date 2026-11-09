@@ -588,6 +588,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: la prima nota (`listPayment
 
 - [x] `filter[client]` e `filter[supplier]` in `listPayments` ed `exportPayments`: solo i pagamenti delle fatture di quel cliente o fornitore, con `collected` e `paid` sul filtro; uno di un'altra azienda dà un elenco vuoto; 422 su identificativo non valido o ripetuto; nessuna migrazione, nessun permesso nuovo
 
+### 84. Attività del cronoprogramma in un periodo
+Aggiunta il 09/11/2026, con il piano tutto spuntato: le attività di tutti i cantieri (`listCompanyActivities`, `exportCompanyActivities`) si filtravano per cantiere e per quelle da seguire, calcolate su oggi; per programmare la settimana o il mese (squadre e mezzi) l'ufficio vuole le attività di un periodo qualsiasi.
+
+- [x] `filter[from]` e `filter[to]` in `listCompanyActivities` ed `exportCompanyActivities`: le attività che toccano il periodo (finiscono dal primo giorno in poi, iniziano entro l'ultimo, estremi compresi), anche uno solo dei due; 422 su date non valide, ripetute o con la fine prima dell'inizio; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -834,12 +839,14 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: `listCompanyVehicleMaintenances` risponde 403 senza `vehicles.view` (come `exportVehicleMaintenances`, perché non c'è un record nel percorso) e con `filter[vehicle]` di un mezzo che non c'è, o di un'altra azienda, dà un elenco vuoto invece di 404, come fa già il CSV.
 - 09/11/2026: i SAL di un computo in CSV si ottengono con `filter[estimate]` sull'esportazione dei SAL dell'azienda, invece di una nuova esportazione sotto il computo: un solo formato e un solo codice.
 - 09/11/2026: nella prima nota `filter[client]` e `filter[supplier]` si possono dare insieme e valgono entrambi (elenco vuoto, perché una fattura ha o il cliente o il fornitore), come gli altri filtri, invece di un 422.
+- 09/11/2026: il periodo delle attività prende quelle che si sovrappongono al periodo, non solo quelle che iniziano o finiscono dentro: un'attività di tre mesi compare in ogni settimana in cui è aperta.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
-- 2026-11-09 19:38 UTC: stesso giro, secondo push: sezione 83, `filter[client]` e `filter[supplier]` nella prima nota e nel suo CSV (test con 0.10 + 0.20 incassati da un cliente = 0.30, pagamento al fornitore 50.00, i due filtri insieme con elenco vuoto, CSV del solo altro cliente, cliente di un'altra azienda con elenco vuoto, 422 su id non valido e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 963 test.
+- 2026-11-09 19:45 UTC: stesso giro, terzo push: sezione 84, `filter[from]` e `filter[to]` nelle attività del cronoprogramma di tutti i cantieri e nel loro CSV (test sul giorno di oggi con un'attività che inizia e una che finisce oggi, periodo futuro, solo inizio, solo fine insieme al cantiere, 422 su date non valide, ripetute e con la fine prima dell'inizio anche nel CSV). Corretta l'ora della riga del secondo push (19:35, non 19:38). Niente a metà; piano tutto spuntato. 964 test.
+- 2026-11-09 19:35 UTC: stesso giro, secondo push: sezione 83, `filter[client]` e `filter[supplier]` nella prima nota e nel suo CSV (test con 0.10 + 0.20 incassati da un cliente = 0.30, pagamento al fornitore 50.00, i due filtri insieme con elenco vuoto, CSV del solo altro cliente, cliente di un'altra azienda con elenco vuoto, 422 su id non valido e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 963 test.
 - 2026-11-09 19:22 UTC: main era di nuovo staccato (HEAD detached) e il main locale aveva due commit vecchi: riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (961 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 82: `filter[estimate]` nei SAL dell'azienda e nel loro CSV (test con i due SAL della Villetta e i totali 1300.00 e 1250.00, insieme allo stato, CSV del solo Muro, computo di un'altra azienda con elenco vuoto e totale 0.00, 422 su id non valido e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 962 test.
 - 2026-11-09 18:37 UTC: stesso giro, terzo push: `listCompanyVehicleRefuelings` (test con quattro rifornimenti su furgone ed escavatore, consumo 50.20 l su 500 km = 10.04, litri sommati senza float 90.60, pagina 2 con i totali di tutto il filtro, filtri, mezzo di un'altra azienda con elenco vuoto, 422, 403, 404 sull'azienda altrui, 401). Niente a metà; piano tutto spuntato. 961 test.
 - 2026-11-09 18:33 UTC: stesso giro, secondo push: sezione 81, `listCompanyVehicleMaintenances` (test con quattro manutenzioni su due mezzi, stesso giorno in ordine di mezzo, pagina 2 con il totale di tutto il filtro, spesa nulla che conta zero, filtri per periodo e mezzo, mezzo inesistente e di un'altra azienda con elenco vuoto, 422 su date, mezzo e pagine non validi, 403 senza `vehicles.view`, 404 sull'azienda altrui, 401). Niente a metà; piano tutto spuntato. 958 test.
