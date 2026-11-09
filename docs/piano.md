@@ -628,6 +628,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: le assenze di tutti i dipen
 
 - [x] `filter[q]` in `listCompanyAbsences`, `exportCompanyAbsences` ed `exportAbsencesCalendar`: testo nel nome e cognome del dipendente (in qualunque ordine) e nelle note, senza distinguere maiuscole e minuscole e senza caratteri jolly; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
 
+### 92. Ricerca nel cronoprogramma
+Aggiunta il 09/11/2026, con il piano tutto spuntato: le attività del cronoprogramma di tutti i cantieri (`listCompanyActivities`) e il loro CSV filtravano per cantiere, attività da seguire e periodo, ma il capo cantiere cerca una lavorazione per nome («intonaci», «ponteggi») o il cantiere scrivendone il nome o il codice.
+
+- [x] `filter[q]` in `listCompanyActivities` ed `exportCompanyActivities`: testo nel nome e nelle note dell'attività e nel nome e nel codice del cantiere, senza distinguere maiuscole e minuscole e senza caratteri jolly; testo di soli spazi ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -887,6 +892,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 22:32 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (971 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 92: `filter[q]` nelle attività del cronoprogramma di tutti i cantieri e nel loro CSV (test sul nome dell'attività, sul testo in maiuscolo con spazi, sulle note, sul nome e sul codice del cantiere, insieme a `filter[follow_up]=late`, `%` e `_` come testo, testo di soli spazi ignorato, pagina 2 con il totale del filtro, CSV, attività omonime di un'altra azienda escluse, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 972 test.
 - 2026-11-09 21:42 UTC: stesso giro, quarto push: sezione 91, `filter[q]` nelle assenze di tutti i dipendenti, nel CSV e nel calendario (test sul cognome in maiuscolo, nome e cognome nei due ordini, note, `%` come testo, testo di soli spazi ignorato, CSV, calendario con un solo evento, dipendente omonimo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto in elenco, CSV e calendario). Niente a metà; piano tutto spuntato. 971 test.
 - 2026-11-09 21:38 UTC: stesso giro, terzo push: sezione 90, `filter[q]` nella prima nota e nel suo CSV (test con il numero di una fattura e le note di un pagamento su un'altra, 0.10 + 0.20 + 7 = 7.30 incassati, numero in minuscolo, `%` come testo, testo di soli spazi ignorato, CSV, pagamento di un'altra azienda con stesso numero e stesse note escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 970 test.
 - 2026-11-09 21:33 UTC: stesso giro, secondo push: sezione 89, `filter[q]` nei movimenti di magazzino e nel loro CSV (test sul numero della bolla nelle note, sul codice in minuscolo, sul nome in maiuscolo, `%` come testo, testo di soli spazi ignorato, CSV, movimento di un'altra azienda con le stesse note escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 969 test.

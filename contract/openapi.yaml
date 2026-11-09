@@ -4639,6 +4639,9 @@ paths:
         oggi. Sono le stesse condizioni di activities in getDashboard. Con filter[from] e
         filter[to] solo le attività che toccano il periodo (estremi compresi): finiscono dal
         primo giorno in poi e iniziano entro l'ultimo; 422 se la fine viene prima dell'inizio.
+        Con filter[q] solo le attività con il testo nel nome o nelle note dell'attività o nel
+        nome o nel codice del cantiere, senza distinguere maiuscole e minuscole e senza
+        caratteri jolly; un testo di soli spazi è ignorato.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -4653,6 +4656,9 @@ paths:
               follow_up: { $ref: '#/components/schemas/ActivityFollowUp' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di attività
@@ -4686,6 +4692,9 @@ paths:
               follow_up: { $ref: '#/components/schemas/ActivityFollowUp' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV

@@ -173,6 +173,50 @@ describe('schedule activities of the whole company', () => {
     }
   })
 
+  it('searches the name and notes of the activity and the name and code of the site', async () => {
+    const s = await scene()
+    await scene() // Another company with the same activities and sites.
+    await ctx.owner.query(
+      `update public.site_activities set notes = 'Attesa del permesso del Comune'
+       where company_id = $1 and name = 'Tetto'`,
+      [s.company.id],
+    )
+    const get = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.url}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<{ data: ListedActivity[]; meta: { total: number } }>()
+    }
+    expect(names(await get('filter[q]=scavi'))).toEqual(['Scavi'])
+    expect(names(await get('filter[q]=%20%20MURA%20'))).toEqual(['Murature'])
+    expect(names(await get('filter[q]=comune'))).toEqual(['Tetto'])
+    const planned = ['Impianti', 'Serramenti', 'Intonaci', 'Pavimenti']
+    expect(names(await get('filter[q]=via%20milano'))).toEqual(planned)
+    expect(names(await get('filter[q]=c-planned'))).toEqual(planned)
+    // Together with the other filters: the late activities of Via Roma.
+    expect(names(await get('filter[q]=roma&filter[follow_up]=late'))).toEqual([
+      'Scavi',
+      'Fondazioni',
+    ])
+    // No wildcards: % and _ are plain text.
+    expect((await get('filter[q]=%25')).meta.total).toBe(0)
+    expect((await get('filter[q]=via_')).meta.total).toBe(0)
+    // Only spaces: no filter at all, and the total counts the filter, not the page.
+    expect((await get('filter[q]=%20%20')).meta.total).toBe(11)
+    expect(await get('filter[q]=via&per_page=2&page=2')).toMatchObject({
+      meta: { total: 11, page: 2, per_page: 2 },
+    })
+    const csv = await s.browser.call('GET', `${s.url}/export?filter[q]=MILANO`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.replace('﻿', '').trim().split('\r\n')).toHaveLength(5)
+    for (const query of [`filter[q]=${'a'.repeat(101)}`, 'filter[q]=scavi&filter[q]=tetto']) {
+      for (const url of [s.url, `${s.url}/export`]) {
+        const res = await s.browser.call('GET', `${url}?${query}`)
+        expect(res.statusCode).toBe(422)
+        expect(res.json<{ errors: Record<string, unknown> }>().errors).toHaveProperty(['filter[q]'])
+      }
+    }
+  })
+
   it('does not show the activities of a site of another company', async () => {
     const s = await scene()
     const other = await scene()

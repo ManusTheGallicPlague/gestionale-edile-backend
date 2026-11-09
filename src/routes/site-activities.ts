@@ -271,6 +271,15 @@ function readCompanyList(query: Record<string, unknown>) {
   if (period.from && period.to && period.to < period.from) {
     errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
   }
+  const text = single('filter[q]')?.trim()
+  if (text !== undefined && text.length > 100) errors['filter[q]'] = ['Al massimo 100 caratteri.']
+  else if (text) {
+    values.push(text)
+    // strpos, not like: the text has no wildcards.
+    where.push(`strpos(lower(a.name || ' ' || coalesce(a.notes, '') || ' ' ||
+      (select s.name || ' ' || coalesce(s.code, '') from public.sites s where s.id = a.site_id)),
+      lower($${values.length})) > 0`)
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return { page, perPage, where: where.join(' and '), values }
 }
