@@ -279,21 +279,30 @@ async function quoteTotals(client: PoolClient) {
  * Purchase orders to follow up, with the same conditions as filter[follow_up] in the order
  * list; the total rounds each line as the order totals do, then sums them.
  */
-async function purchaseOrderTotals(client: PoolClient) {
+async function purchaseOrderTotals(client: PoolClient, seesInvoices: boolean) {
+  const orderTotal = `(select sum(round(l.quantity * l.unit_price_cents))
+         from public.purchase_order_lines l where l.order_id = o.id)`
+  // The same orders as filter[status]=received with filter[invoiced]=false in the list.
+  const uninvoiced = `o.status = 'received'
+         and not exists (select 1 from public.invoices i where i.purchase_order_id = o.id)`
   const { rows } = await client.query<{
     drafts: number
     awaiting: number
     total: string
     late: number
     due_soon: number
+    uninvoiced: number
+    uninvoiced_total: string
   }>(
     `select count(*) filter (where o.status = 'draft')::int as drafts,
        count(*) filter (where ${ORDER_FOLLOW_UPS.awaiting})::int as awaiting,
-       coalesce(sum((select sum(round(l.quantity * l.unit_price_cents))
-         from public.purchase_order_lines l where l.order_id = o.id))
-         filter (where ${ORDER_FOLLOW_UPS.awaiting}), 0)::bigint::text as total,
+       coalesce(sum(${orderTotal}) filter (where ${ORDER_FOLLOW_UPS.awaiting}), 0)::bigint::text
+         as total,
        count(*) filter (where ${ORDER_FOLLOW_UPS.late})::int as late,
-       count(*) filter (where ${ORDER_FOLLOW_UPS.due_soon})::int as due_soon
+       count(*) filter (where ${ORDER_FOLLOW_UPS.due_soon})::int as due_soon,
+       count(*) filter (where ${uninvoiced})::int as uninvoiced,
+       coalesce(sum(${orderTotal}) filter (where ${uninvoiced}), 0)::bigint::text
+         as uninvoiced_total
      from public.purchase_orders o`,
   )
   const r = rows[0]
@@ -303,6 +312,9 @@ async function purchaseOrderTotals(client: PoolClient) {
     awaiting_total: centsToAmount(r?.total ?? '0'),
     late: r?.late ?? 0,
     due_soon: r?.due_soon ?? 0,
+    // Whether an order has an invoice tells about invoices: only who sees them sees it.
+    received_uninvoiced: seesInvoices ? (r?.uninvoiced ?? 0) : null,
+    received_uninvoiced_total: seesInvoices ? centsToAmount(r?.uninvoiced_total ?? '0') : null,
   }
 }
 
@@ -466,7 +478,9 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         invoices: can('invoices.view') ? await invoiceTotals(client, today) : null,
         progress_statements: can('estimates.view') ? await statementTotals(client) : null,
         quotes: can('quotes.view') ? await quoteTotals(client) : null,
-        purchase_orders: can('purchases.view') ? await purchaseOrderTotals(client) : null,
+        purchase_orders: can('purchases.view')
+          ? await purchaseOrderTotals(client, can('invoices.view'))
+          : null,
         warehouse: can('warehouse.view') ? await warehouseCounts(client) : null,
         subcontractors: can('suppliers.view')
           ? await subcontractorCounts(client, can('sites.view'))

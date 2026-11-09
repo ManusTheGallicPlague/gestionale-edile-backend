@@ -7607,8 +7607,9 @@ paths:
         nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con
         la virgola decimale (1234,50). Con il netto a pagare ci sono anche il già pagato
         (paid_amount) e il residuo (remaining_amount); dopo la scissione dei pagamenti, Sì o No
-        per lo svincolo della ritenuta di garanzia (retention_release). Il file si chiama
-        fatture.csv.
+        per lo svincolo della ritenuta di garanzia (retention_release). In fondo la colonna
+        Ordine, con il numero dell'ordine al fornitore collegato (vuota senza ordine). Il file
+        si chiama fatture.csv.
       parameters:
         - name: sort
           in: query
@@ -11582,6 +11583,7 @@ components:
               remaining_amount,
               progress_statement_id,
               purchase_order_id,
+              purchase_order,
               retention_release,
               created_at,
               updated_at,
@@ -11609,6 +11611,18 @@ components:
                     id: { $ref: '#/components/schemas/Id' }
                     name: { type: string }
                     code: { type: [string, 'null'] }
+                - type: 'null'
+            purchase_order:
+              description: |
+                L'ordine al fornitore di purchase_order_id con il suo numero (come in
+                PurchaseOrderSummary), per mostrarlo senza un'altra chiamata; null senza ordine.
+                Calcolato, si ignora nel corpo.
+              oneOf:
+                - type: object
+                  required: [id, number]
+                  properties:
+                    id: { $ref: '#/components/schemas/Id' }
+                    number: { type: string, examples: ['2026/003'] }
                 - type: 'null'
             total:
               description: Imponibile più IVA.
@@ -12715,8 +12729,19 @@ components:
         Ordini ai fornitori da seguire, con purchases.view, con le stesse condizioni di
         filter[follow_up] in listPurchaseOrders. In attesa: inviati (status sent) e non ancora
         ricevuti; l'importo è la somma dei loro totali. Gli ordini senza data di consegna
-        contano solo in awaiting.
-      required: [drafts, awaiting, awaiting_total, late, due_soon]
+        contano solo in awaiting. received_uninvoiced e received_uninvoiced_total, solo con
+        anche invoices.view (altrimenti null), sono gli stessi ordini di filter[status]=received
+        con filter[invoiced]=false: la merce arrivata di cui manca la fattura del fornitore.
+      required:
+        [
+          drafts,
+          awaiting,
+          awaiting_total,
+          late,
+          due_soon,
+          received_uninvoiced,
+          received_uninvoiced_total,
+        ]
       properties:
         drafts:
           type: integer
@@ -12738,6 +12763,18 @@ components:
           type: integer
           minimum: 0
           description: In attesa con la consegna prevista entro 7 giorni da oggi, oggi compreso.
+        received_uninvoiced:
+          type: [integer, 'null']
+          minimum: 0
+          description: |
+            Ordini ricevuti senza nessuna fattura ricevuta collegata; null senza invoices.view.
+        received_uninvoiced_total:
+          description: |
+            Totale degli ordini in received_uninvoiced, da aspettarsi in fattura; null senza
+            invoices.view.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
     DashboardQuotes:
       type: object
       description: |

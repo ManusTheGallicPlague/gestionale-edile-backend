@@ -80,6 +80,7 @@ interface InvoiceRow {
   vat_nature: VatNature | null
   progress_statement_id: string | null
   purchase_order_id: string | null
+  purchase_order_number: string | null
   total_cents: string
   withholding_cents: string
   split_payment: boolean
@@ -129,7 +130,10 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
     i.client_id, c.name as client_name, i.supplier_id, p.name as supplier_name,
     i.site_id, s.name as site_name, s.code as site_code, i.description,
     i.taxable_cents::text as taxable_cents, i.vat_cents::text as vat_cents,
-    i.vat_nature, i.progress_statement_id, i.purchase_order_id, (i.taxable_cents + i.vat_cents)::text as total_cents,
+    i.vat_nature, i.progress_statement_id, i.purchase_order_id,
+    o.number_year || '/' || lpad(o.number_seq::text, greatest(3, length(o.number_seq::text)), '0')
+      as purchase_order_number,
+    (i.taxable_cents + i.vat_cents)::text as total_cents,
     i.withholding_cents::text as withholding_cents, i.split_payment, i.retention_release,
     (${DUE_CENTS})::text as due_cents, ${PAID_CENTS}::text as paid_cents,
     (${REMAINING_CENTS})::text as remaining_cents,
@@ -141,6 +145,7 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
   left join public.clients c on c.id = i.client_id
   left join public.suppliers p on p.id = i.supplier_id
   left join public.sites s on s.id = i.site_id
+  left join public.purchase_orders o on o.id = i.purchase_order_id
   left join public.deadlines d on d.invoice_id = i.id`
 
 const SORTS = {
@@ -170,6 +175,9 @@ function toContract(row: InvoiceRow) {
     vat_nature: row.vat_nature,
     progress_statement_id: row.progress_statement_id,
     purchase_order_id: row.purchase_order_id,
+    purchase_order: row.purchase_order_id
+      ? { id: row.purchase_order_id, number: row.purchase_order_number ?? '' }
+      : null,
     retention_release: row.retention_release,
     total: centsToAmount(row.total_cents),
     withholding_amount: centsToAmount(row.withholding_cents),
@@ -961,6 +969,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             'Pagata il',
             'Stato',
             'Note',
+            'Ordine',
           ],
           rows.map((r) => [
             r.direction === 'issued' ? 'Emessa' : 'Ricevuta',
@@ -983,6 +992,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             r.paid_on === null ? null : italianDate(r.paid_on),
             STATUS_LABELS[r.payment_status],
             r.notes,
+            r.purchase_order_number,
           ]),
         )
       })

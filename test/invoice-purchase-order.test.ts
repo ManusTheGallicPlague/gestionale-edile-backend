@@ -261,4 +261,46 @@ describe('received invoice of a purchase order', () => {
     expect((await blind.call('GET', `${orders}/export?filter[invoiced]=true`)).statusCode).toBe(403)
     expect((await blind.call('GET', orders)).statusCode).toBe(200)
   })
+  it('shows the order number in the invoice and in the CSV, ignored in the body', async () => {
+    const s = await scene()
+    // Numbers beyond 999 keep all their digits.
+    const big = await ctx.owner.query<{ id: string }>(
+      `insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
+         order_date, status, sent_at) values ($1, 2026, 1234, $2, '2026-10-20', 'sent', now())
+       returning id`,
+      [s.company.id, s.supplier],
+    )
+    const bigId = big.rows[0]?.id ?? ''
+    const created = await s.browser.call('POST', s.base, {
+      body: { ...s.invoice({ number: 'A/1' }), purchase_order: { id: bigId, number: '9/9' } },
+    })
+    expect(created.statusCode).toBe(201)
+    const invoice = created.json<{ id: string; purchase_order: unknown }>()
+    expect(invoice.purchase_order).toEqual({ id: s.sent, number: '2026/001' })
+    const other = await s.browser.call('POST', s.base, {
+      body: s.invoice({ number: 'A/2', purchase_order_id: bigId }),
+    })
+    expect(other.json<{ purchase_order: unknown }>().purchase_order).toEqual({
+      id: bigId,
+      number: '2026/1234',
+    })
+    const none = await s.browser.call('POST', s.base, {
+      body: s.invoice({ number: 'A/3', purchase_order_id: null }),
+    })
+    expect(none.json<{ purchase_order: unknown }>().purchase_order).toBeNull()
+    const read = await s.browser.call('GET', `${s.base}/${invoice.id}`)
+    expect(read.json<{ purchase_order: unknown }>().purchase_order).toEqual({
+      id: s.sent,
+      number: '2026/001',
+    })
+
+    const csv = await s.browser.call('GET', `${s.base}/export?sort=date`)
+    expect(csv.statusCode).toBe(200)
+    const rows = csv.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(rows[0]?.endsWith(';Note;Ordine')).toBe(true)
+    const byNumber = (n: string) => rows.find((r) => r.split(';')[1] === n) ?? ''
+    expect(byNumber('A/1').endsWith(';2026/001')).toBe(true)
+    expect(byNumber('A/2').endsWith(';2026/1234')).toBe(true)
+    expect(byNumber('A/3').endsWith(';')).toBe(true)
+  })
 })
