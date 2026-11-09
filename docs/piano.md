@@ -653,6 +653,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: i crediti verso i clienti e
 
 - [x] `filter[q]` in `listClientBalances`, `listSupplierBalances`, `exportClientBalances` ed `exportSupplierBalances`: testo nel nome, nella partita IVA e nel codice fiscale, senza distinguere maiuscole e minuscole e senza caratteri jolly, con le somme in fondo sul filtro; testo di soli spazi ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
 
+### 97. Cantiere nel CSV dei computi
+Aggiunta il 09/11/2026, con il piano tutto spuntato: l'esportazione dei computi (`exportEstimates`) dice di avere gli stessi filtri dell'elenco e il codice accettava già `filter[site]`, ma il contratto non lo dichiarava, quindi il frontend non poteva scaricare i computi di un solo cantiere con i tipi generati.
+
+- [x] `filter[site]` dichiarato in `exportEstimates`; test sul CSV di un solo cantiere, sul cantiere di un'altra azienda (solo intestazione) e sul 422; test sul contratto che ogni `…/export` abbia gli stessi filtri, la stessa ricerca e lo stesso ordinamento del suo elenco; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -913,6 +918,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 23:31 UTC: stesso giro, secondo push: sezione 97, `filter[site]` dichiarato nel contratto di `exportEstimates`, che il codice accettava già (test sul CSV di un solo cantiere, sul cantiere di un'altra azienda e sul 422; test sul contratto che confronta i parametri di ogni `…/export` con quelli del suo elenco, che falliva solo per i computi). Niente a metà; piano tutto spuntato. 977 test.
 - 2026-11-09 23:21 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (975 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 96: `filter[q]` nei crediti verso i clienti e nei debiti verso i fornitori e nei loro CSV (test sul nome in maiuscolo con spazi, 0.10 + 0.20 = 0.30 con le somme del filtro, partita IVA e codice fiscale in minuscolo, `%` e `_` come testo, testo di soli spazi ignorato, insieme a `filter[overdue]`, fornitore, CSV, cliente omonimo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 976 test.
 - 2026-11-09 22:44 UTC: stesso giro, quarto push: sezione 95, `filter[q]` nei documenti e nelle foto di un cantiere (test sul nome del file in maiuscolo con spazi, sul titolo insieme a `filter[kind]`, sulle note, `%` come testo, `_` trovato solo come carattere, testo di soli spazi ignorato, documento dell'altro cantiere e di un'altra azienda esclusi, 422 oltre 100 caratteri e ripetuto). Niente a metà; piano tutto spuntato. 975 test.
 - 2026-11-09 22:39 UTC: stesso giro, terzo push: sezione 94, `filter[q]` nei rifornimenti di tutti i mezzi e nel loro CSV (test sul nome del mezzo in maiuscolo con spazi, 0.10 + 0.20 litri e euro = 0.30 sul filtro, targa in minuscolo, distributore, note, insieme a un altro mezzo con elenco vuoto, `%` e `_` come testo, testo di soli spazi ignorato, CSV, mezzo omonimo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 974 test.

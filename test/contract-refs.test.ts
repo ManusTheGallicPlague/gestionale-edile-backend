@@ -37,11 +37,38 @@ function resolve(ref: string): unknown {
     )
 }
 
+type Parameter = { name?: string; in?: string; schema?: { properties?: object } }
+type Operation = { parameters?: ({ $ref?: string } & Parameter)[] }
+
+/** Query parameters of a GET, except paging, with the filter[...] keys spelled out. */
+function queryNames(operation: Operation): string[] {
+  const names: string[] = []
+  for (const raw of operation.parameters ?? []) {
+    const p = (raw.$ref ? resolve(raw.$ref) : raw) as Parameter
+    if (p.in !== 'query' || p.name === 'page' || p.name === 'per_page') continue
+    if (p.name === 'filter') {
+      for (const key of Object.keys(p.schema?.properties ?? {})) names.push(`filter[${key}]`)
+    } else if (p.name) names.push(p.name)
+  }
+  return names.sort()
+}
+
 describe('contract', () => {
   it('every $ref points to an existing definition', () => {
     const broken = [...new Set(refs(doc))].filter(
       (ref) => !ref.startsWith('#/') || resolve(ref) === undefined,
     )
     expect(broken).toEqual([])
+  })
+
+  it('every CSV export takes the same filters, search and sort as its list', () => {
+    const paths = (doc as { paths: Record<string, { get?: Operation }> }).paths
+    const different = Object.entries(paths).flatMap(([path, item]) => {
+      const list = paths[path.replace(/\/export$/, '')]?.get
+      if (!path.endsWith('/export') || !item.get || !list) return []
+      const [listed, exported] = [queryNames(list), queryNames(item.get)]
+      return listed.join() === exported.join() ? [] : [{ path, listed, exported }]
+    })
+    expect(different).toEqual([])
   })
 })

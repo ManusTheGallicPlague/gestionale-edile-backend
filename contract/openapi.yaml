@@ -7474,6 +7474,7 @@ paths:
             properties:
               status: { $ref: '#/components/schemas/EstimateStatus' }
               client: { $ref: '#/components/schemas/Id' }
+              site: { $ref: '#/components/schemas/Id' }
       responses:
         '200':
           description: Il file CSV

@@ -156,12 +156,26 @@ describe('estimates', () => {
       body: estimateBody({ site_id: site }),
     })
     expect(created.statusCode).toBe(201)
-    const estimate = created.json<{ id: string; site: unknown }>()
+    const estimate = created.json<{ id: string; title: string; site: unknown }>()
     expect(estimate.site).toEqual({ id: site, name: 'Villetta', code: 'C-7' })
     await mine.browser.call('POST', mine.base, { body: estimateBody({ title: 'Senza cantiere' }) })
     const listed = await mine.browser.call('GET', `${mine.base}?filter[site]=${site}`)
     expect(listed.json<Listed>().data.map((e) => e.id)).toEqual([estimate.id])
     expect((await mine.browser.call('GET', `${mine.base}?filter[site]=x`)).statusCode).toBe(422)
+    // The CSV takes the same site filter as the list.
+    const csv = await mine.browser.call('GET', `${mine.base}/export?filter[site]=${site}`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.replace(/^\uFEFF/, '').split('\r\n')
+    expect(lines).toHaveLength(3)
+    expect(lines[1]?.startsWith(`${estimate.title};`)).toBe(true)
+    expect(
+      (await mine.browser.call('GET', `${mine.base}/export?filter[site]=${foreign}`)).body
+        .replace(/^\uFEFF/, '')
+        .split('\r\n'),
+    ).toHaveLength(2)
+    expect((await mine.browser.call('GET', `${mine.base}/export?filter[site]=x`)).statusCode).toBe(
+      422,
+    )
     const copy = await mine.browser.call('POST', `${mine.base}/${estimate.id}/duplicate`)
     expect(copy.json<{ site_id: string }>().site_id).toBe(site)
     const moved = await mine.browser.call('PUT', `${mine.base}/${estimate.id}`, {
