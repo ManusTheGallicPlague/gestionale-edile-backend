@@ -3326,7 +3326,7 @@ paths:
         filter[site]=<id> e filter[kind]=out, il materiale scaricato su un cantiere. Colonne:
         Data (all'italiana), Tipo (Carico o Scarico), Codice, Articolo, Unità, Quantità con la
         virgola decimale (12,500), Cantiere (codice e nome), Ordine (numero dell'ordine da cui
-        viene il carico) e Note. Il file si chiama movimenti-magazzino.csv.
+        viene il carico), Note, Costo unitario (dei carichi) e Valore (come value). Il file si chiama movimenti-magazzino.csv.
       parameters:
         - name: filter
           in: query
@@ -11662,10 +11662,20 @@ components:
       allOf:
         - $ref: '#/components/schemas/WarehouseMovementInput'
         - type: object
-          required: [id, item, site, unit_cost, purchase_order, created_by, created_at]
+          required: [id, item, site, unit_cost, value, purchase_order, created_by, created_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             unit_cost:
+              oneOf:
+                - $ref: '#/components/schemas/Amount'
+                - type: 'null'
+            value:
+              description: |
+                Calcolato, si ignora nel corpo. Un carico vale la quantità per il suo costo
+                unitario (null senza costo); uno scarico la quantità per il costo medio ponderato
+                dei carichi con costo dell'articolo fino al suo giorno (null se non ce ne sono).
+                Arrotondato al centesimo. È lo stesso valore che somma warehouse_materials nel
+                riepilogo dei costi del cantiere.
               oneOf:
                 - $ref: '#/components/schemas/Amount'
                 - type: 'null'

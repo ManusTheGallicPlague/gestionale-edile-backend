@@ -235,9 +235,10 @@ describe('unit costs and stock value of the warehouse', () => {
     ])
     const moves = await s.browser.call('GET', `${s.movements}/export`)
     expect(moves.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
-      'Data;Tipo;Codice;Articolo;Unità;Quantità;Cantiere;Ordine;Note;Costo unitario',
-      '05/11/2026;Scarico;;Cemento;sacchi;4,000;;;;',
-      '05/11/2026;Carico;;Cemento;sacchi;10,000;;;;6,50',
+      'Data;Tipo;Codice;Articolo;Unità;Quantità;Cantiere;Ordine;Note;Costo unitario;Valore',
+      // The unload on the same day as the load is worth the average of that day.
+      '05/11/2026;Scarico;;Cemento;sacchi;4,000;;;;;26,00',
+      '05/11/2026;Carico;;Cemento;sacchi;10,000;;;;6,50;65,00',
     ])
 
     // The file goes back in another company as it is: the extra columns are ignored.

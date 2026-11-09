@@ -73,6 +73,8 @@ interface MovementRow {
   site_code: string | null
   notes: string | null
   unit_cost_cents: string | null
+  /** Cents: a load at its own cost, an unload at the average cost up to its day. */
+  value_cents: string | null
   purchase_order_id: string | null
   order_year: number | null
   order_seq: number | null
@@ -140,12 +142,20 @@ const MOVEMENT_SELECT = `select m.id, m.item_id, i.code as item_code, i.name as 
     i.unit as item_unit, m.movement_date::text as movement_date, m.kind,
     m.quantity::text as quantity, m.site_id, s.name as site_name, s.code as site_code, m.notes,
     m.unit_cost_cents::text as unit_cost_cents,
+    (case when m.kind = 'in' then round(m.quantity * m.unit_cost_cents)
+      else round(m.quantity * c.average) end)::bigint::text as value_cents,
     m.purchase_order_id, o.number_year as order_year, o.number_seq as order_seq,
     m.created_by, cu.name as created_by_name, m.created_at
   from public.warehouse_movements m
   join public.warehouse_items i on i.id = m.item_id
   left join public.sites s on s.id = m.site_id
   left join public.purchase_orders o on o.id = m.purchase_order_id
+  left join lateral (
+    select sum(l.quantity * l.unit_cost_cents) / nullif(sum(l.quantity), 0) as average
+    from public.warehouse_movements l
+    where l.item_id = m.item_id and l.kind = 'in' and l.unit_cost_cents is not null
+      and l.movement_date <= m.movement_date
+  ) c on m.kind = 'out'
   left join lateral app.audit_users(array[m.created_by]) cu on true`
 
 function itemToContract(row: ItemRow) {
@@ -177,6 +187,7 @@ function movementToContract(row: MovementRow) {
     site: row.site_id ? { id: row.site_id, name: row.site_name ?? '', code: row.site_code } : null,
     notes: row.notes,
     unit_cost: row.unit_cost_cents === null ? null : centsToAmount(row.unit_cost_cents),
+    value: row.value_cents === null ? null : centsToAmount(row.value_cents),
     purchase_order: row.purchase_order_id
       ? {
           id: row.purchase_order_id,
@@ -716,6 +727,7 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
             'Ordine',
             'Note',
             'Costo unitario',
+            'Valore',
           ],
           rows.map((r) => {
             const m = movementToContract(r)
@@ -730,6 +742,7 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
               m.purchase_order?.number ?? null,
               m.notes,
               r.unit_cost_cents === null ? null : italianAmount(r.unit_cost_cents),
+              r.value_cents === null ? null : italianAmount(r.value_cents),
             ]
           }),
         )

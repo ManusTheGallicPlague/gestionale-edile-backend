@@ -120,6 +120,40 @@ describe('warehouse materials in the cost summary of a site', () => {
     })
   })
 
+  it('gives each movement its value, which adds up to the summary', async () => {
+    const s = await scene()
+    const cement = await item(s, 'Cemento')
+    const sand = await item(s, 'Sabbia')
+    await move(s, cement, 'out', '1', '2026-10-31', { site_id: s.site })
+    // A value in the body is ignored: it is always computed.
+    await move(s, cement, 'in', '10', '2026-11-01', { unit_cost: '1.25', value: '999.00' })
+    await move(s, cement, 'out', '4', '2026-11-02', { site_id: s.site, value: '999.00' })
+    await move(s, cement, 'in', '10', '2026-11-05', { unit_cost: '2.00' })
+    await move(s, cement, 'out', '3', '2026-11-06', { site_id: s.site })
+    await move(s, sand, 'in', '5', '2026-11-01')
+
+    const list = await s.browser.call('GET', `${s.base}/warehouse/movements?per_page=100`)
+    expect(list.statusCode).toBe(200)
+    const values = list
+      .json<{
+        data: { date: string; kind: string; item: { name: string }; value: string | null }[]
+      }>()
+      .data.map((m) => [m.date, m.kind, m.item.name, m.value])
+    expect(values).toEqual([
+      // Average of 10 at 1.25 and 10 at 2.00: 1.625, so 3 × 1.625 = 4.875 → 4.88.
+      ['2026-11-06', 'out', 'Cemento', '4.88'],
+      ['2026-11-05', 'in', 'Cemento', '20.00'],
+      ['2026-11-02', 'out', 'Cemento', '5.00'],
+      ['2026-11-01', 'in', 'Sabbia', null],
+      ['2026-11-01', 'in', 'Cemento', '12.50'],
+      ['2026-10-31', 'out', 'Cemento', null],
+    ])
+    const summary = await s.browser.call('GET', s.summary)
+    expect(summary.json()).toMatchObject({
+      warehouse_materials: { amount: '9.88', movements: 3, missing_costs: 1 },
+    })
+  })
+
   it('rounds each unload to the cent', async () => {
     const s = await scene()
     const nails = await item(s, 'Chiodi')
