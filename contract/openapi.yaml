@@ -3542,7 +3542,8 @@ paths:
           in: query
           description: |
             Filtri, ad esempio filter[item]=<id>, filter[site]=<id>, filter[kind]=out,
-            filter[from]=2026-11-01 e filter[to]=2026-11-30.
+            filter[from]=2026-11-01 e filter[to]=2026-11-30 e filter[q]=testo (nelle note, nel
+            codice e nel nome dell'articolo, senza distinguere maiuscole e minuscole).
           style: deepObject
           explode: true
           schema:
@@ -3553,6 +3554,9 @@ paths:
               kind: { $ref: '#/components/schemas/WarehouseMovementKind' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di movimenti
@@ -3616,6 +3620,9 @@ paths:
               kind: { $ref: '#/components/schemas/WarehouseMovementKind' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV

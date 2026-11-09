@@ -156,6 +156,54 @@ describe('warehouse', () => {
     expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
   })
 
+  it('searches the notes, the code and the name of the item, also in the CSV', async () => {
+    const s = await scene()
+    const cement = (await s.browser.call('POST', s.items, { body: item() })).json<Item>()
+    const sand = (
+      await s.browser.call('POST', s.items, {
+        body: item({ code: null, name: 'Sabbia lavata', unit: 'm³' }),
+      })
+    ).json<Item>()
+    const post = async (body: Record<string, unknown>) => {
+      const res = await s.browser.call('POST', s.moves, { body })
+      expect(res.statusCode).toBe(201)
+      return res.json<{ id: string }>().id
+    }
+    const bill = await post(move(s, sand.id, { date: '2026-11-02', notes: 'DDT 451 della cava' }))
+    const cementIn = await post(move(s, cement.id, { date: '2026-11-03' }))
+    const percent = await post(move(s, sand.id, { date: '2026-11-04', notes: 'calo 5%' }))
+    const plain = await post(move(s, sand.id, { date: '2026-11-05' }))
+    // Another company with the same item and notes never shows up.
+    const theirs = await scene()
+    const their = (await theirs.browser.call('POST', theirs.items, { body: item() })).json<Item>()
+    await theirs.browser.call('POST', theirs.moves, {
+      body: move(theirs, their.id, { notes: 'DDT 451 della cava' }),
+    })
+
+    type Moves = { data: { id: string }[]; meta: { total: number } }
+    const ids = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.moves}?filter[q]=${encodeURIComponent(query)}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<Moves>().data.map((m) => m.id)
+    }
+    expect(await ids(' ddt 451 ')).toEqual([bill])
+    expect(await ids('cem-325')).toEqual([cementIn])
+    expect(await ids('SABBIA')).toEqual([plain, percent, bill])
+    // % is text, not a wildcard.
+    expect(await ids('%')).toEqual([percent])
+    expect(await ids('   ')).toEqual([plain, percent, cementIn, bill])
+
+    const csv = await s.browser.call('GET', `${s.moves}/export?filter[q]=cava`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.trim().split('\r\n')).toHaveLength(2)
+    expect(csv.body).toContain('DDT 451')
+
+    for (const query of [`filter[q]=${'x'.repeat(101)}`, 'filter[q]=a&filter[q]=b']) {
+      expect((await s.browser.call('GET', `${s.moves}?${query}`)).statusCode).toBe(422)
+      expect((await s.browser.call('GET', `${s.moves}/export?${query}`)).statusCode).toBe(422)
+    }
+  })
+
   it('creates, reads, updates and deletes an item with If-Match', async () => {
     const s = await scene()
     const created = await s.browser.call('POST', s.items, { body: item() })

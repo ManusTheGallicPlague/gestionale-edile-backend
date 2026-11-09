@@ -546,6 +546,10 @@ function movementFilters(q: ReturnType<typeof listQuery>) {
   if (kindValue !== undefined && !kind) q.errors['filter[kind]'] = ['Tipo non valido.']
   const from = q.date('filter[from]')
   const to = q.date('filter[to]')
+  const textValue = q.single('filter[q]')?.trim()
+  if (textValue !== undefined && textValue.length > 100)
+    q.errors['filter[q]'] = ['Al massimo 100 caratteri.']
+  const text = textValue ? textValue : undefined
   q.done()
   const where = ['true']
   const values: unknown[] = []
@@ -558,6 +562,14 @@ function movementFilters(q: ReturnType<typeof listQuery>) {
   if (kind) add((p) => `m.kind = ${p}`, kind)
   if (from) add((p) => `m.movement_date >= ${p}`, from)
   if (to) add((p) => `m.movement_date <= ${p}`, to)
+  // Notes, item code and item name: case-insensitive, no wildcards.
+  if (text) {
+    add(
+      (p) => `strpos(lower(coalesce(m.notes, '') || ' ' || (select coalesce(wi.code, '') || ' ' ||
+        wi.name from public.warehouse_items wi where wi.id = m.item_id)), lower(${p})) > 0`,
+      text,
+    )
+  }
   return { where, values }
 }
 
