@@ -230,4 +230,35 @@ describe('received invoice of a purchase order', () => {
     const hiddenRows = hiddenCsv.body.replace('\uFEFF', '').trim().split('\r\n')
     expect(hiddenRows[1]?.endsWith(';')).toBe(true)
   })
+
+  it('filters the orders by invoiced, only for who sees invoices', async () => {
+    const s = await scene([...ALL, 'purchases.view'])
+    const orders = `/api/companies/${s.company.slug}/purchase-orders`
+    await s.browser.call('POST', s.base, { body: s.invoice() })
+    const ids = async (query: string) =>
+      (await s.browser.call('GET', `${orders}?sort=number&${query}`))
+        .json<{ data: { id: string }[] }>()
+        .data.map((o) => o.id)
+    expect(await ids('filter[invoiced]=true')).toEqual([s.sent])
+    expect(await ids('filter[invoiced]=false')).toEqual([s.received, s.draft, s.otherOrder])
+    expect(await ids('filter[invoiced]=false&filter[status]=received')).toEqual([s.received])
+    const csv = await s.browser.call('GET', `${orders}/export?filter[invoiced]=true`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.trim().split('\r\n')).toHaveLength(2)
+    const bad = await s.browser.call('GET', `${orders}?filter[invoiced]=si`)
+    expect(bad.statusCode).toBe(422)
+    expect(bad.json()).toMatchObject({ errors: { 'filter[invoiced]': [expect.any(String)] } })
+
+    const blind = new Browser(ctx.app)
+    const buyer = await fx.user()
+    await fx.member(
+      buyer.id,
+      s.company.id,
+      await fx.role(s.company.id, 'Acquisti', ['purchases.view']),
+    )
+    await blind.signIn(buyer.email)
+    expect((await blind.call('GET', `${orders}?filter[invoiced]=false`)).statusCode).toBe(403)
+    expect((await blind.call('GET', `${orders}/export?filter[invoiced]=true`)).statusCode).toBe(403)
+    expect((await blind.call('GET', orders)).statusCode).toBe(200)
+  })
 })

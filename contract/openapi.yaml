@@ -2686,7 +2686,7 @@ paths:
           description: |
             Filtri, ad esempio filter[supplier]=<id>, filter[site]=<id>, filter[status]=sent,
             filter[from]=2026-11-01 e filter[to]=2026-11-30 (sulla data dell'ordine),
-            filter[follow_up]=late. Con sort=delivery_date gli ordini senza data di consegna
+            filter[follow_up]=late, filter[invoiced]=false. Con sort=delivery_date gli ordini senza data di consegna
             vanno in fondo.
           style: deepObject
           explode: true
@@ -2699,6 +2699,12 @@ paths:
               follow_up: { $ref: '#/components/schemas/PurchaseOrderFollowUp' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              invoiced:
+                description: |
+                  true per i soli ordini con almeno una fattura ricevuta collegata, false per
+                  quelli senza (con filter[status]=received: merce arrivata, fattura da
+                  registrare). Chiede anche invoices.view, altrimenti 403.
+                type: boolean
       responses:
         '200':
           description: Una pagina di ordini
@@ -2767,6 +2773,12 @@ paths:
               follow_up: { $ref: '#/components/schemas/PurchaseOrderFollowUp' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              invoiced:
+                description: |
+                  true per i soli ordini con almeno una fattura ricevuta collegata, false per
+                  quelli senza (con filter[status]=received: merce arrivata, fattura da
+                  registrare). Chiede anche invoices.view, altrimenti 403.
+                type: boolean
       responses:
         '200':
           description: Il file CSV

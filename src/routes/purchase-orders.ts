@@ -431,8 +431,15 @@ function readList(query: Record<string, unknown>) {
   const siteId = id('filter[site]')
   const from = date('filter[from]')
   const to = date('filter[to]')
+  const invoicedValue = single('filter[invoiced]')
+  let invoiced: boolean | undefined
+  if (invoicedValue === 'true' || invoicedValue === 'false') invoiced = invoicedValue === 'true'
+  else if (invoicedValue !== undefined) {
+    errors['filter[invoiced]'] = ['Valori ammessi: true, false.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
+    invoiced,
     page,
     perPage,
     sort: sort ?? '-date',
@@ -458,7 +465,21 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.siteId) add((p) => `o.site_id = ${p}`, list.siteId)
   if (list.from) add((p) => `o.order_date >= ${p}`, list.from)
   if (list.to) add((p) => `o.order_date <= ${p}`, list.to)
+  if (list.invoiced !== undefined) {
+    add(
+      (p) => `exists (select 1 from public.invoices i where i.purchase_order_id = o.id) = ${p}`,
+      list.invoiced,
+    )
+  }
   return { where, values }
+}
+
+/** Filtering by invoices tells about them: only who sees invoices can. */
+function checkInvoicedFilter(
+  list: ReturnType<typeof readList>,
+  permissions: ReadonlySet<Permission>,
+) {
+  if (list.invoiced !== undefined && !permissions.has('invoices.view')) throw forbidden()
 }
 
 export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db): void {
@@ -470,6 +491,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('purchases.view')) throw forbidden()
+      checkInvoicedFilter(list, permissions)
       const { where, values } = listFilter(list)
       const filters = values.length
       values.push(list.perPage, (list.page - 1) * list.perPage)
@@ -500,6 +522,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
       const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('purchases.view')) throw forbidden()
+        checkInvoicedFilter(list, permissions)
         const { where, values } = listFilter(list)
         values.push(MAX_EXPORT_ROWS)
         const { rows } = await client.query<OrderRow>(
