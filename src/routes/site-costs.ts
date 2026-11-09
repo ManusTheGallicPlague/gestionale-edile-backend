@@ -597,6 +597,68 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
       )
     },
   )
+
+  app.get<{ Params: { company: string; site: string } }>(
+    '/api/companies/:company/sites/:site/cost-summary/months',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('costs.view')) throw notFound()
+        if (!UUID.test(request.params.site)) throw notFound()
+        const site = await client.query<{ budget_cents: string | null }>(
+          'select budget_cents::text as budget_cents from public.sites where id = $1',
+          [request.params.site],
+        )
+        const found = site.rows[0]
+        if (!found) return null
+        const { rows } = await client.query<{
+          month: string
+          labor: string
+          vehicles: string
+          other: string
+          total: string
+          cumulative: string
+        }>(
+          `with lines as (
+             select * from (${COST_LINES}) x where x.site_id = $1
+           ), months as (
+             select generate_series(date_trunc('month', min(day)), date_trunc('month', max(day)),
+               interval '1 month')::date as month
+             from lines having count(*) > 0
+           ), sums as (
+             select m.month,
+               coalesce(sum(l.cents) filter (where l.kind = 'labor'), 0) as labor,
+               coalesce(sum(l.cents) filter (where l.kind = 'vehicles'), 0) as vehicles,
+               coalesce(sum(l.cents) filter (where l.kind = 'other'), 0) as other,
+               coalesce(sum(l.cents), 0) as total
+             from months m
+             left join lines l on l.day >= m.month and l.day < m.month + interval '1 month'
+             group by m.month
+           )
+           select to_char(month, 'YYYY-MM') as month, labor::bigint::text as labor,
+             vehicles::bigint::text as vehicles, other::bigint::text as other,
+             total::bigint::text as total,
+             (sum(total) over (order by month))::bigint::text as cumulative
+           from sums order by month`,
+          [request.params.site],
+        )
+        return { budget: found.budget_cents, rows }
+      })
+      if (!result) throw notFound()
+      return reply.send({
+        budget: result.budget === null ? null : centsToAmount(result.budget),
+        months: result.rows.map((r) => ({
+          month: r.month,
+          labor: centsToAmount(r.labor),
+          vehicles: centsToAmount(r.vehicles),
+          other: centsToAmount(r.other),
+          total: centsToAmount(r.total),
+          cumulative: centsToAmount(r.cumulative),
+        })),
+      })
+    },
+  )
 }
 
 function summaryToContract(

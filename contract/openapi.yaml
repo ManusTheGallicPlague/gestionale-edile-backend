@@ -3694,6 +3694,31 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/sites/{site}/cost-summary/months:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: getSiteMonthlyCosts
+      summary: Costi di un cantiere mese per mese, per il grafico della panoramica
+      description: |
+        Permesso: costs.view. Senza permesso risponde 404, non 403, come getSiteCostSummary. Stessa
+        regola del riepilogo: manodopera e mezzi dai rapportini approvati al costo orario
+        attuale, più i costi inseriti a mano, divisi per mese della data del rapportino o del
+        costo. Un mese per riga, dal primo all'ultimo mese
+        con un costo, compresi quelli in mezzo senza costi (a zero); nessuna riga se il
+        cantiere non ha costi. cumulative è il totale dall'inizio fino a quel mese compreso,
+        da confrontare con budget; l'ultimo cumulative è uguale al total di getSiteCostSummary.
+        Importi senza IVA.
+      responses:
+        '200':
+          description: I costi per mese
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SiteMonthlyCosts' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/sites/{site}/work-summary:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -13101,6 +13126,28 @@ components:
           allOf:
             - $ref: '#/components/schemas/SignedAmount'
         total: { $ref: '#/components/schemas/SignedAmount' }
+    SiteMonthlyCosts:
+      type: object
+      required: [budget, months]
+      properties:
+        budget:
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        months:
+          type: array
+          description: Dal mese più vecchio.
+          items: { $ref: '#/components/schemas/SiteMonthCosts' }
+    SiteMonthCosts:
+      allOf:
+        - $ref: '#/components/schemas/DashboardMonthCosts'
+        - type: object
+          required: [cumulative]
+          properties:
+            cumulative:
+              description: Totale dei costi dal primo mese fino a questo compreso.
+              allOf:
+                - $ref: '#/components/schemas/SignedAmount'
     DashboardSiteProgress:
       type: object
       required: [site, activities, progress, planned]
