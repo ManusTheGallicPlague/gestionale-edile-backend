@@ -618,6 +618,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: i movimenti di magazzino (`
 
 - [x] `filter[q]` in `listWarehouseMovements` ed `exportWarehouseMovements`: testo nelle note e nel codice e nel nome dell'articolo, senza distinguere maiuscole e minuscole e senza caratteri jolly; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
 
+### 90. Ricerca nella prima nota
+Aggiunta il 09/11/2026, con il piano tutto spuntato: la prima nota (`listPayments`) e il suo CSV filtravano per tipo, cantiere, cliente, fornitore, modalità e periodo, ma per riconciliare un movimento dell'estratto conto serve cercare il numero della fattura o il riferimento scritto nelle note.
+
+- [x] `filter[q]` in `listPayments` ed `exportPayments`: testo nel numero della fattura e nelle note del pagamento, senza distinguere maiuscole e minuscole e senza caratteri jolly, con `collected` e `paid` sul filtro; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -870,11 +875,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: la ricerca nei rapportini non guarda le descrizioni delle righe delle ore né il meteo: le lavorazioni del giorno stanno nei lavori eseguiti; il giornale dei lavori in PDF resta il cantiere intero nel periodo, senza la ricerca.
 - 09/11/2026: la ricerca nelle manutenzioni vale solo per l'elenco di tutti i mezzi e il suo CSV, non per le manutenzioni del singolo mezzo (poche righe, si leggono a colpo d'occhio); non guarda il nome dell'officina, che si vede in colonna.
 - 09/11/2026: la ricerca nei movimenti di magazzino guarda anche codice e nome dell'articolo, oltre alle note, così una sola casella trova sia «DDT 451» sia «sabbia»; non guarda il nome del cantiere, che ha già il suo filtro.
+- 09/11/2026: la ricerca nella prima nota guarda il numero della fattura e le note del pagamento, non il nome del cliente o del fornitore, che hanno già i loro filtri.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 21:38 UTC: stesso giro, terzo push: sezione 90, `filter[q]` nella prima nota e nel suo CSV (test con il numero di una fattura e le note di un pagamento su un'altra, 0.10 + 0.20 + 7 = 7.30 incassati, numero in minuscolo, `%` come testo, testo di soli spazi ignorato, CSV, pagamento di un'altra azienda con stesso numero e stesse note escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 970 test.
 - 2026-11-09 21:33 UTC: stesso giro, secondo push: sezione 89, `filter[q]` nei movimenti di magazzino e nel loro CSV (test sul numero della bolla nelle note, sul codice in minuscolo, sul nome in maiuscolo, `%` come testo, testo di soli spazi ignorato, CSV, movimento di un'altra azienda con le stesse note escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 969 test.
 - 2026-11-09 21:21 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (967 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 88: `filter[q]` nelle manutenzioni di tutti i mezzi e nel loro CSV (test su descrizione in maiuscolo e note, 0.10 + 0.20 trovati = 0.30, `%` come testo, testo di soli spazi ignorato, CSV, manutenzione di un'altra azienda esclusa, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 968 test.
 - 2026-11-09 20:37 UTC: stesso giro, terzo push: sezione 87, `filter[q]` nei rapportini e nel loro CSV (test sui lavori eseguiti in maiuscolo, sulle note, lavori eseguiti vuoti, `%` come testo, testo vuoto ignorato, rapportino di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 967 test.

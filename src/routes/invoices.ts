@@ -764,6 +764,12 @@ function readPaymentList(query: Record<string, unknown>) {
     if (!isIsoDate(value)) errors[name] = ['Data non valida (AAAA-MM-GG).']
     else add((p) => `ip.payment_date ${op} ${p}`, value)
   }
+  // Invoice number and payment notes: case-insensitive, no wildcards.
+  const text = single('filter[q]')?.trim()
+  if (text !== undefined && text.length > 100) errors['filter[q]'] = ['Al massimo 100 caratteri.']
+  else if (text) {
+    add((p) => `strpos(lower(i.number || ' ' || coalesce(ip.notes, '')), lower(${p})) > 0`, text)
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return { page, perPage, where, values }
 }

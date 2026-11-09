@@ -8646,7 +8646,9 @@ paths:
         (filter[from], filter[to]), sul tipo di fattura (filter[direction]: issued per gli
         incassi, received per i pagamenti), sul cantiere della fattura (filter[site]), sul
         cliente o sul fornitore della fattura (filter[client], filter[supplier]; uno di un'altra
-        azienda dà un elenco vuoto) e sulla modalità (filter[method]). collected e paid sono le somme di incassi e pagamenti che
+        azienda dà un elenco vuoto), sulla modalità (filter[method]) e sul testo (filter[q]: nel
+        numero della fattura e nelle note del pagamento, senza distinguere maiuscole e
+        minuscole). collected e paid sono le somme di incassi e pagamenti che
         rispettano i filtri, non solo della pagina. Le fatture segnate pagate senza pagamenti
         registrati non compaiono.
       parameters:
@@ -8666,6 +8668,9 @@ paths:
               method: { $ref: '#/components/schemas/InvoicePaymentMethod' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di incassi e pagamenti
@@ -8702,6 +8707,9 @@ paths:
               method: { $ref: '#/components/schemas/InvoicePaymentMethod' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV

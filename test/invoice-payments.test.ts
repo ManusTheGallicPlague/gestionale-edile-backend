@@ -399,6 +399,59 @@ describe('invoice payments', () => {
     }
   })
 
+  it('searches the invoice number and the payment notes, in the list and in the CSV', async () => {
+    const s = await scene()
+    const first = await invoice(s, { number: 'FV-2026/0451' })
+    const second = await invoice(s, { number: 'FV-2026/0452' })
+    for (const [id, amount, date, notes, version] of [
+      [first.id, '0.10', '2026-11-05', null, '"1"'],
+      [first.id, '0.20', '2026-11-06', 'Saldo 5% trattenuto', '"2"'],
+      [second.id, '7', '2026-11-07', 'Acconto a mezzo RIBA 0451', '"1"'],
+    ] as const) {
+      const res = await s.browser.call('POST', `${s.base}/${id}/payments`, {
+        body: payment({ date, amount, notes }),
+        headers: { 'If-Match': version },
+      })
+      expect(res.statusCode).toBe(200)
+    }
+    // Another company with the same invoice number and notes never shows up.
+    const other = await scene()
+    const foreign = await invoice(other, { number: 'FV-2026/0451' })
+    await other.browser.call('POST', `${other.base}/${foreign.id}/payments`, {
+      body: payment({ notes: 'Acconto a mezzo RIBA 0451' }),
+      headers: { 'If-Match': '"1"' },
+    })
+
+    const url = `/api/companies/${s.company.slug}/invoice-payments`
+    type Payments = { data: { date: string }[]; meta: { total: number }; collected: string }
+    const get = async (text: string) => {
+      const res = await s.browser.call('GET', `${url}?filter[q]=${encodeURIComponent(text)}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<Payments>()
+    }
+    // The number of the first invoice and the notes of a payment on the second.
+    const both = await get(' 0451 ')
+    expect(both.data.map((p) => p.date)).toEqual(['2026-11-07', '2026-11-06', '2026-11-05'])
+    expect(both.collected).toBe('7.30')
+    const first2 = await get('fv-2026/0451')
+    expect(first2).toMatchObject({ meta: { total: 2 }, collected: '0.30' })
+    // % is text, not a wildcard; case does not matter.
+    expect((await get('%')).data.map((p) => p.date)).toEqual(['2026-11-06'])
+    expect((await get('riba')).data.map((p) => p.date)).toEqual(['2026-11-07'])
+    expect((await get('   ')).meta.total).toBe(3)
+
+    const csv = await s.browser.call('GET', `${url}/export?filter[q]=acconto`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.replace('\ufeff', '').trim().split('\r\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toContain('FV-2026/0452')
+
+    for (const query of [`filter[q]=${'x'.repeat(101)}`, 'filter[q]=a&filter[q]=b']) {
+      expect((await s.browser.call('GET', `${url}?${query}`)).statusCode).toBe(422)
+      expect((await s.browser.call('GET', `${url}/export?${query}`)).statusCode).toBe(422)
+    }
+  })
+
   it('needs the invoices permissions; other companies see nothing', async () => {
     const s = await scene()
     const inv = await invoice(s)
