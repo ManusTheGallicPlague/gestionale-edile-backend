@@ -7270,7 +7270,9 @@ paths:
         a pagine, con il mezzo di ogni rifornimento e il consumo come in listVehicleRefuelings.
         total_liters e total_amount sono le somme di tutti i rifornimenti che rispettano i
         filtri, non solo della pagina. Con filter[vehicle] di un mezzo che non c'è l'elenco è
-        vuoto.
+        vuoto. Con filter[q] solo i rifornimenti con il testo nelle note, nel nome o nella targa
+        del mezzo o nel nome del distributore, senza distinguere maiuscole e minuscole e senza
+        caratteri jolly; un testo di soli spazi è ignorato.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -7287,6 +7289,9 @@ paths:
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
               vehicle: { $ref: '#/components/schemas/Id' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di rifornimenti
@@ -7323,6 +7328,9 @@ paths:
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
               vehicle: { $ref: '#/components/schemas/Id' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV

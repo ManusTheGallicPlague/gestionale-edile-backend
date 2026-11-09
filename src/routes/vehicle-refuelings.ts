@@ -203,14 +203,32 @@ function readPeriod(query: Record<string, unknown>, withVehicle = false) {
   const to = date('to')
   if (from && to && to < from) errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
   let vehicle: string | null = null
+  let q: string | null = null
   if (withVehicle) {
     const value = query['filter[vehicle]']
     if (typeof value === 'string' && UUID.test(value)) vehicle = value.toLowerCase()
     else if (value !== undefined) errors['filter[vehicle]'] = ['Identificativo non valido.']
+    const text = query['filter[q]']
+    if (Array.isArray(text)) errors['filter[q]'] = ['Indicalo una volta sola.']
+    else if (typeof text === 'string') {
+      const trimmed = text.trim()
+      if (trimmed.length > 100) errors['filter[q]'] = ['Al massimo 100 caratteri.']
+      else if (trimmed) q = trimmed
+    }
   }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { from, to, vehicle, page, perPage }
+  return { from, to, vehicle, q, page, perPage }
 }
+
+/** Filters of the company list and export ($1 from, $2 to, $3 vehicle, $4 text), alias `r`. */
+const COMPANY_WHERE = `where ($1::date is null or r.refueled_on >= $1)
+  and ($2::date is null or r.refueled_on <= $2)
+  and ($3::uuid is null or r.vehicle_id = $3)
+  and ($4::text is null or strpos(lower(coalesce(r.notes, '') || ' ' ||
+    (select v2.name || ' ' || coalesce(v2.plate, '') from public.vehicles v2
+     where v2.id = r.vehicle_id) || ' ' ||
+    coalesce((select s2.name from public.suppliers s2 where s2.id = r.supplier_id), '')),
+    lower($4)) > 0)`
 
 function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
@@ -261,7 +279,7 @@ export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db:
       const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('vehicles.view')) throw forbidden()
-        const { from, to, vehicle } = readPeriod(request.query, true)
+        const { from, to, vehicle, q } = readPeriod(request.query, true)
         const { rows } = await client.query<
           RefuelingRow & { vehicle_name: string; plate: string | null }
         >(
@@ -278,12 +296,10 @@ export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db:
              from public.vehicle_refuelings prev
              where prev.vehicle_id = r.vehicle_id and prev.meter_reading < r.meter_reading
            ) p on true
-           where ($1::date is null or r.refueled_on >= $1)
-             and ($2::date is null or r.refueled_on <= $2)
-             and ($3::uuid is null or r.vehicle_id = $3)
+           ${COMPANY_WHERE}
            order by r.refueled_on desc, v.name, r.created_at desc, r.id desc
-           limit $4`,
-          [from, to, vehicle, MAX_EXPORT_ROWS],
+           limit $5`,
+          [from, to, vehicle, q, MAX_EXPORT_ROWS],
         )
         return toCsv(
           [
@@ -324,17 +340,15 @@ export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db:
       return withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('vehicles.view')) throw forbidden()
-        const { from, to, vehicle, page, perPage } = readPeriod(request.query, true)
-        const where = `where ($1::date is null or r.refueled_on >= $1)
-             and ($2::date is null or r.refueled_on <= $2)
-             and ($3::uuid is null or r.vehicle_id = $3)`
+        const { from, to, vehicle, q, page, perPage } = readPeriod(request.query, true)
+        const where = COMPANY_WHERE
         // Sums in the database and in bigint: litres and cents never pass through a float.
         const totals = await client.query<{ total: number; liters: string; cents: string }>(
           `select count(*)::int as total,
              coalesce(sum(r.liters), 0)::numeric(14, 2)::text as liters,
              coalesce(sum(r.amount_cents), 0)::text as cents
            from public.vehicle_refuelings r ${where}`,
-          [from, to, vehicle],
+          [from, to, vehicle, q],
         )
         const { rows } = await client.query<
           RefuelingRow & { vehicle_name: string; plate: string | null }
@@ -342,8 +356,8 @@ export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db:
           `${SELECT}
            ${where}
            order by r.refueled_on desc, v.name, r.created_at desc, r.id desc
-           limit $4 offset $5`,
-          [from, to, vehicle, perPage, (page - 1) * perPage],
+           limit $5 offset $6`,
+          [from, to, vehicle, q, perPage, (page - 1) * perPage],
         )
         const sums = totals.rows[0]
         return {

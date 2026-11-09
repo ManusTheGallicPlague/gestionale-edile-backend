@@ -92,6 +92,61 @@ describe('refuelings of all the vehicles', () => {
     expect(filtered.json<List>()).toMatchObject({ total_liters: '0.10', total_amount: '0.01' })
   })
 
+  it('searches notes, vehicle name and plate and the station, in the list and in the CSV', async () => {
+    const { browser, company, url } = await scene()
+    const other = await scene()
+    const van = await vehicleOf(company.id, 'Furgone', 'vehicle', 'AB123CD')
+    const digger = await vehicleOf(company.id, 'Escavatore', 'machine', null)
+    const station = await ctx.owner.query<{ id: string }>(
+      "insert into public.suppliers (company_id, name) values ($1, 'Distributore Nord') returning id",
+      [company.id],
+    )
+    const a = await refueling(company.id, van, '2026-10-01', '0.10', 10)
+    const b = await refueling(company.id, van, '2026-10-02', '0.20', 20)
+    const c = await refueling(company.id, digger, '2026-10-03', '7.00', 700)
+    await ctx.owner.query(
+      "update public.vehicle_refuelings set notes = 'Tanica di riserva' where id = $1",
+      [c],
+    )
+    await ctx.owner.query('update public.vehicle_refuelings set supplier_id = $1 where id = $2', [
+      station.rows[0]?.id,
+      b,
+    ])
+    // Another company with a vehicle of the same name and the same notes.
+    const foreign = await vehicleOf(other.company.id, 'Furgone', 'vehicle', 'AB123CD')
+    await refueling(other.company.id, foreign, '2026-10-01', '9.00', 900)
+    const get = async (query: string) => {
+      const res = await browser.call('GET', `${url}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<List & { meta: { total: number } }>()
+    }
+    const vanList = await get('filter[q]=%20FURGONE%20')
+    expect(vanList.data.map((r) => r.id)).toEqual([b, a])
+    // 0.10 + 0.20 without floating point.
+    expect(vanList.total_liters).toBe('0.30')
+    expect(vanList.total_amount).toBe('0.30')
+    expect((await get('filter[q]=ab123cd')).data.map((r) => r.id)).toEqual([b, a])
+    expect((await get('filter[q]=nord')).data.map((r) => r.id)).toEqual([b])
+    expect((await get('filter[q]=tanica')).data.map((r) => r.id)).toEqual([c])
+    expect((await get(`filter[q]=furgone&filter[vehicle]=${digger}`)).meta.total).toBe(0)
+    expect((await get('filter[q]=%25')).meta.total).toBe(0)
+    expect((await get('filter[q]=ab_23')).meta.total).toBe(0)
+    expect((await get('filter[q]=%20%20')).meta.total).toBe(3)
+    const csv = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/vehicle-refuelings/export?filter[q]=furgone`,
+    )
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.replace('\ufeff', '').trim().split('\r\n')).toHaveLength(3)
+    for (const query of [`filter[q]=${'a'.repeat(101)}`, 'filter[q]=a&filter[q]=b']) {
+      for (const target of [url, `${url}/export`]) {
+        const res = await browser.call('GET', `${target}?${query}`)
+        expect(res.statusCode).toBe(422)
+        expect(res.json<{ errors: Record<string, unknown> }>().errors).toHaveProperty(['filter[q]'])
+      }
+    }
+  })
+
   it('rejects wrong filters and pages', async () => {
     const { browser, url } = await scene()
     for (const query of [
