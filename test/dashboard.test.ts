@@ -237,6 +237,8 @@ describe('dashboard', () => {
       receivable_overdue: '0.00',
       payable: '0.00',
       payable_overdue: '0.00',
+      payable_without_order: 0,
+      payable_without_order_amount: '0.00',
     })
     for (const company of [s.company.id, other.company.id]) {
       await ctx.owner.query(
@@ -268,7 +270,45 @@ describe('dashboard', () => {
       receivable_overdue: '1220.00',
       payable: '468.00',
       payable_overdue: '102.00',
+      payable_without_order: 2,
+      payable_without_order_amount: '468.00',
     })
+  })
+
+  it('counts unpaid received invoices without an order, as the register filter does', async () => {
+    const s = await scene()
+    const id = s.company.id
+    await ctx.owner.query(
+      `with p as (insert into public.suppliers (company_id, name)
+                  values ($1, 'Fornitore') returning id),
+            o as (insert into public.purchase_orders (company_id, number_year, number_seq,
+                    supplier_id, order_date, status, sent_at)
+                  select $1, 2026, 1, id, current_date, 'sent', now() from p returning id)
+       insert into public.invoices (company_id, direction, number, invoice_date, supplier_id,
+         taxable_cents, vat_cents, purchase_order_id, paid_on)
+       select $1, 'received', x.number, current_date, (select id from p), x.taxable, 0,
+         case when x.linked then (select id from o) end, x.paid
+       from (values
+         ('A', 10, false, null::date),
+         ('B', 20, false, null),
+         ('C', 40000, true, null),
+         ('D', 80000, false, current_date)
+       ) as x (number, taxable, linked, paid)`,
+      [id],
+    )
+    const d = (await s.browser.call('GET', s.url)).json<Dashboard>()
+    // 0.10 + 0.20: the one with an order and the paid one are left out.
+    expect(d.invoices).toMatchObject({
+      payable: '400.30',
+      payable_without_order: 2,
+      payable_without_order_amount: '0.30',
+    })
+    const list = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/invoices?filter[direction]=received&filter[has_purchase_order]=false&filter[status]=open`,
+    )
+    expect(list.statusCode).toBe(200)
+    expect(list.json<{ meta: { total: number } }>().meta.total).toBe(2)
   })
 
   it('counts active sites without a report today, whatever its status', async () => {

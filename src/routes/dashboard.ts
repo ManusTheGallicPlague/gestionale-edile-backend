@@ -220,6 +220,8 @@ async function invoiceTotals(client: PoolClient, today: string) {
     receivable_overdue: string
     payable: string
     payable_overdue: string
+    without_order: number
+    without_order_amount: string
   }>(
     `select
        coalesce(sum(${REMAINING_CENTS}) filter (where i.direction = 'issued'), 0)::text as receivable,
@@ -227,7 +229,11 @@ async function invoiceTotals(client: PoolClient, today: string) {
          0)::text as receivable_overdue,
        coalesce(sum(${REMAINING_CENTS}) filter (where i.direction = 'received'), 0)::text as payable,
        coalesce(sum(${REMAINING_CENTS}) filter (where i.direction = 'received'
-         and i.due_date < $1::date), 0)::text as payable_overdue
+         and i.due_date < $1::date), 0)::text as payable_overdue,
+       count(*) filter (where i.direction = 'received' and i.purchase_order_id is null)::int
+         as without_order,
+       coalesce(sum(${REMAINING_CENTS}) filter (where i.direction = 'received'
+         and i.purchase_order_id is null), 0)::text as without_order_amount
      from public.invoices i where i.paid_on is null`,
     [today],
   )
@@ -237,6 +243,8 @@ async function invoiceTotals(client: PoolClient, today: string) {
     receivable_overdue: centsToAmount(r?.receivable_overdue ?? '0'),
     payable: centsToAmount(r?.payable ?? '0'),
     payable_overdue: centsToAmount(r?.payable_overdue ?? '0'),
+    payable_without_order: r?.without_order ?? 0,
+    payable_without_order_amount: centsToAmount(r?.without_order_amount ?? '0'),
   }
 }
 

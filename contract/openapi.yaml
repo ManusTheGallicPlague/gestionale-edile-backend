@@ -12789,7 +12789,15 @@ components:
         Fatture non ancora pagate, per quanto resta da pagare (remaining_amount: il netto a
         pagare, cioè senza la ritenuta d'acconto e senza l'IVA in scissione dei pagamenti, meno
         gli acconti già registrati). Scadute: con la scadenza di pagamento passata.
-      required: [receivable, receivable_overdue, payable, payable_overdue]
+      required:
+        [
+          receivable,
+          receivable_overdue,
+          payable,
+          payable_overdue,
+          payable_without_order,
+          payable_without_order_amount,
+        ]
       properties:
         receivable:
           description: Da incassare, dalle fatture emesse.
@@ -12805,6 +12813,17 @@ components:
             - $ref: '#/components/schemas/Amount'
         payable_overdue:
           description: Parte di payable già scaduta.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        payable_without_order:
+          description: |
+            Fatture ricevute non pagate e senza ordine al fornitore, da controllare prima di
+            pagarle: le stesse di filter[direction]=received con filter[has_purchase_order]=false
+            e filter[status] open o overdue.
+          type: integer
+          minimum: 0
+        payable_without_order_amount:
+          description: Parte di payable dovuta alle fatture di payable_without_order.
           allOf:
             - $ref: '#/components/schemas/Amount'
     DashboardPurchaseOrders:
