@@ -184,7 +184,21 @@ describe('site cost totals', () => {
       total_amount: '1565.30',
       budget_amount: '1300.00',
     })
+    expect(await names('search=VILL')).toEqual(['Villetta'])
+    expect(await names('search=c-3')).toEqual(['Capannone'])
+    expect(await names('search=%25')).toEqual([])
+    expect(await names('search=_')).toEqual([])
+    expect(await names('search=c&filter[over_budget]=true')).toEqual(['Condominio', 'Villetta'])
+    const searched = await s.browser.call('GET', `${s.base}?search=C-1`)
+    expect(searched.json<TotalList>()).toMatchObject({
+      meta: { total: 1 },
+      total_amount: '315.30',
+      budget_amount: '300.00',
+    })
+    const csv = await s.browser.call('GET', `${s.base}/export?search=box`)
+    expect(csv.body.trim().split('\r\n')).toHaveLength(2)
     for (const query of [
+      `search=${'a'.repeat(101)}`,
       'filter[over_budget]=si',
       'filter[status]=chiuso',
       'sort=budget',

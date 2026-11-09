@@ -8,7 +8,7 @@ import { ValidationFailed, forbidden, type FieldErrors } from '../http/errors.js
 import { requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianAmount, toCsv } from '../csv.js'
 import { COST_LINES } from './site-costs.js'
-import { SITE_STATUSES, STATUS_LABELS } from './sites.js'
+import { SITE_STATUSES, STATUS_LABELS, escapeLike } from './sites.js'
 
 // Qualified with t.: the outer select names its text columns total and remaining, and an
 // unqualified order by would sort those strings instead of the numbers.
@@ -47,6 +47,8 @@ function readList(query: Record<string, unknown>) {
   const sortValue = single('sort') ?? 'name'
   const sort = sortValue in SORTS ? (sortValue as keyof typeof SORTS) : undefined
   if (!sort) errors.sort = ['Ordinamento non valido.']
+  const search = single('search')?.trim() ?? ''
+  if (search.length > 100) errors.search = ['Al massimo 100 caratteri.']
   const statusValue = single('filter[status]')
   const status = SITE_STATUSES.find((s) => s === statusValue)
   if (statusValue !== undefined && !status) errors['filter[status]'] = ['Stato non valido.']
@@ -59,6 +61,7 @@ function readList(query: Record<string, unknown>) {
     page,
     perPage,
     sort: sort ?? 'name',
+    search,
     status,
     overBudget: overValue === undefined ? undefined : overValue === 'true',
   }
@@ -89,6 +92,10 @@ function totalsQuery(list: List) {
   if (list.status) {
     values.push(list.status)
     where.push(`status = $${values.length}`)
+  }
+  if (list.search) {
+    values.push(`%${escapeLike(list.search)}%`)
+    where.push(`(name ilike $${values.length} or code ilike $${values.length})`)
   }
   if (list.overBudget === true) where.push('remaining < 0')
   if (list.overBudget === false) where.push('(remaining is null or remaining >= 0)')

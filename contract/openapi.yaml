@@ -2567,10 +2567,12 @@ paths:
         residuo i cantieri senza budget vanno in fondo in entrambe le direzioni.
         filter[over_budget]=true lascia i cantieri con un budget superato, false gli altri
         (quelli senza budget compresi). total_amount e budget_amount sommano tutti i cantieri
-        che rispettano i filtri, non solo la pagina.
+        che rispettano i filtri, non solo la pagina. search cerca nel nome e nel codice del
+        cantiere.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
+        - $ref: '#/components/parameters/Search'
         - name: sort
           in: query
           description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
@@ -2606,11 +2608,12 @@ paths:
       operationId: exportSiteCostTotals
       summary: Esportazione dei costi di tutti i cantieri in CSV
       description: |
-        Permessi: costs.view e sites.view. Stessi filtri e ordinamento dell'elenco, senza
-        paginazione, nello stesso formato dell'esportazione dei clienti. Importi con la virgola
-        decimale (1234,50); budget e residuo vuoti senza budget; «Sopra budget» vale Sì o No.
-        Il file si chiama costi-cantieri.csv.
+        Permessi: costs.view e sites.view. Stessi filtri, ricerca e ordinamento dell'elenco,
+        senza paginazione, nello stesso formato dell'esportazione dei clienti. Importi con la
+        virgola decimale (1234,50); budget e residuo vuoti senza budget; «Sopra budget» vale Sì
+        o No. Il file si chiama costi-cantieri.csv.
       parameters:
+        - $ref: '#/components/parameters/Search'
         - name: sort
           in: query
           schema:

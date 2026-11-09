@@ -332,7 +332,7 @@ function readList(query: Record<string, unknown>) {
   }
 }
 
-const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
+export const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
 function listFilter(list: ReturnType<typeof readList>) {
   const where = ['true']
