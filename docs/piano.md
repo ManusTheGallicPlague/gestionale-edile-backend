@@ -633,6 +633,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: le attività del cronoprogr
 
 - [x] `filter[q]` in `listCompanyActivities` ed `exportCompanyActivities`: testo nel nome e nelle note dell'attività e nel nome e nel codice del cantiere, senza distinguere maiuscole e minuscole e senza caratteri jolly; testo di soli spazi ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
 
+### 93. Ricerca nei SAL
+Aggiunta il 09/11/2026, con il piano tutto spuntato: i SAL di tutti i computi (`listCompanyProgressStatements`) e il loro CSV filtravano per cantiere, cliente, computo, stato, fattura e data, ma l'ufficio cerca un SAL scrivendo il titolo del computo, il cantiere o il cliente, come nella barra dei filtri delle altre schermate «A. Elenco».
+
+- [x] `filter[q]` in `listCompanyProgressStatements` ed `exportCompanyProgressStatements`: testo nel titolo del computo, nelle note del SAL, nel nome e nel codice del cantiere e nel nome del cliente del computo, senza distinguere maiuscole e minuscole e senza caratteri jolly, con `total_amount` e `total_net_amount` sul filtro; testo di soli spazi ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -892,6 +897,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 22:36 UTC: stesso giro, secondo push: sezione 93, `filter[q]` nei SAL dell'azienda e nel loro CSV (test sul titolo del computo in maiuscolo con spazi, 1000.00 + 300.00 = 1300.00 sul filtro, codice del cantiere, note del SAL, nome del cliente con netto 90.00, insieme allo stato, `%` e `_` come testo, testo di soli spazi ignorato, CSV, SAL omonimi di un'altra azienda esclusi, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 973 test.
 - 2026-11-09 22:32 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (971 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 92: `filter[q]` nelle attività del cronoprogramma di tutti i cantieri e nel loro CSV (test sul nome dell'attività, sul testo in maiuscolo con spazi, sulle note, sul nome e sul codice del cantiere, insieme a `filter[follow_up]=late`, `%` e `_` come testo, testo di soli spazi ignorato, pagina 2 con il totale del filtro, CSV, attività omonime di un'altra azienda escluse, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 972 test.
 - 2026-11-09 21:42 UTC: stesso giro, quarto push: sezione 91, `filter[q]` nelle assenze di tutti i dipendenti, nel CSV e nel calendario (test sul cognome in maiuscolo, nome e cognome nei due ordini, note, `%` come testo, testo di soli spazi ignorato, CSV, calendario con un solo evento, dipendente omonimo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto in elenco, CSV e calendario). Niente a metà; piano tutto spuntato. 971 test.
 - 2026-11-09 21:38 UTC: stesso giro, terzo push: sezione 90, `filter[q]` nella prima nota e nel suo CSV (test con il numero di una fattura e le note di un pagamento su un'altra, 0.10 + 0.20 + 7 = 7.30 incassati, numero in minuscolo, `%` come testo, testo di soli spazi ignorato, CSV, pagamento di un'altra azienda con stesso numero e stesse note escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 970 test.

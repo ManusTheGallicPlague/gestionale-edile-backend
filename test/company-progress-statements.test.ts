@@ -246,6 +246,55 @@ describe('progress statements of the whole company', () => {
     }
   })
 
+  it('searches estimate, notes, site and client, in the list and in the CSV', async () => {
+    const s = await scene(['estimates.view'])
+    await scene(['estimates.view']) // Another company with the same estimates and sites.
+    await ctx.owner.query(
+      "update public.progress_statements set notes = 'Seconda rata' where id = $1",
+      [s.v2],
+    )
+    const client = await ctx.owner.query<{ id: string }>(
+      "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Anna Verdi') returning id",
+      [s.company.id],
+    )
+    await ctx.owner.query('update public.estimates set client_id = $1 where id = $2', [
+      client.rows[0]?.id,
+      s.e2.id,
+    ])
+    const get = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.url}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<List>()
+    }
+    const villetta = await get('filter[q]=%20VILLETTA%20')
+    expect(villetta.data.map((r) => r.id)).toEqual([s.v2, s.v1])
+    expect(villetta.meta.total).toBe(2)
+    expect(villetta.total_amount).toBe('1300.00')
+    expect((await get('filter[q]=c-2')).data.map((r) => r.id)).toEqual([s.b1])
+    expect((await get('filter[q]=muro')).data.map((r) => r.id)).toEqual([s.m1])
+    expect((await get('filter[q]=rata')).data.map((r) => r.id)).toEqual([s.v2])
+    const verdi = await get('filter[q]=verdi')
+    expect(verdi.data.map((r) => r.id)).toEqual([s.b1])
+    expect(verdi.total_net_amount).toBe('90.00')
+    expect((await get('filter[q]=villetta&filter[status]=approved')).data.map((r) => r.id)).toEqual(
+      [s.v1],
+    )
+    // No wildcards: % and _ are plain text.
+    expect((await get('filter[q]=%25')).meta.total).toBe(0)
+    expect((await get('filter[q]=c_1')).meta.total).toBe(0)
+    expect((await get('filter[q]=%20%20')).meta.total).toBe(4)
+    const csv = await s.browser.call('GET', `${s.url}/export?filter[q]=villetta`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.replace('\ufeff', '').trim().split('\r\n')).toHaveLength(3)
+    for (const query of [`filter[q]=${'a'.repeat(101)}`, 'filter[q]=box&filter[q]=muro']) {
+      for (const url of [s.url, `${s.url}/export`]) {
+        const res = await s.browser.call('GET', `${url}?${query}`)
+        expect(res.statusCode).toBe(422)
+        expect(res.json<{ errors: Record<string, unknown> }>().errors).toHaveProperty(['filter[q]'])
+      }
+    }
+  })
+
   it('rejects wrong filters with 422', async () => {
     const s = await scene(['estimates.view'])
     for (const query of [

@@ -225,6 +225,18 @@ function readCompanyList(query: Record<string, unknown>) {
     if (!isIsoDate(value)) errors[name] = ['Data non valida (AAAA-MM-GG).']
     else add((p) => `st.statement_date::date ${op} ${p}::date`, value)
   }
+  const text = single('filter[q]')?.trim()
+  if (text !== undefined && text.length > 100) errors['filter[q]'] = ['Al massimo 100 caratteri.']
+  else if (text) {
+    // strpos, not like: the text has no wildcards.
+    add(
+      (p) => `strpos(lower(e.title || ' ' || coalesce(st.notes, '') || ' ' ||
+        coalesce(site.name, '') || ' ' || coalesce(site.code, '') || ' ' ||
+        coalesce((select c.name from public.clients c where c.id = e.client_id), '')),
+        lower(${p})) > 0`,
+      text,
+    )
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return { page, perPage, where, values }
 }

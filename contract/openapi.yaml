@@ -4725,7 +4725,10 @@ paths:
         (filter[status]), sulla fattura (filter[invoiced]:
         true i SAL già fatturati, false quelli senza fattura) e sulla data del SAL
         (filter[from], filter[to]). Con filter[status]=approved e filter[invoiced]=false si
-        hanno i SAL approvati da fatturare. total_amount e total_net_amount sommano i SAL che
+        hanno i SAL approvati da fatturare. Con filter[q] solo i SAL con il testo nel titolo del
+        computo, nelle note del SAL, nel nome o nel codice del cantiere o nel nome del cliente
+        del computo, senza distinguere maiuscole e minuscole e senza caratteri jolly; un testo
+        di soli spazi è ignorato. total_amount e total_net_amount sommano i SAL che
         rispettano i filtri, non solo quelli della pagina.
       parameters:
         - $ref: '#/components/parameters/Page'
@@ -4744,6 +4747,9 @@ paths:
               invoiced: { type: string, enum: ['true', 'false'] }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di SAL
@@ -4780,6 +4786,9 @@ paths:
               invoiced: { type: string, enum: ['true', 'false'] }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV
