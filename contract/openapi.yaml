@@ -3431,24 +3431,70 @@ paths:
                 properties:
                   data:
                     type: array
-                    items:
-                      type: object
-                      required: [item_id, stock, counted, movement]
-                      properties:
-                        item_id: { $ref: '#/components/schemas/Id' }
-                        stock:
-                          description: Giacenza alla data della conta, prima della rettifica.
-                          allOf:
-                            - $ref: '#/components/schemas/Quantity'
-                        counted: { $ref: '#/components/schemas/Quantity' }
-                        movement:
-                          description: Il movimento di rettifica; null se la conta coincide.
-                          oneOf:
-                            - $ref: '#/components/schemas/WarehouseMovement'
-                            - type: 'null'
+                    items: { $ref: '#/components/schemas/WarehouseStockCountLine' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/warehouse/stock-counts/import:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    post:
+      operationId: importWarehouseStockCount
+      summary: Rettifica d'inventario da un foglio di conta in CSV
+      description: |
+        Permesso: warehouse.create. Come countWarehouseStock, ma le quantità contate vengono da
+        un file CSV nello stesso formato delle altre importazioni (al massimo 5000 righe):
+        di solito magazzino.csv (exportWarehouseItems, anche con as_of) con una colonna
+        «Contata» aggiunta e compilata. Colonne per nome: contata (12,500 oppure 12.5, non
+        negativa, al massimo tre decimali) e codice o articolo. L'articolo si trova per codice
+        (senza distinguere maiuscole); se il codice è vuoto, per nome, purché un solo articolo
+        lo abbia. Le righe con la cella contata vuota non si contano e restano come sono. Tutto
+        o niente: errori sotto `date`, `file` o `row.<n>` (articolo sconosciuto o contato due
+        volte, quantità non valida) e nessun movimento scritto. Le note dei movimenti sono
+        «Rettifica d'inventario (importazione)». La risposta è quella di countWarehouseStock,
+        nell'ordine delle righe del file.
+      security:
+        - session: []
+          csrf: []
+      parameters:
+        - name: date
+          in: query
+          required: true
+          description: Data della conta.
+          schema: { $ref: '#/components/schemas/Date' }
+      requestBody:
+        required: true
+        content:
+          text/csv:
+            schema: { type: string }
+            example: "Codice;Articolo;Unità;Giacenza;Contata\r\nCEM-01;Cemento 32,5 R;sacco;40,000;38\r\n"
+      responses:
+        '201':
+          description: Conta registrata
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: '#/components/schemas/WarehouseStockCountLine' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413':
+          description: File più grande di 5 MB.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '415':
+          description: Il corpo non è un file CSV (Content-Type text/csv).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/sites/{site}/cost-summary:
@@ -11732,6 +11778,21 @@ components:
             scarico non ha costo: con kind out deve essere null o assente (422).
           oneOf:
             - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+    WarehouseStockCountLine:
+      type: object
+      required: [item_id, stock, counted, movement]
+      properties:
+        item_id: { $ref: '#/components/schemas/Id' }
+        stock:
+          description: Giacenza alla data della conta, prima della rettifica.
+          allOf:
+            - $ref: '#/components/schemas/Quantity'
+        counted: { $ref: '#/components/schemas/Quantity' }
+        movement:
+          description: Il movimento di rettifica; null se la conta coincide.
+          oneOf:
+            - $ref: '#/components/schemas/WarehouseMovement'
             - type: 'null'
     WarehouseMovement:
       allOf:

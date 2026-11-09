@@ -20,6 +20,7 @@ import { csvScope } from '../http/files.js'
 import { ImportFailed } from '../csv-import.js'
 import { RowErrors } from '../clients/import.js'
 import { itemRowMessages, parseWarehouseItemsCsv } from '../warehouse/import.js'
+import { parseStockCountCsv } from '../warehouse/count-import.js'
 import { amountToCents, centsToAmount } from '../money.js'
 
 export const MOVEMENT_KINDS = ['in', 'out'] as const
@@ -386,6 +387,92 @@ function parseCountInput(body: unknown): {
   }
   if (Object.keys(errors).length > 0 || !date) throw new ValidationFailed(errors)
   return { date, notes, lines }
+}
+
+interface CountInput {
+  date: string
+  notes: string | null
+  lines: { item_id: string; quantity: string }[]
+}
+
+/**
+ * Compares each counted quantity with the stock at the end of the count's day and records the
+ * difference as a load or an unload. `key` names the field of an error on line `i`.
+ */
+async function countStock(
+  client: PoolClient,
+  userId: string,
+  input: CountInput,
+  key: (i: number, field: 'item_id' | 'quantity') => string,
+) {
+  const ids = input.lines.map((l) => l.item_id)
+  // Locked in a fixed order, so two counts of the same items wait for each other.
+  const { rows: found } = await client.query<{ id: string }>(
+    `select i.id::text as id from public.warehouse_items i
+     where i.id = any($1::uuid[]) order by i.id for update`,
+    [ids],
+  )
+  const known = new Set(found.map((r) => r.id))
+  const errors: FieldErrors = {}
+  input.lines.forEach((l, i) => {
+    if (!known.has(l.item_id.toLowerCase())) {
+      errors[key(i, 'item_id')] = ['Articolo non trovato.']
+    }
+  })
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  const { rows: counted } = await client.query<{
+    item_id: string
+    stock: string
+    counted: string
+    too_far: boolean
+  }>(
+    `select x.item_id::text as item_id, s.stock::numeric(15, 3)::text as stock,
+       x.counted::numeric(15, 3)::text as counted,
+       abs(x.counted - s.stock) >= 100000000000 as too_far
+     from unnest($1::uuid[], $2::numeric[]) with ordinality as x (item_id, counted, n)
+     join public.warehouse_items i on i.id = x.item_id
+     cross join lateral (select ${stockSql('$3')} as stock) s
+     order by x.n`,
+    [ids, input.lines.map((l) => l.quantity), input.date],
+  )
+  counted.forEach((c, i) => {
+    if (c.too_far) errors[key(i, 'quantity')] = ['Differenza dalla giacenza troppo grande.']
+  })
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  const { rows: created } = await client.query<{ id: string; item_id: string }>(
+    `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
+       quantity, notes, created_by)
+     select app.current_company_id(), x.item_id, $1,
+       case when x.counted > x.stock then 'in' else 'out' end, abs(x.counted - x.stock),
+       $2, $3
+     from unnest($4::uuid[], $5::numeric[], $6::numeric[])
+       with ordinality as x (item_id, counted, stock, n)
+     where x.counted <> x.stock
+     order by x.n
+     returning id, item_id::text as item_id`,
+    [
+      input.date,
+      input.notes ?? COUNT_NOTES,
+      userId,
+      counted.map((c) => c.item_id),
+      counted.map((c) => c.counted),
+      counted.map((c) => c.stock),
+    ],
+  )
+  const { rows: movementRows } = await client.query<MovementRow>(
+    `${MOVEMENT_SELECT} where m.id = any($1::uuid[])`,
+    [created.map((r) => r.id)],
+  )
+  const byItem = new Map(movementRows.map((m) => [m.item_id, m]))
+  return counted.map((c) => {
+    const movement = byItem.get(c.item_id)
+    return {
+      item_id: c.item_id,
+      stock: c.stock,
+      counted: c.counted,
+      movement: movement ? movementToContract(movement) : null,
+    }
+  })
 }
 
 function listQuery(query: Record<string, unknown>) {
@@ -919,79 +1006,85 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('warehouse.create')) throw forbidden()
         const input = parseCountInput(request.body)
-        const ids = input.lines.map((l) => l.item_id)
-        // Locked in a fixed order, so two counts of the same items wait for each other.
-        const { rows: found } = await client.query<{ id: string }>(
-          `select i.id::text as id from public.warehouse_items i
-           where i.id = any($1::uuid[]) order by i.id for update`,
-          [ids],
-        )
-        const known = new Set(found.map((r) => r.id))
-        const errors: FieldErrors = {}
-        input.lines.forEach((l, i) => {
-          if (!known.has(l.item_id.toLowerCase())) {
-            errors[`lines.${i}.item_id`] = ['Articolo non trovato.']
-          }
-        })
-        if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-        const { rows: counted } = await client.query<{
-          item_id: string
-          stock: string
-          counted: string
-          too_far: boolean
-        }>(
-          `select x.item_id::text as item_id, s.stock::numeric(15, 3)::text as stock,
-             x.counted::numeric(15, 3)::text as counted,
-             abs(x.counted - s.stock) >= 100000000000 as too_far
-           from unnest($1::uuid[], $2::numeric[]) with ordinality as x (item_id, counted, n)
-           join public.warehouse_items i on i.id = x.item_id
-           cross join lateral (select ${stockSql('$3')} as stock) s
-           order by x.n`,
-          [ids, input.lines.map((l) => l.quantity), input.date],
-        )
-        counted.forEach((c, i) => {
-          if (c.too_far)
-            errors[`lines.${i}.quantity`] = ['Differenza dalla giacenza troppo grande.']
-        })
-        if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-        const { rows: created } = await client.query<{ id: string; item_id: string }>(
-          `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
-             quantity, notes, created_by)
-           select app.current_company_id(), x.item_id, $1,
-             case when x.counted > x.stock then 'in' else 'out' end, abs(x.counted - x.stock),
-             $2, $3
-           from unnest($4::uuid[], $5::numeric[], $6::numeric[])
-             with ordinality as x (item_id, counted, stock, n)
-           where x.counted <> x.stock
-           order by x.n
-           returning id, item_id::text as item_id`,
-          [
-            input.date,
-            input.notes ?? COUNT_NOTES,
-            session.user.id,
-            counted.map((c) => c.item_id),
-            counted.map((c) => c.counted),
-            counted.map((c) => c.stock),
-          ],
-        )
-        const { rows: movementRows } = await client.query<MovementRow>(
-          `${MOVEMENT_SELECT} where m.id = any($1::uuid[])`,
-          [created.map((r) => r.id)],
-        )
-        const byItem = new Map(movementRows.map((m) => [m.item_id, m]))
-        return counted.map((c) => {
-          const movement = byItem.get(c.item_id)
-          return {
-            item_id: c.item_id,
-            stock: c.stock,
-            counted: c.counted,
-            movement: movement ? movementToContract(movement) : null,
-          }
-        })
+        return countStock(client, session.user.id, input, (i, field) => `lines.${i}.${field}`)
       })
       return reply.code(201).send({ data: rows })
     },
   )
+
+  csvScope(app, config, (scope) => {
+    scope.post<{ Params: Params; Querystring: Record<string, unknown> }>(
+      '/api/companies/:company/warehouse/stock-counts/import',
+      async (request, reply) => {
+        const session = requireSession(request)
+        checkCsrf(config, request)
+        const rows = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+          const permissions = await enterCompany(client, request.params.company)
+          if (!permissions.has('warehouse.create')) throw forbidden()
+          const date = request.query.date
+          if (typeof date !== 'string' || !isIsoDate(date)) {
+            throw new ValidationFailed({ date: ['Indica la data della conta (AAAA-MM-GG).'] })
+          }
+          const body = request.body
+          if (!Buffer.isBuffer(body)) {
+            throw new ApiError(415, 'Il corpo deve essere un file CSV (text/csv).')
+          }
+          let counted
+          try {
+            counted = parseStockCountCsv(body)
+          } catch (error) {
+            if (error instanceof ImportFailed) throw new ValidationFailed(error.errors)
+            throw error
+          }
+          const { rows: items } = await client.query<{
+            id: string
+            code: string | null
+            name: string
+          }>(
+            'select id::text as id, lower(code) as code, lower(name) as name from public.warehouse_items',
+          )
+          const byCode = new Map<string, string>()
+          const byName = new Map<string, string[]>()
+          for (const item of items) {
+            if (item.code !== null) byCode.set(item.code, item.id)
+            byName.set(item.name, [...(byName.get(item.name) ?? []), item.id])
+          }
+          const errors = new RowErrors()
+          const seen = new Map<string, number>()
+          const lines: { item_id: string; quantity: string }[] = []
+          for (const row of counted) {
+            let id: string | undefined
+            if (row.code !== '') {
+              id = byCode.get(row.code.toLowerCase())
+              if (!id) errors.add(row.line, ['codice: nessun articolo con questo codice.'])
+            } else {
+              const found = byName.get(row.name.toLowerCase()) ?? []
+              if (found.length === 1) id = found[0]
+              else if (found.length === 0) {
+                errors.add(row.line, ['articolo: nessun articolo con questo nome.'])
+              } else {
+                errors.add(row.line, ['articolo: più articoli con questo nome, indica il codice.'])
+              }
+            }
+            if (!id) continue
+            const before = seen.get(id)
+            if (before !== undefined) {
+              errors.add(row.line, [`articolo: già contato alla riga ${before}.`])
+              continue
+            }
+            seen.set(id, row.line)
+            lines.push({ item_id: id, quantity: row.quantity })
+          }
+          if (!errors.empty) throw new ValidationFailed(errors.errors)
+          const notes = 'Rettifica d’inventario (importazione)'
+          return countStock(client, session.user.id, { date, notes, lines }, (i) => {
+            return `row.${counted[i]?.line ?? 0}`
+          })
+        })
+        return reply.code(201).send({ data: rows })
+      },
+    )
+  })
 
   app.delete<{ Params: Params }>(`${movements}/:movement`, async (request, reply) => {
     const session = requireSession(request)
