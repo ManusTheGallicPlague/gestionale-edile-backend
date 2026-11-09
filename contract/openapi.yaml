@@ -3393,7 +3393,11 @@ paths:
         revenue ci sono i SAL approvati dei computi del cantiere (certified) e quelli ancora
         senza fattura (certified_uninvoiced), con la ritenuta di garanzia trattenuta
         (retention_held) e quella ancora da svincolare (retention_to_release); lo svincolo già
-        fatturato (retention_released) c'è anche senza estimates.view.
+        fatturato (retention_released) c'è anche senza estimates.view. Con warehouse.view
+        anche warehouse_materials: il materiale scaricato dal magazzino sul cantiere, valutato
+        al costo medio dei carichi fino al giorno di ogni scarico; è un'informazione a parte e
+        non entra nel totale né nel margine (il materiale può essere già tra i costi inseriti
+        a mano). Senza quel permesso warehouse_materials è null.
       responses:
         '200':
           description: Il riepilogo
@@ -11722,6 +11726,7 @@ components:
         - over_budget
         - missing_hourly_costs
         - revenue
+        - warehouse_materials
       properties:
         site:
           type: object
@@ -11755,6 +11760,28 @@ components:
           oneOf:
             - $ref: '#/components/schemas/SiteRevenue'
             - type: 'null'
+        warehouse_materials:
+          description: Null senza warehouse.view. Non entra in total.
+          oneOf:
+            - $ref: '#/components/schemas/SiteWarehouseMaterials'
+            - type: 'null'
+    SiteWarehouseMaterials:
+      type: object
+      required: [amount, movements, missing_costs]
+      properties:
+        amount:
+          description: |
+            Somma degli scarichi verso il cantiere, ciascuno per il costo medio ponderato dei
+            carichi con costo dell'articolo fino al giorno dello scarico, arrotondato al
+            centesimo per ogni scarico. Gli scarichi senza un costo medio valgono zero.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        movements:
+          type: integer
+          description: Scarichi dal magazzino verso il cantiere.
+        missing_costs:
+          type: integer
+          description: Scarichi di articoli senza nessun carico con costo fino a quel giorno.
     SiteRevenue:
       type: object
       required:

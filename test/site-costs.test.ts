@@ -264,6 +264,7 @@ describe('site costs', () => {
       over_budget: true,
       missing_hourly_costs: 1,
       revenue: null,
+      warehouse_materials: null,
     })
     const foreign = await scene()
     expect(

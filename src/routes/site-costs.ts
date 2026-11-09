@@ -442,6 +442,9 @@ interface SummaryRow {
   certified_uninvoiced: string
   retention_held: string
   retention_released: string
+  warehouse_cents: string
+  warehouse_movements: number
+  warehouse_missing: number
 }
 
 /**
@@ -502,6 +505,18 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
                from public.progress_statement_lines l where l.statement_id = p.id
              ) a
              where p.status = 'approved'
+           ), stock_out as (
+             select coalesce(sum(round(m.quantity * c.average)), 0) as cents,
+               count(*)::int as movements,
+               (count(*) filter (where c.average is null))::int as missing
+             from public.warehouse_movements m
+             cross join lateral (
+               select sum(i.quantity * i.unit_cost_cents) / nullif(sum(i.quantity), 0) as average
+               from public.warehouse_movements i
+               where i.item_id = m.item_id and i.kind = 'in' and i.unit_cost_cents is not null
+                 and i.movement_date <= m.movement_date
+             ) c
+             where m.site_id = $1 and m.kind = 'out'
            )
            select s.id, s.name, s.code, s.budget_cents::text as budget_cents,
              labor.hours::numeric(10, 2)::text as labor_hours, labor.cents::bigint::text as labor_cents,
@@ -514,8 +529,10 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
              revenue.to_collect::bigint::text as to_collect, certified.cents::bigint::text as certified,
              certified.uninvoiced::bigint::text as certified_uninvoiced,
              certified.retention::bigint::text as retention_held,
-             revenue.released::bigint::text as retention_released
-           from public.sites s, labor, machines, manual, revenue, certified
+             revenue.released::bigint::text as retention_released,
+             stock_out.cents::bigint::text as warehouse_cents,
+             stock_out.movements as warehouse_movements, stock_out.missing as warehouse_missing
+           from public.sites s, labor, machines, manual, revenue, certified, stock_out
            where s.id = $1`,
           [request.params.site],
         )
@@ -525,16 +542,22 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
             summary,
             revenue: permissions.has('invoices.view'),
             certified: permissions.has('estimates.view'),
+            warehouse: permissions.has('warehouse.view'),
           }
         )
       })
       if (!row) throw notFound()
-      return reply.send(summaryToContract(row.summary, row.revenue, row.certified))
+      return reply.send(summaryToContract(row.summary, row.revenue, row.certified, row.warehouse))
     },
   )
 }
 
-function summaryToContract(row: SummaryRow, withRevenue: boolean, withCertified: boolean) {
+function summaryToContract(
+  row: SummaryRow,
+  withRevenue: boolean,
+  withCertified: boolean,
+  withWarehouse: boolean,
+) {
   const parts = [
     row.labor_cents,
     row.vehicle_cents,
@@ -573,6 +596,13 @@ function summaryToContract(row: SummaryRow, withRevenue: boolean, withCertified:
           retention_to_release: withCertified
             ? centsToAmount(String(BigInt(row.retention_held) - BigInt(row.retention_released)))
             : null,
+        }
+      : null,
+    warehouse_materials: withWarehouse
+      ? {
+          amount: centsToAmount(row.warehouse_cents),
+          movements: row.warehouse_movements,
+          missing_costs: row.warehouse_missing,
         }
       : null,
   }
