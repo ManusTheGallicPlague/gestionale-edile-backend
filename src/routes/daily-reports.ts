@@ -292,8 +292,23 @@ function readList(query: Record<string, unknown>) {
   const from = date('filter[from]')
   const to = date('filter[to]')
   if (from && to && to < from) errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
+  const qValue = single('filter[q]')?.trim()
+  if (qValue !== undefined && qValue.length > 100)
+    errors['filter[q]'] = ['Al massimo 100 caratteri.']
+  const q = qValue ? qValue : undefined
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, sort: sort ?? '-date', status, siteId, employeeId, vehicleId, from, to }
+  return {
+    page,
+    perPage,
+    sort: sort ?? '-date',
+    status,
+    siteId,
+    employeeId,
+    vehicleId,
+    from,
+    to,
+    q,
+  }
 }
 
 function readMonthlyHours(query: Record<string, unknown>) {
@@ -489,6 +504,13 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.from) add((p) => `r.report_date >= ${p}`, list.from)
   if (list.to) add((p) => `r.report_date <= ${p}`, list.to)
+  if (list.q) {
+    add(
+      (p) =>
+        `strpos(lower(coalesce(r.work_done, '') || ' ' || coalesce(r.notes, '')), lower(${p})) > 0`,
+      list.q,
+    )
+  }
   return { where, values }
 }
 

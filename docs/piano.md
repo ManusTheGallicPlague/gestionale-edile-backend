@@ -603,6 +603,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: come per i costi, l'elenco 
 
 - [x] `filter[q]` in `listPurchaseOrders` ed `exportPurchaseOrders`: testo nel numero (come 2026/007), nelle note e nelle descrizioni delle righe, senza distinguere maiuscole e minuscole e senza caratteri jolly, ogni ordine contato una volta con `total_amount` sul filtro; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
 
+### 87. Ricerca nei rapportini
+Aggiunta il 09/11/2026, con il piano tutto spuntato: l'elenco dei rapportini (`listDailyReports`) e il suo CSV filtravano per cantiere, dipendente, mezzo, stato e periodo, ma per ritrovare il giorno di una lavorazione («getto del solaio») serve la ricerca nel testo.
+
+- [x] `filter[q]` in `listDailyReports` ed `exportDailyReports`: testo nei lavori eseguiti e nelle note, senza distinguere maiuscole e minuscole e senza caratteri jolly; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; il PDF del giornale dei lavori lo ignora come ignora dipendente e mezzo; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -852,11 +857,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: il periodo delle attività prende quelle che si sovrappongono al periodo, non solo quelle che iniziano o finiscono dentro: un'attività di tre mesi compare in ogni settimana in cui è aperta.
 - 09/11/2026: la ricerca nei costi è `filter[q]` come nelle fatture (non il parametro `search` delle anagrafiche), cerca nella descrizione e nelle note ma non nel nome del cantiere o del fornitore, che hanno già i loro filtri.
 - 09/11/2026: la ricerca negli ordini guarda anche le descrizioni delle righe (con `exists`, così un ordine con più righe trovate conta una volta), perché chi cerca un ordine ricorda il materiale più che il numero; non guarda il nome del fornitore o del cantiere, che hanno già i loro filtri.
+- 09/11/2026: la ricerca nei rapportini non guarda le descrizioni delle righe delle ore né il meteo: le lavorazioni del giorno stanno nei lavori eseguiti; il giornale dei lavori in PDF resta il cantiere intero nel periodo, senza la ricerca.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 20:37 UTC: stesso giro, terzo push: sezione 87, `filter[q]` nei rapportini e nel loro CSV (test sui lavori eseguiti in maiuscolo, sulle note, lavori eseguiti vuoti, `%` come testo, testo vuoto ignorato, rapportino di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 967 test.
 - 2026-11-09 20:31 UTC: stesso giro, secondo push: sezione 86, `filter[q]` negli ordini ai fornitori e nel loro CSV (test sul numero 2026/003, sulle note in maiuscolo, sulla descrizione di una riga, ordine con due righe trovate contato una volta con 1625.02 + 0.10 = 1625.12, `%` come testo, testo vuoto ignorato, ordine di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 966 test.
 - 2026-11-09 20:21 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 85: `filter[q]` nell'elenco dei costi e nel loro CSV (test con 0.10 + 0.20 trovati nella descrizione e nelle note = 0.30, maiuscole e spazi, pagina 2 con il totale del filtro, `%` come testo, testo vuoto ignorato, costo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 965 test.
 - 2026-11-09 19:40 UTC: stesso giro, terzo push: sezione 84, `filter[from]` e `filter[to]` nelle attività del cronoprogramma di tutti i cantieri e nel loro CSV (test sul giorno di oggi con un'attività che inizia e una che finisce oggi, periodo futuro, solo inizio, solo fine insieme al cantiere, 422 su date non valide, ripetute e con la fine prima dell'inizio anche nel CSV). Corretta l'ora della riga del secondo push (19:35, non 19:38). Niente a metà; piano tutto spuntato. 964 test.

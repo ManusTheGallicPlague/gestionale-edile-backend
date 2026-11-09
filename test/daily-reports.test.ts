@@ -357,6 +357,41 @@ describe('daily reports', () => {
     expect((await blind.browser.call('GET', url)).statusCode).toBe(404)
   })
 
+  it('searches the work done and the notes with filter[q], also in the CSV', async () => {
+    const s = await scene()
+    await create(s, { work_done: 'Getto del SOLAIO', notes: null })
+    await create(s, { date: '2026-11-06', work_done: null, notes: 'Solaio da bagnare' })
+    await create(s, { date: '2026-11-07', work_done: 'Scavo', notes: null })
+    const stranger = await scene()
+    await create(stranger)
+
+    type List = { data: { date: string }[]; meta: { total: number } }
+    const list = async (q: string) =>
+      (await s.browser.call('GET', `${s.base}?filter[q]=${q}&sort=date`)).json<List>()
+    expect((await list('%20solaio%20')).data.map((r) => r.date)).toEqual([
+      '2026-11-05',
+      '2026-11-06',
+    ])
+    expect((await list('bagnare')).data.map((r) => r.date)).toEqual(['2026-11-06'])
+    expect((await list('%25')).meta.total).toBe(0)
+    expect((await list('%20')).meta.total).toBe(3)
+
+    const csv = await s.browser.call('GET', `${s.base}/export?filter[q]=scavo`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toMatch(/^07\/11\/2026;Villetta;/)
+
+    for (const path of [s.base, `${s.base}/export`]) {
+      const long = await s.browser.call('GET', `${path}?filter[q]=${'a'.repeat(101)}`)
+      expect(long.statusCode).toBe(422)
+      expect(long.json()).toMatchObject({ errors: { 'filter[q]': ['Al massimo 100 caratteri.'] } })
+      const twice = await s.browser.call('GET', `${path}?filter[q]=a&filter[q]=b`)
+      expect(twice.statusCode).toBe(422)
+      expect(twice.json()).toMatchObject({ errors: { 'filter[q]': ['Indicalo una volta sola.'] } })
+    }
+  })
+
   it('creates a draft with hours and totals, without costs, and reads it back', async () => {
     const s = await scene()
     const { report, etag } = await create(s)

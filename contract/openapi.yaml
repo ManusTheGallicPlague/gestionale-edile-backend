@@ -2131,7 +2131,8 @@ paths:
             Filtri, ad esempio filter[site]=<id>, filter[status]=submitted,
             filter[from]=2026-11-01 e filter[to]=2026-11-30 (estremi compresi).
             filter[employee]=<id> e filter[vehicle]=<id> tengono i rapportini con ore di quel
-            dipendente o di quel mezzo, per le schede di dipendenti e mezzi.
+            dipendente o di quel mezzo, per le schede di dipendenti e mezzi. filter[q]=testo
+            cerca nei lavori eseguiti e nelle note, senza distinguere maiuscole e minuscole.
           style: deepObject
           explode: true
           schema:
@@ -2143,6 +2144,9 @@ paths:
               status: { $ref: '#/components/schemas/DailyReportStatus' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di rapportini
@@ -2257,6 +2261,9 @@ paths:
               status: { $ref: '#/components/schemas/DailyReportStatus' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV
