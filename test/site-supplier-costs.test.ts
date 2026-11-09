@@ -135,6 +135,39 @@ describe('site costs per supplier', () => {
     expect(res.json<SupplierCosts>().total).toBe('1280.30')
   })
 
+  it('exports the same rows in CSV', async () => {
+    const s = await scene()
+    await ctx.owner.query(`update public.suppliers set name = 'Noli; "Rossi"' where id = $1`, [
+      s.noli,
+    ])
+    const res = await s.browser.call('GET', `${s.url(s.villetta)}/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe(
+      'attachment; filename="costi-fornitori-cantiere.csv"',
+    )
+    expect(res.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Fornitore;Costi;Materiali;Noli;Subappalti;Altro;Totale',
+      'Archiviato;1;0,00;0,00;1250,00;0,00;1250,00',
+      'Calcestruzzi;1;15,00;0,00;0,00;0,00;15,00',
+      '"Noli; ""Rossi""";2;0,10;14,90;0,00;0,00;15,00',
+      'Senza fornitore;2;0,20;0,00;0,00;0,10;0,30',
+    ])
+    const empty = await s.browser.call('GET', `${s.url(s.box)}/export`)
+    expect(empty.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Fornitore;Costi;Materiali;Noli;Subappalti;Altro;Totale',
+      'Calcestruzzi;1;999,99;0,00;0,00;0,00;999,99',
+    ])
+    const blind = await scene(['sites.view'])
+    expect(
+      (await blind.browser.call('GET', `${blind.url(blind.villetta)}/export`)).statusCode,
+    ).toBe(404)
+    expect((await s.browser.call('GET', `${s.url(blind.villetta)}/export`)).statusCode).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', `${s.url(s.villetta)}/export`)).statusCode).toBe(
+      401,
+    )
+  })
+
   it('has no rows for a site without costs entered by hand', async () => {
     const s = await scene()
     await ctx.owner.query('delete from public.site_costs where site_id = $1', [s.box])

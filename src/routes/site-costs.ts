@@ -632,17 +632,24 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
     },
   )
 
+  const supplierCosts = async (
+    request: FastifyRequest<{ Params: { company: string; site: string } }>,
+  ) => {
+    const session = requireSession(request)
+    const rows = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('costs.view')) throw notFound()
+      if (!UUID.test(request.params.site)) throw notFound()
+      return readSupplierCosts(client, request.params.site)
+    })
+    if (!rows) throw notFound()
+    return rows
+  }
+
   app.get<{ Params: { company: string; site: string } }>(
     '/api/companies/:company/sites/:site/cost-summary/suppliers',
     async (request, reply) => {
-      const session = requireSession(request)
-      const rows = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
-        const permissions = await enterCompany(client, request.params.company)
-        if (!permissions.has('costs.view')) throw notFound()
-        if (!UUID.test(request.params.site)) throw notFound()
-        return readSupplierCosts(client, request.params.site)
-      })
-      if (!rows) throw notFound()
+      const rows = await supplierCosts(request)
       const total = rows.reduce((sum, r) => sum + BigInt(r.total), 0n)
       return reply.send({
         total: centsToAmount(total.toString()),
@@ -656,6 +663,29 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
           total: centsToAmount(r.total),
         })),
       })
+    },
+  )
+
+  app.get<{ Params: { company: string; site: string } }>(
+    '/api/companies/:company/sites/:site/cost-summary/suppliers/export',
+    async (request, reply) => {
+      const rows = await supplierCosts(request)
+      const csv = toCsv(
+        ['Fornitore', 'Costi', 'Materiali', 'Noli', 'Subappalti', 'Altro', 'Totale'],
+        rows.map((r) => [
+          r.supplier_id ? (r.supplier_name ?? '') : 'Senza fornitore',
+          r.costs,
+          italianAmount(r.materials),
+          italianAmount(r.rentals),
+          italianAmount(r.subcontract),
+          italianAmount(r.other),
+          italianAmount(r.total),
+        ]),
+      )
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="costi-fornitori-cantiere.csv"')
+        .send(csv)
     },
   )
 
