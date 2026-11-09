@@ -527,6 +527,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: la pagina `/costi` del fron
 - [x] Lo stesso elenco in CSV (`exportSiteCostTotals`, file `costi-cantieri.csv`)
 - [x] `search` nell'elenco e nel CSV, su nome e codice del cantiere, per la barra filtri della schermata «A. Elenco» del frontend
 
+### 74. Costi dei cantieri per periodo
+Aggiunta il 09/11/2026, con il piano tutto spuntato: la barra filtri dell'elenco (schermata «A. Elenco» di `docs/frontend.md`) ha anche le date, e il titolare vuole sapere quanto è costato ogni cantiere in un mese o in un trimestre, non solo dall'inizio.
+
+- [ ] `filter[from]` e `filter[to]` in `listSiteCostTotals` ed `exportSiteCostTotals`: costi con data del rapportino o del costo dentro il periodo (estremi compresi); budget, residuo e `over_budget` restano sul totale di sempre, con il costo del periodo in un campo a parte; 422 su date non valide o `from` dopo `to`; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
