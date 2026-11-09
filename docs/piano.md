@@ -552,6 +552,7 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: la sezione 76 dice quanto h
 
 - [x] `costs` in `listSupplierSites`: con `costs.view` la somma dei costi inseriti a mano con il fornitore sul cantiere (`0.00` se ha solo ordini), la stessa del suo totale in `getSiteSupplierCosts`; senza `costs.view` null; nessuna migrazione, nessun permesso nuovo
 - [x] `orders` nello stesso elenco: con `purchases.view` il totale senza IVA degli ordini inviati o ricevuti al fornitore per il cantiere (le bozze no), con la regola di `purchase_orders.total` di `getSiteCostSummary`; senza `purchases.view` null
+- [x] Lo stesso elenco in CSV (`exportSupplierSites` su `…/suppliers/{supplier}/sites/export`, file `cantieri-fornitore.csv`), con le colonne Costi e Ordinato solo con i loro permessi
 
 ## Decisioni prese
 
@@ -796,6 +797,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 15:41 UTC: stesso giro, terzo push: `exportSupplierSites` (test con punto e virgola e virgolette nel nome del cantiere, stati tradotti, colonne degli importi presenti solo con `costs.view` e `purchases.view`, 403 senza `sites.view`, 404 senza `suppliers.view`, con id non valido e da un'altra azienda, 401 senza sessione); la lettura è una funzione sola per elenco e CSV. Niente a metà; piano tutto spuntato. 942 test.
 - 2026-11-09 15:36 UTC: stesso giro, secondo push: `orders` in `listSupplierSites` (test con righe arrotondate una per una 1.5 × 3.33 due volte più un ordine ricevuto, bozze e ordini di un altro fornitore esclusi, cantiere con solo bozze o solo costi a 0.00, null senza `purchases.view`). Niente a metà; piano tutto spuntato. 940 test.
 - 2026-11-09 15:21 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (938 test; un primo giro di controlli è fallito solo perché modificavo i file mentre girava, rilanciato verde); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 77: `costs` in `listSupplierSites` (test con 0.10 + 0.20 sullo stesso cantiere, cantiere con solo un ordine a 0.00, costi di un altro fornitore e senza fornitore esclusi, importo uguale alla riga di `getSiteSupplierCosts`, null senza `costs.view`, costi di un'altra azienda che non contano). Niente a metà; piano tutto spuntato. 939 test.
 - 2026-11-09 14:42 UTC: stesso giro, terzo push: `filter[from]` e `filter[to]` in `getSiteSupplierCosts` ed `exportSiteSupplierCosts` (test su due giorni con estremi compresi, solo inizio, solo fine, periodo vuoto, CSV, 422 su data non valida, ripetuta e con la fine prima dell'inizio). Niente a metà; piano tutto spuntato. 938 test.

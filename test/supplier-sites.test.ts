@@ -222,6 +222,54 @@ describe('sites of a supplier', () => {
     })
   })
 
+  it('exports the same sites in CSV, with the amounts only with their permissions', async () => {
+    const all = await scene(['sites.view', 'suppliers.view', 'costs.view', 'purchases.view'])
+    const a = await site(all.company.id, 'Villetta; "nord"', 'active', 'C-01')
+    const b = await site(all.company.id, 'Arena', 'completed')
+    await cost(all.company.id, a, all.supplierId, 10)
+    await cost(all.company.id, a, all.supplierId, 20)
+    const sent = await order(all.company.id, b, all.supplierId, 'sent')
+    await line(all.company.id, sent, '2', 123456)
+
+    const res = await all.browser.call('GET', `${all.url}/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="cantieri-fornitore.csv"')
+    expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Codice;Cantiere;Stato;Costi;Ordinato',
+      'C-01;"Villetta; ""nord""";In corso;0,30;0,00',
+      ';Arena;Chiuso;0,00;2469,12',
+    ])
+
+    // Without costs.view and purchases.view the amount columns are not there.
+    const plain = await scene()
+    const c = await site(plain.company.id, 'Box', 'planned')
+    await cost(plain.company.id, c, plain.supplierId)
+    const csv = await plain.browser.call('GET', `${plain.url}/export`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body).not.toContain('9876')
+    expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Codice;Cantiere;Stato',
+      ';Box;Da iniziare',
+    ])
+  })
+
+  it('refuses the CSV like the list', async () => {
+    const office = await scene(['suppliers.view', 'costs.view'])
+    expect((await office.browser.call('GET', `${office.url}/export`)).statusCode).toBe(403)
+    const chief = await scene(['sites.view', 'costs.view'])
+    expect((await chief.browser.call('GET', `${chief.url}/export`)).statusCode).toBe(404)
+    const mine = await scene()
+    const theirs = await scene()
+    const other = `/api/companies/${mine.company.slug}/suppliers/${theirs.supplierId}/sites/export`
+    expect((await mine.browser.call('GET', other)).statusCode).toBe(404)
+    expect(
+      (await mine.browser.call('GET', mine.url.replace(mine.supplierId, 'nope') + '/export'))
+        .statusCode,
+    ).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', `${mine.url}/export`)).statusCode).toBe(401)
+  })
+
   it('works for an archived supplier', async () => {
     const { browser, company } = await scene()
     const archived = await supplier(company.id, 'Archiviata', true)

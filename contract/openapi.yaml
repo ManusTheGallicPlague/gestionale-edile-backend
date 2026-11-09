@@ -1132,6 +1132,35 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/suppliers/{supplier}/sites/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SupplierId'
+    get:
+      operationId: exportSupplierSites
+      summary: Cantieri di un fornitore in CSV
+      description: |
+        Permessi come listSupplierSites: suppliers.view (senza, 404) e sites.view (senza, 403).
+        Le stesse righe nello stesso ordine, nello stesso formato dell'esportazione dei clienti:
+        colonne Codice, Cantiere, Stato, poi Costi solo con costs.view e Ordinato solo con
+        purchases.view, importi con la virgola decimale (1234,50). Il file si chiama
+        cantieri-fornitore.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/suppliers/{supplier}/documents:
     parameters:
       - $ref: '#/components/parameters/Company'

@@ -1,8 +1,8 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import type { Db } from '../db.js'
 import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
-import { italianDate, toCsv } from '../csv.js'
+import { italianAmount, italianDate, toCsv } from '../csv.js'
 import { UUID } from '../deadlines/input.js'
 import { forbidden, notFound } from '../http/errors.js'
 import { centsToAmount } from '../money.js'
@@ -10,6 +10,7 @@ import { requireSession } from '../http/request-context.js'
 import { DOCUMENT_KINDS, type DocumentKind } from '../suppliers/documents.js'
 import { KIND_LABEL } from './supplier-documents.js'
 import { siteExists } from './site-team.js'
+import { STATUS_LABELS } from './sites.js'
 import { COMPLIANCE_SQL } from './suppliers.js'
 
 type Params = { company: string; site: string }
@@ -100,48 +101,84 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
   )
 
   // The other way round: the sites of a supplier (any, not only subcontractors).
+  const supplierSites = (
+    request: FastifyRequest<{ Params: { company: string; supplier: string } }>,
+  ) => {
+    const session = requireSession(request)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('suppliers.view')) throw notFound()
+      const id = request.params.supplier
+      if (!UUID.test(id)) throw notFound()
+      const found = await client.query('select 1 from public.suppliers where id = $1', [id])
+      if (found.rowCount === 0) throw notFound()
+      if (!permissions.has('sites.view')) throw forbidden()
+      const { rows } = await client.query<SupplierSiteRow & { costs: string; orders: string }>(
+        `select s.id, s.code, s.name, s.status,
+           (select coalesce(sum(c.amount_cents), 0) from public.site_costs c
+            where c.site_id = s.id and c.supplier_id = $1)::text as costs,
+           (select coalesce(sum(round(l.quantity * l.unit_price_cents)), 0)::bigint
+            from public.purchase_orders o
+            join public.purchase_order_lines l on l.order_id = o.id
+            where o.site_id = s.id and o.supplier_id = $1
+              and o.status in ('sent', 'received'))::text as orders
+         from public.sites s
+         where exists (select 1 from public.site_costs c
+                       where c.site_id = s.id and c.supplier_id = $1)
+            or exists (select 1 from public.purchase_orders o
+                       where o.site_id = s.id and o.supplier_id = $1)
+         order by ${SITES_ORDER}`,
+        [id],
+      )
+      return {
+        rows,
+        costs: permissions.has('costs.view'),
+        orders: permissions.has('purchases.view'),
+      }
+    })
+  }
+
   app.get<{ Params: { company: string; supplier: string } }>(
     '/api/companies/:company/suppliers/:supplier/sites',
     async (request) => {
-      const session = requireSession(request)
-      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
-        const permissions = await enterCompany(client, request.params.company)
-        if (!permissions.has('suppliers.view')) throw notFound()
-        const id = request.params.supplier
-        if (!UUID.test(id)) throw notFound()
-        const found = await client.query('select 1 from public.suppliers where id = $1', [id])
-        if (found.rowCount === 0) throw notFound()
-        if (!permissions.has('sites.view')) throw forbidden()
-        const { rows } = await client.query<SupplierSiteRow & { costs: string; orders: string }>(
-          `select s.id, s.code, s.name, s.status,
-             (select coalesce(sum(c.amount_cents), 0) from public.site_costs c
-              where c.site_id = s.id and c.supplier_id = $1)::text as costs,
-             (select coalesce(sum(round(l.quantity * l.unit_price_cents)), 0)::bigint
-              from public.purchase_orders o
-              join public.purchase_order_lines l on l.order_id = o.id
-              where o.site_id = s.id and o.supplier_id = $1
-                and o.status in ('sent', 'received'))::text as orders
-           from public.sites s
-           where exists (select 1 from public.site_costs c
-                         where c.site_id = s.id and c.supplier_id = $1)
-              or exists (select 1 from public.purchase_orders o
-                         where o.site_id = s.id and o.supplier_id = $1)
-           order by ${SITES_ORDER}`,
-          [id],
-        )
-        const costs = permissions.has('costs.view')
-        const orders = permissions.has('purchases.view')
-        return {
-          data: rows.map((r) => ({
-            site_id: r.id,
-            code: r.code,
-            name: r.name,
-            status: r.status,
-            costs: costs ? centsToAmount(r.costs) : null,
-            orders: orders ? centsToAmount(r.orders) : null,
-          })),
-        }
-      })
+      const { rows, costs, orders } = await supplierSites(request)
+      return {
+        data: rows.map((r) => ({
+          site_id: r.id,
+          code: r.code,
+          name: r.name,
+          status: r.status,
+          costs: costs ? centsToAmount(r.costs) : null,
+          orders: orders ? centsToAmount(r.orders) : null,
+        })),
+      }
+    },
+  )
+
+  app.get<{ Params: { company: string; supplier: string } }>(
+    '/api/companies/:company/suppliers/:supplier/sites/export',
+    async (request, reply) => {
+      const { rows, costs, orders } = await supplierSites(request)
+      const csv = toCsv(
+        [
+          'Codice',
+          'Cantiere',
+          'Stato',
+          ...(costs ? ['Costi'] : []),
+          ...(orders ? ['Ordinato'] : []),
+        ],
+        rows.map((r) => [
+          r.code,
+          r.name,
+          STATUS_LABELS[r.status as keyof typeof STATUS_LABELS],
+          ...(costs ? [italianAmount(r.costs)] : []),
+          ...(orders ? [italianAmount(r.orders)] : []),
+        ]),
+      )
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="cantieri-fornitore.csv"')
+        .send(csv)
     },
   )
 
