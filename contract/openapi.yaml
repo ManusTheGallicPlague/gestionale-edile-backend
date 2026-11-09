@@ -2745,7 +2745,8 @@ paths:
       description: |
         Permesso: purchases.view. Stessi filtri e ordinamento dell'elenco, senza paginazione, nello
         stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con la
-        virgola decimale (1234,50). Il file si chiama ordini.csv.
+        virgola decimale (1234,50). In fondo la colonna Fatturato (invoiced_amount), vuota
+        senza invoices.view. Il file si chiama ordini.csv.
       parameters:
         - name: sort
           in: query
@@ -11346,6 +11347,7 @@ components:
           notes,
           line_count,
           total,
+          invoiced_amount,
           sent_at,
           received_at,
           created_at,
@@ -11383,6 +11385,14 @@ components:
           description: Somma delle righe, senza IVA.
           allOf:
             - $ref: '#/components/schemas/Amount'
+        invoiced_amount:
+          description: |
+            Imponibile delle fatture ricevute che addebitano l'ordine (purchase_order_id della
+            fattura), da confrontare con total; 0.00 se non ce ne sono. Null senza
+            invoices.view. Calcolato: non cambia l'ETag e si ignora nel corpo.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
         sent_at:
           type: [string, 'null']
           format: date-time

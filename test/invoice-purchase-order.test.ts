@@ -185,4 +185,49 @@ describe('received invoice of a purchase order', () => {
     )
     expect(left.rowCount).toBe(0)
   })
+
+  it('shows the invoiced amount in the order, only to who sees invoices', async () => {
+    const s = await scene([...ALL, 'purchases.view'])
+    const orders = `/api/companies/${s.company.slug}/purchase-orders`
+    type Order = { id: string; invoiced_amount: string | null }
+    await s.browser.call('POST', s.base, { body: s.invoice({ taxable_amount: '0.10' }) })
+    await s.browser.call('POST', s.base, { body: s.invoice({ taxable_amount: '0.20' }) })
+    await s.browser.call('POST', s.base, { body: s.invoice({ purchase_order_id: null }) })
+    const one = await s.browser.call('GET', `${orders}/${s.sent}`)
+    expect(one.statusCode).toBe(200)
+    expect(one.json<Order>().invoiced_amount).toBe('0.30')
+    const etag = one.headers.etag
+    const list = await s.browser.call('GET', `${orders}?sort=number`)
+    expect(list.statusCode).toBe(200)
+    expect(list.json<{ data: Order[] }>().data.map((o) => o.invoiced_amount)).toEqual([
+      '0.30',
+      '0.00',
+      '0.00',
+      '0.00',
+    ])
+    expect((await s.browser.call('GET', `${orders}/${s.sent}`)).headers.etag).toBe(etag)
+    const csv = await s.browser.call('GET', `${orders}/export?sort=number`)
+    const rows = csv.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(rows[0]?.endsWith(';Fatturato')).toBe(true)
+    expect(rows[1]?.endsWith(';0,30')).toBe(true)
+
+    const blind = new Browser(ctx.app)
+    const buyer = await fx.user()
+    await fx.member(
+      buyer.id,
+      s.company.id,
+      await fx.role(s.company.id, 'Acquisti', ['purchases.view']),
+    )
+    await blind.signIn(buyer.email)
+    const hidden = await blind.call('GET', `${orders}/${s.sent}`)
+    expect(hidden.statusCode).toBe(200)
+    expect(hidden.json<Order>().invoiced_amount).toBeNull()
+    const hiddenList = await blind.call('GET', orders)
+    expect(hiddenList.json<{ data: Order[] }>().data.every((o) => o.invoiced_amount === null)).toBe(
+      true,
+    )
+    const hiddenCsv = await blind.call('GET', `${orders}/export?sort=number`)
+    const hiddenRows = hiddenCsv.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(hiddenRows[1]?.endsWith(';')).toBe(true)
+  })
 })

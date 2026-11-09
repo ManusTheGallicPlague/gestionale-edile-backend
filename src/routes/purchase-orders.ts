@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
 import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
+import type { Permission } from '../permissions.js'
 import type { Db } from '../db.js'
 import { isForeignKeyViolation, withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
@@ -67,6 +68,8 @@ interface OrderRow {
   notes: string | null
   line_count: number
   total_cents: string
+  /** Taxable amount of the received invoices billing the order; null without invoices.view. */
+  invoiced_cents: string | null
   sent_at: Date | null
   received_at: Date | null
   version: number
@@ -97,7 +100,10 @@ const TOTALS = `(select count(*)::int as line_count,
 const SELECT = `select o.id, o.number_year, o.number_seq, o.status, o.supplier_id,
     p.name as supplier_name, o.site_id, s.name as site_name, s.code as site_code,
     o.order_date::text as order_date, o.delivery_date::text as delivery_date, o.notes,
-    t.line_count, t.total_cents, o.sent_at, o.received_at, o.version, o.created_at, o.updated_at
+    t.line_count, t.total_cents,
+    (select coalesce(sum(i.taxable_cents), 0)::text from public.invoices i
+      where i.purchase_order_id = o.id) as invoiced_cents,
+    o.sent_at, o.received_at, o.version, o.created_at, o.updated_at
   from public.purchase_orders o
   join public.suppliers p on p.id = o.supplier_id
   left join public.sites s on s.id = o.site_id
@@ -140,6 +146,7 @@ function summary(row: OrderRow) {
     notes: row.notes,
     line_count: row.line_count,
     total: centsToAmount(row.total_cents),
+    invoiced_amount: row.invoiced_cents === null ? null : centsToAmount(row.invoiced_cents),
     sent_at: row.sent_at?.toISOString() ?? null,
     received_at: row.received_at?.toISOString() ?? null,
     created_at: row.created_at.toISOString(),
@@ -150,6 +157,18 @@ function summary(row: OrderRow) {
 interface FullOrder {
   row: OrderRow
   lines: LineRow[]
+}
+
+/** The invoiced amount tells about invoices: only who sees them sees it. */
+function hideInvoiced<T extends OrderRow>(row: T, permissions: ReadonlySet<Permission>): T {
+  return permissions.has('invoices.view') ? row : { ...row, invoiced_cents: null }
+}
+
+function withInvoiced(
+  permissions: ReadonlySet<Permission>,
+  order: FullOrder | undefined,
+): FullOrder | undefined {
+  return order && { ...order, row: hideInvoiced(order.row, permissions) }
 }
 
 function send(reply: FastifyReply, order: FullOrder, status = 200) {
@@ -466,7 +485,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
         values.slice(0, filters),
       )
       return {
-        data: rows.map(summary),
+        data: rows.map((r) => summary(hideInvoiced(r, permissions))),
         meta: { total: count.rows[0]?.total ?? 0, page: list.page, per_page: list.perPage },
         total_amount: centsToAmount(count.rows[0]?.amount ?? '0'),
       }
@@ -499,6 +518,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
             'Righe',
             'Totale',
             'Note',
+            'Fatturato',
           ],
           rows.map((r) => [
             summary(r).number,
@@ -510,6 +530,9 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
             r.line_count,
             italianAmount(r.total_cents),
             r.notes,
+            permissions.has('invoices.view') && r.invoiced_cents !== null
+              ? italianAmount(r.invoiced_cents)
+              : null,
           ]),
         )
       })
@@ -597,7 +620,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
       if (!permissions.has('purchases.view')) throw notFound()
       const id = request.params.order ?? ''
       if (!UUID.test(id)) throw notFound()
-      return readOne(client, id)
+      return withInvoiced(permissions, await readOne(client, id))
     })
     if (!order) throw notFound()
     return send(reply, order)
@@ -613,7 +636,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
       await checkReferences(client, input)
       const id = await insertOrder(client, input)
       await writeLines(client, id, input.lines)
-      return readOne(client, id)
+      return withInvoiced(permissions, await readOne(client, id))
     })
     if (!order) throw new Error('insert returned no row')
     return send(reply, order, 201)
@@ -656,7 +679,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
          from public.purchase_order_lines where order_id = $1`,
         [sourceId, id],
       )
-      return readOne(client, id)
+      return withInvoiced(permissions, await readOne(client, id))
     })
     if (!order) throw new Error('insert returned no row')
     return send(reply, order, 201)
@@ -700,7 +723,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
         .catch(writeFailed)
       if (!rowCount) return missingOrStale(client, id)
       await writeLines(client, id, input.lines)
-      return readOne(client, id)
+      return withInvoiced(permissions, await readOne(client, id))
     })
     if (!order) throw notFound()
     return send(reply, order)
@@ -755,7 +778,7 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
         [target, id, version],
       )
       if (!rowCount) return missingOrStale(client, id)
-      return readOne(client, id)
+      return withInvoiced(permissions, await readOne(client, id))
     })
     if (!order) throw notFound()
     return send(reply, order)
