@@ -327,6 +327,79 @@ describe('progress statements', () => {
     expect((await browser.call('GET', url)).statusCode).toBe(404)
   })
 
+  it('exports the statement in CSV, with previous, current and cumulative figures', async () => {
+    const s = await scene()
+    await ctx.owner.query('update public.estimate_items set description = $1 where id = $2', [
+      'Intonaco; civile',
+      s.intonaco,
+    ])
+    const first = await s.browser.call('POST', s.url, {
+      body: {
+        statement_date: '2026-10-31',
+        notes: null,
+        lines: [
+          { item_id: s.scavo, quantity: '40' },
+          { item_id: s.intonaco, quantity: '0.5' },
+        ],
+      },
+    })
+    const one = first.json<Statement>()
+    const approved = await s.browser.call('POST', `${s.url}/${one.id}/approve`, {
+      headers: { 'if-match': '"1"' },
+    })
+    expect(approved.statusCode).toBe(200)
+    const second = await s.browser.call('POST', s.url, {
+      body: {
+        statement_date: '2026-11-30',
+        notes: null,
+        lines: [{ item_id: s.scavo, quantity: '10' }],
+      },
+    })
+    expect(second.statusCode).toBe(201)
+    const two = second.json<Statement>()
+
+    const res = await s.browser.call('GET', `${s.url}/${two.id}/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="sal-2.csv"')
+    const rows = res.body.replace('﻿', '').trim().split('\r\n')
+    expect(rows).toEqual([
+      'Codice;Descrizione;Unità;Prezzo;Quantità di contratto;Quantità precedente;' +
+        'Quantità del SAL;Quantità progressiva;Importo precedente;Importo del SAL;Importo progressivo',
+      'A.01;Scavo;m³;8,50;100,000;40,000;10,000;50,000;340,00;85,00;425,00',
+      'B.01;"Intonaco; civile";m²;;10,000;0,500;0,000;0,500;11,67;0,00;11,67',
+      ';Totale;;;;;;;351,67;85,00;436,67',
+    ])
+    // The same figures as the detail.
+    expect(two).toMatchObject({
+      previous_amount: '351.67',
+      amount: '85.00',
+      cumulative_amount: '436.67',
+    })
+    // An approved statement exports too.
+    const old = await s.browser.call('GET', `${s.url}/${one.id}/export`)
+    expect(old.headers['content-disposition']).toBe('attachment; filename="sal-1.csv"')
+    expect(old.body).toContain(';Totale;;;;;;;0,00;351,67;351,67')
+
+    // Another company, another estimate, no permission, a bad id, no session: 404 or 401.
+    const theirs = await scene()
+    expect((await theirs.browser.call('GET', `${theirs.url}/${two.id}/export`)).statusCode).toBe(
+      404,
+    )
+    const other = await estimateOf(s.company.id)
+    const wrong = `/api/companies/${s.company.slug}/estimates/${other.estimate}/progress-statements/${two.id}/export`
+    expect((await s.browser.call('GET', wrong)).statusCode).toBe(404)
+    expect((await s.browser.call('GET', `${s.url}/x/export`)).statusCode).toBe(404)
+    const blind = await fx.user()
+    await fx.member(blind.id, s.company.id, await fx.role(s.company.id, 'Ospite', ['quotes.view']))
+    const browser = new Browser(ctx.app)
+    await browser.signIn(blind.email)
+    expect((await browser.call('GET', `${s.url}/${two.id}/export`)).statusCode).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', `${s.url}/${two.id}/export`)).statusCode).toBe(
+      401,
+    )
+  })
+
   it('keeps the estimate and the items of a statement', async () => {
     const s = await scene([...ALL, 'estimates.delete'])
     const statement = (

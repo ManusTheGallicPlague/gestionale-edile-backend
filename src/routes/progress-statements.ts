@@ -550,6 +550,69 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
     return send(reply, result)
   })
 
+  app.get<{ Params: Params }>(`${base}/:statement/export`, async (request, reply) => {
+    const session = requireSession(request)
+    const statement = await inEstimate(
+      request,
+      session.user.id,
+      'estimates.view',
+      async (client, estimateId) => {
+        const row = await readStatement(client, estimateId, request.params.statement)
+        if (!row) throw notFound()
+        return fullStatement(client, row)
+      },
+    )
+    const comma = (value: string) => value.replace('.', ',')
+    const csv = toCsv(
+      [
+        'Codice',
+        'Descrizione',
+        'Unità',
+        'Prezzo',
+        'Quantità di contratto',
+        'Quantità precedente',
+        'Quantità del SAL',
+        'Quantità progressiva',
+        'Importo precedente',
+        'Importo del SAL',
+        'Importo progressivo',
+      ],
+      [
+        ...statement.lines.map((l) => [
+          l.code,
+          l.description,
+          l.unit,
+          // No line in this statement: no price was used, so the cell stays empty.
+          /^0+(\.0+)?$/.test(l.quantity) && l.unit_price === '0.00' ? null : comma(l.unit_price),
+          comma(l.contract_quantity),
+          comma(l.previous_quantity),
+          comma(l.quantity),
+          comma(l.cumulative_quantity),
+          comma(l.previous_amount),
+          comma(l.amount),
+          comma(l.cumulative_amount),
+        ]),
+        [
+          null,
+          'Totale',
+          null,
+          null,
+          null,
+          null,
+          null,
+          null,
+          comma(statement.previous_amount),
+          comma(statement.amount),
+          comma(statement.cumulative_amount),
+        ],
+      ],
+    )
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="sal-${statement.number}.csv"`)
+      .send(csv)
+  })
+
   app.get<{ Params: Params }>(`${base}/:statement/pdf`, async (request, reply) => {
     const session = requireSession(request)
     const pdf = await inEstimate(

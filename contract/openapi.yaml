@@ -4168,6 +4168,38 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/estimates/{estimate}/progress-statements/{statement}/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EstimateId'
+      - $ref: '#/components/parameters/ProgressStatementId'
+    get:
+      operationId: exportProgressStatement
+      summary: Esportazione del SAL in CSV
+      description: |
+        Permesso: estimates.view. Senza permesso risponde 404, non 403. Le stesse righe di
+        getProgressStatement, nello stesso ordine, in qualunque stato, nel formato delle altre
+        esportazioni. Colonne: Codice, Descrizione, Unità, Prezzo, Quantità di contratto,
+        Quantità precedente, Quantità del SAL, Quantità progressiva, Importo precedente,
+        Importo del SAL, Importo progressivo; numeri con la virgola decimale (1234,50). Il
+        prezzo è vuoto per le voci senza righe in questo SAL (nel dettaglio è 0.00).
+        L'ultima riga, Totale, ha i tre importi del SAL; ritenuta e netto restano nel dettaglio
+        e nel PDF. Il file si chiama sal-1.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/estimates/{estimate}/progress-statements/{statement}/pdf:
     parameters:
       - $ref: '#/components/parameters/Company'
