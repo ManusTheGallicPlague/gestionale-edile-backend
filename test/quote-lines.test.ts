@@ -161,6 +161,61 @@ describe('quote lines', () => {
     expect(still.data).toHaveLength(1)
   })
 
+  it('exports the lines in CSV, in order, named like the PDF', async () => {
+    const { browser, base, quoteUrl, company, quoteId } = await scene()
+    const add = async (body: object) =>
+      expect((await browser.call('POST', base, { body })).statusCode).toBe(201)
+    await add(text('section', 'Copertura'))
+    await add(item())
+    await add(
+      item({
+        description: 'Guaina; doppio strato',
+        quantity: '3',
+        unit_price: '33.33',
+        discount_percent: '12.5',
+        vat_rate: 0,
+        vat_nature: 'N6.7',
+      }),
+    )
+    await add(text('text', '=Ponteggi esclusi.'))
+    // A line of another company's quote never shows up.
+    const theirs = await scene()
+    await theirs.browser.call('POST', theirs.base, { body: item({ description: 'Loro' }) })
+
+    const url = `${base}/export`
+    const draft = await browser.call('GET', url)
+    expect(draft.statusCode).toBe(200)
+    expect(draft.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(draft.headers['content-disposition']).toBe('attachment; filename="preventivo-bozza.csv"')
+    expect(draft.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Tipo;Descrizione;Unità;Quantità;Prezzo;Sconto %;Imponibile;IVA %;Natura IVA',
+      'Sezione;Copertura;;;;;;;',
+      'Voce;Rimozione del manto di copertura;m²;120,500;18,40;0,00;2217,20;10;',
+      'Voce;"Guaina; doppio strato";m²;3,000;33,33;12,50;87,49;0;N6.7',
+      "Testo;'=Ponteggi esclusi.;;;;;;;",
+    ])
+    expect(draft.body).not.toContain('Loro')
+
+    // Once sent it has a number, and the file takes it, as the PDF does.
+    const sent = await browser.call('POST', `${quoteUrl}/send`, { headers: { 'if-match': '"1"' } })
+    expect(sent.statusCode).toBe(200)
+    const number = sent.json<{ number: string }>().number
+    const after = await browser.call('GET', url)
+    expect(after.headers['content-disposition']).toBe(
+      `attachment; filename="preventivo-${number.replace('/', '-')}.csv"`,
+    )
+    expect(after.body.trim().split('\r\n')).toHaveLength(5)
+
+    // Without quotes.view, from another company, with a bad id and without a session.
+    const blind = await scene(['clients.view'])
+    expect((await blind.browser.call('GET', `${blind.base}/export`)).statusCode).toBe(404)
+    const sameQuote = `/api/companies/${theirs.company.slug}/quotes/${quoteId}/lines/export`
+    expect((await theirs.browser.call('GET', sameQuote)).statusCode).toBe(404)
+    const bad = `/api/companies/${company.slug}/quotes/x/lines/export`
+    expect((await browser.call('GET', bad)).statusCode).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
+  })
+
   it('reorders all the lines at once, keeping content and versions', async () => {
     const { browser, base, quoteUrl } = await scene()
     const add = async (body: object) =>

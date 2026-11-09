@@ -8600,6 +8600,35 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/quotes/{quote}/lines/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/QuoteId'
+    get:
+      operationId: exportQuoteLines
+      summary: Esportazione delle righe di un preventivo in CSV
+      description: |
+        Permesso: quotes.view. Senza permesso risponde 404. Tutte le righe, nell'ordine del
+        preventivo, in qualunque stato, nello stesso formato delle altre esportazioni. Colonne:
+        Tipo (Voce, Testo o Sezione), Descrizione, Unità, Quantità, Prezzo, Sconto %, Imponibile,
+        IVA % e Natura IVA; numeri con la virgola decimale (1234,50), vuoti per testi e sezioni.
+        Senza totali, che sono in getQuote e nel PDF. Il file si chiama come il PDF:
+        preventivo-<numero>.csv (la barra del numero diventa un trattino), o preventivo-bozza.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/quotes/{quote}/lines/{line}:
     parameters:
       - $ref: '#/components/parameters/Company'

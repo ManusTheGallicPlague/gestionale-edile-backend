@@ -16,8 +16,11 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { VAT_RATES, isVatNature, type VatNature } from '../quotes/vat.js'
+import { italianAmount, toCsv } from '../csv.js'
+import { formatQuoteNumber } from '../quotes/number.js'
 
 const KINDS = ['item', 'text', 'section'] as const
+const KIND_LABELS = { item: 'Voce', text: 'Testo', section: 'Sezione' } as const
 const QUANTITY = /^-?\d{1,11}(?:\.\d{1,3})?$/
 const PERCENT = /^(?:100(?:\.0{1,2})?|\d{1,2}(?:\.\d{1,2})?)$/
 
@@ -251,6 +254,59 @@ export function quoteLineRoutes(app: FastifyInstance, config: Config, db: Db): v
       )
       return { data: rows.map(lineToContract) }
     })
+  })
+
+  app.get<{ Params: Params }>(`${base}/export`, async (request, reply) => {
+    const session = requireSession(request)
+    const { number, rows } = await withIdentity(
+      db.app,
+      { userId: session.user.id },
+      async (client) => {
+        const quoteId = await enterQuote(client, request, 'quotes.view')
+        const quote = await client.query<{
+          number_year: number | null
+          number_seq: number | null
+          revision: number | null
+        }>('select number_year, number_seq, revision from public.quotes where id = $1', [quoteId])
+        const lines = await client.query<LineRow>(
+          `select ${LINE_COLUMNS} from public.quote_lines where quote_id = $1 order by position, id`,
+          [quoteId],
+        )
+        const q = quote.rows[0]
+        const number = q ? formatQuoteNumber(q.number_year, q.number_seq, q.revision) : null
+        return { number, rows: lines.rows }
+      },
+    )
+    const comma = (value: string | null) => (value === null ? null : value.replace('.', ','))
+    const csv = toCsv(
+      [
+        'Tipo',
+        'Descrizione',
+        'Unità',
+        'Quantità',
+        'Prezzo',
+        'Sconto %',
+        'Imponibile',
+        'IVA %',
+        'Natura IVA',
+      ],
+      rows.map((r) => [
+        KIND_LABELS[r.kind],
+        r.description,
+        r.unit,
+        comma(r.quantity),
+        r.unit_price_cents === null ? null : italianAmount(r.unit_price_cents),
+        comma(r.discount_percent),
+        r.amount_cents === null ? null : italianAmount(r.amount_cents),
+        r.vat_rate,
+        r.vat_nature,
+      ]),
+    )
+    const name = number ? `preventivo-${number.replace('/', '-')}` : 'preventivo-bozza'
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header('Content-Disposition', `attachment; filename="${name}.csv"`)
+      .send(csv)
   })
 
   app.post<{ Params: Params }>(base, async (request, reply) => {
