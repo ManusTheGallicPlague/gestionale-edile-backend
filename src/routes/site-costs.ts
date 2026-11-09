@@ -633,20 +633,23 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
   )
 
   const supplierCosts = async (
-    request: FastifyRequest<{ Params: { company: string; site: string } }>,
+    request: FastifyRequest<{
+      Params: { company: string; site: string }
+      Querystring: Record<string, unknown>
+    }>,
   ) => {
     const session = requireSession(request)
     const rows = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('costs.view')) throw notFound()
       if (!UUID.test(request.params.site)) throw notFound()
-      return readSupplierCosts(client, request.params.site)
+      return readSupplierCosts(client, request.params.site, readPeriod(request.query))
     })
     if (!rows) throw notFound()
     return rows
   }
 
-  app.get<{ Params: { company: string; site: string } }>(
+  app.get<{ Params: { company: string; site: string }; Querystring: Record<string, unknown> }>(
     '/api/companies/:company/sites/:site/cost-summary/suppliers',
     async (request, reply) => {
       const rows = await supplierCosts(request)
@@ -666,7 +669,7 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
     },
   )
 
-  app.get<{ Params: { company: string; site: string } }>(
+  app.get<{ Params: { company: string; site: string }; Querystring: Record<string, unknown> }>(
     '/api/companies/:company/sites/:site/cost-summary/suppliers/export',
     async (request, reply) => {
       const rows = await supplierCosts(request)
@@ -789,8 +792,34 @@ interface SupplierCostRow {
   total: string
 }
 
-/** Costs entered by hand on one site, per supplier. Null when the site is not visible. */
-async function readSupplierCosts(client: PoolClient, site: string) {
+interface Period {
+  from: string | null
+  to: string | null
+}
+
+/** filter[from] and filter[to], both optional, both included: 422 when not valid. */
+function readPeriod(query: Record<string, unknown>): Period {
+  const errors: FieldErrors = {}
+  const date = (name: string): string | null => {
+    const value = query[name]
+    if (value === undefined) return null
+    if (typeof value !== 'string') errors[name] = ['Indicalo una volta sola.']
+    else if (!isIsoDate(value)) errors[name] = ['Data non valida (AAAA-MM-GG).']
+    else return value
+    return null
+  }
+  const from = date('filter[from]')
+  const to = date('filter[to]')
+  if (from && to && to < from) errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { from, to }
+}
+
+/**
+ * Costs entered by hand on one site, per supplier, dated inside the period if any. Null when
+ * the site is not visible.
+ */
+async function readSupplierCosts(client: PoolClient, site: string, period: Period) {
   const sites = await client.query('select 1 from public.sites where id = $1', [site])
   if (!sites.rowCount) return null
   const { rows } = await client.query<SupplierCostRow>(
@@ -804,9 +833,11 @@ async function readSupplierCosts(client: PoolClient, site: string) {
      from public.site_costs k
      left join public.suppliers p on p.id = k.supplier_id
      where k.site_id = $1
+       and ($2::date is null or k.cost_date >= $2::date)
+       and ($3::date is null or k.cost_date <= $3::date)
      group by k.supplier_id, p.name
      order by sum(k.amount_cents) desc, p.name nulls last, k.supplier_id`,
-    [site],
+    [site, period.from, period.to],
   )
   return rows
 }

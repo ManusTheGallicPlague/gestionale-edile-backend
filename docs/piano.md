@@ -545,6 +545,7 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: il riepilogo dei costi del 
 
 - [x] `getSiteSupplierCosts` su `…/sites/{site}/cost-summary/suppliers` (permesso `costs.view`, 404 senza come il riepilogo): costi inseriti a mano raggruppati per fornitore, per categoria e con quanti sono, riga con `supplier` null per quelli senza fornitore, dal totale più alto; il totale è uguale ai costi inseriti del riepilogo; nessuna migrazione, nessun permesso nuovo
 - [x] Gli stessi costi in CSV (`exportSiteSupplierCosts` su `…/cost-summary/suppliers/export`, file `costi-fornitori-cantiere.csv`), con «Senza fornitore» nella riga dei costi senza fornitore
+- [x] `filter[from]` e `filter[to]` nell'elenco e nel CSV: solo i costi con la data dentro il periodo (estremi compresi); 422 su date non valide, ripetute o con la fine prima dell'inizio
 
 ## Decisioni prese
 
@@ -787,6 +788,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 14:42 UTC: stesso giro, terzo push: `filter[from]` e `filter[to]` in `getSiteSupplierCosts` ed `exportSiteSupplierCosts` (test su due giorni con estremi compresi, solo inizio, solo fine, periodo vuoto, CSV, 422 su data non valida, ripetuta e con la fine prima dell'inizio). Niente a metà; piano tutto spuntato. 938 test.
 - 2026-11-09 14:37 UTC: stesso giro, secondo push: `exportSiteSupplierCosts` (test con punto e virgola e virgolette nel nome del fornitore, riga «Senza fornitore», cantiere con un solo fornitore, 404 senza `costs.view` e da un'altra azienda, 401 senza sessione); la lettura è una funzione sola per elenco e CSV. Niente a metà; piano tutto spuntato. 936 test.
 - 2026-11-09 14:26 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (930 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 76: `getSiteSupplierCosts` (test con due fornitori a pari totale ordinati per nome, fornitore archiviato, costi senza fornitore 0.10 + 0.20, costo di un altro cantiere escluso, totale uguale ai costi inseriti del riepilogo, cantiere senza costi, 404 senza `costs.view`, con id non valido, da un'altra azienda, 401 senza sessione). Niente a metà; piano tutto spuntato. 935 test.
 - 2026-11-09 13:45 UTC: stesso giro, terzo push: `exportSiteMonthlyCosts` (test con e senza `invoices.view`, cantiere senza costi con la sola intestazione, 404 senza `costs.view` e da un'altra azienda, 401 senza sessione); la lettura dei mesi è ora una funzione sola per elenco e CSV. Niente a metà; piano tutto spuntato. 930 test.

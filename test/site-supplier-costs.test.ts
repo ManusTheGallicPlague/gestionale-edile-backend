@@ -168,6 +168,53 @@ describe('site costs per supplier', () => {
     )
   })
 
+  it('counts only the costs dated inside the period, both ends included', async () => {
+    const s = await scene()
+    const read = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.url(s.villetta)}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<SupplierCosts>()
+    }
+    const two = await read('filter[from]=2026-10-02&filter[to]=2026-10-03')
+    expect(two.total).toBe('15.10')
+    expect(two.suppliers.map((r) => [r.supplier?.name ?? null, r.costs, r.total])).toEqual([
+      ['Calcestruzzi', 1, '15.00'],
+      ['Noli Rossi', 1, '0.10'],
+    ])
+    const since = await read('filter[from]=2026-10-05')
+    expect(since.suppliers.map((r) => [r.supplier, r.costs, r.total])).toEqual([[null, 2, '0.30']])
+    const until = await read('filter[to]=2026-10-01')
+    expect(until.suppliers.map((r) => [r.supplier?.name, r.rentals, r.total])).toEqual([
+      ['Noli Rossi', '14.90', '14.90'],
+    ])
+    expect(await read('filter[from]=2026-12-01')).toEqual({ total: '0.00', suppliers: [] })
+    const csv = await s.browser.call(
+      'GET',
+      `${s.url(s.villetta)}/export?filter[from]=2026-10-05&filter[to]=2026-10-06`,
+    )
+    expect(csv.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
+      'Fornitore;Costi;Materiali;Noli;Subappalti;Altro;Totale',
+      'Senza fornitore;2;0,20;0,00;0,00;0,10;0,30',
+    ])
+  })
+
+  it('answers 422 on a period that is not valid', async () => {
+    const s = await scene()
+    const errors = async (query: string, path = '') => {
+      const res = await s.browser.call('GET', `${s.url(s.villetta)}${path}?${query}`)
+      expect(res.statusCode).toBe(422)
+      return Object.keys(res.json<{ errors: Record<string, string[]> }>().errors)
+    }
+    expect(await errors('filter[from]=2026-02-30')).toEqual(['filter[from]'])
+    expect(await errors('filter[to]=ieri')).toEqual(['filter[to]'])
+    expect(await errors('filter[from]=2026-10-01&filter[from]=2026-10-02')).toEqual([
+      'filter[from]',
+    ])
+    expect(await errors('filter[from]=2026-10-02&filter[to]=2026-10-01', '/export')).toEqual([
+      'filter[to]',
+    ])
+  })
+
   it('has no rows for a site without costs entered by hand', async () => {
     const s = await scene()
     await ctx.owner.query('delete from public.site_costs where site_id = $1', [s.box])

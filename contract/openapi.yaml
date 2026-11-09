@@ -3766,7 +3766,20 @@ paths:
         ultima). total è la somma di tutte le righe ed è uguale a materials + rentals +
         subcontract + other di getSiteCostSummary. Manodopera e mezzi dei rapportini non hanno
         fornitore e restano fuori. Importi senza IVA; nessuna riga se il cantiere non ha costi
-        inseriti.
+        inseriti. Con filter[from] e/o filter[to] contano solo i costi con la data dentro il
+        periodo (estremi compresi); 422 se una data non è valida o la fine viene prima
+        dell'inizio.
+      parameters:
+        - name: filter
+          in: query
+          description: Periodo, ad esempio filter[from]=2026-11-01 e filter[to]=2026-11-30.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
       responses:
         '200':
           description: I costi per fornitore
@@ -3775,6 +3788,7 @@ paths:
               schema: { $ref: '#/components/schemas/SiteSupplierCosts' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/sites/{site}/cost-summary/suppliers/export:
     parameters:
@@ -3785,10 +3799,21 @@ paths:
       summary: Costi di un cantiere per fornitore in CSV
       description: |
         Permesso: costs.view (senza, 404 come getSiteSupplierCosts). Le stesse righe nello stesso
-        ordine di getSiteSupplierCosts, nello stesso formato dell'esportazione dei clienti:
+        ordine di getSiteSupplierCosts, con lo stesso periodo, nello stesso formato dell'esportazione dei clienti:
         colonne Fornitore, Costi, Materiali, Noli, Subappalti, Altro, Totale, importi con la
         virgola decimale (1234,50); la riga senza fornitore ha «Senza fornitore». Il file si
         chiama costi-fornitori-cantiere.csv.
+      parameters:
+        - name: filter
+          in: query
+          description: Periodo, ad esempio filter[from]=2026-11-01 e filter[to]=2026-11-30.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
       responses:
         '200':
           description: Il file CSV
@@ -3803,6 +3828,7 @@ paths:
                 type: string
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
 
   /api/companies/{company}/sites/{site}/work-summary:
     parameters:
