@@ -446,6 +446,11 @@ interface SummaryRow {
   warehouse_movements: number
   warehouse_returns: number
   warehouse_missing: number
+  orders: number
+  orders_received: number
+  orders_cents: string
+  orders_received_cents: string
+  orders_invoiced: string
 }
 
 /**
@@ -520,6 +525,19 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
                  and i.movement_date <= m.movement_date
              ) c
              where m.site_id = $1 and (m.kind = 'out' or m.site_return)
+           ), orders as (
+             select count(*)::int as count,
+               (count(*) filter (where o.status = 'received'))::int as received,
+               coalesce(sum(t.cents), 0) as cents,
+               coalesce(sum(t.cents) filter (where o.status = 'received'), 0) as received_cents,
+               coalesce(sum((select sum(i.taxable_cents) from public.invoices i
+                 where i.purchase_order_id = o.id)), 0) as invoiced
+             from public.purchase_orders o
+             cross join lateral (
+               select coalesce(sum(round(l.quantity * l.unit_price_cents)), 0) as cents
+               from public.purchase_order_lines l where l.order_id = o.id
+             ) t
+             where o.site_id = $1 and o.status in ('sent', 'received')
            )
            select s.id, s.name, s.code, s.budget_cents::text as budget_cents,
              labor.hours::numeric(10, 2)::text as labor_hours, labor.cents::bigint::text as labor_cents,
@@ -535,8 +553,12 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
              revenue.released::bigint::text as retention_released,
              stock_out.cents::bigint::text as warehouse_cents,
              stock_out.movements as warehouse_movements, stock_out.returns as warehouse_returns,
-             stock_out.missing as warehouse_missing
-           from public.sites s, labor, machines, manual, revenue, certified, stock_out
+             stock_out.missing as warehouse_missing,
+             orders.count as orders, orders.received as orders_received,
+             orders.cents::bigint::text as orders_cents,
+             orders.received_cents::bigint::text as orders_received_cents,
+             orders.invoiced::bigint::text as orders_invoiced
+           from public.sites s, labor, machines, manual, revenue, certified, stock_out, orders
            where s.id = $1`,
           [request.params.site],
         )
@@ -547,11 +569,14 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
             revenue: permissions.has('invoices.view'),
             certified: permissions.has('estimates.view'),
             warehouse: permissions.has('warehouse.view'),
+            orders: permissions.has('purchases.view'),
           }
         )
       })
       if (!row) throw notFound()
-      return reply.send(summaryToContract(row.summary, row.revenue, row.certified, row.warehouse))
+      return reply.send(
+        summaryToContract(row.summary, row.revenue, row.certified, row.warehouse, row.orders),
+      )
     },
   )
 }
@@ -561,6 +586,7 @@ function summaryToContract(
   withRevenue: boolean,
   withCertified: boolean,
   withWarehouse: boolean,
+  withOrders: boolean,
 ) {
   const parts = [
     row.labor_cents,
@@ -608,6 +634,15 @@ function summaryToContract(
           movements: row.warehouse_movements,
           returns: row.warehouse_returns,
           missing_costs: row.warehouse_missing,
+        }
+      : null,
+    purchase_orders: withOrders
+      ? {
+          count: row.orders,
+          received: row.orders_received,
+          total: centsToAmount(row.orders_cents),
+          received_total: centsToAmount(row.orders_received_cents),
+          invoiced: withRevenue ? centsToAmount(row.orders_invoiced) : null,
         }
       : null,
   }

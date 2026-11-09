@@ -3575,6 +3575,10 @@ paths:
         ogni movimento; è un'informazione a parte e
         non entra nel totale né nel margine (il materiale può essere già tra i costi inseriti
         a mano). Senza quel permesso warehouse_materials è null.
+        Con purchases.view anche purchase_orders: gli ordini ai fornitori del cantiere già
+        inviati o ricevuti (le bozze no), con il loro totale (il costo impegnato) e, con
+        invoices.view, l'imponibile delle fatture ricevute collegate; anche questo non entra nel
+        totale. Senza purchases.view purchase_orders è null.
       responses:
         '200':
           description: Il riepilogo
@@ -12047,6 +12051,7 @@ components:
         - missing_hourly_costs
         - revenue
         - warehouse_materials
+        - purchase_orders
       properties:
         site:
           type: object
@@ -12084,6 +12089,40 @@ components:
           description: Null senza warehouse.view. Non entra in total.
           oneOf:
             - $ref: '#/components/schemas/SiteWarehouseMaterials'
+            - type: 'null'
+        purchase_orders:
+          description: Null senza purchases.view. Non entra in total.
+          oneOf:
+            - $ref: '#/components/schemas/SitePurchaseOrders'
+            - type: 'null'
+    SitePurchaseOrders:
+      type: object
+      required: [count, received, total, received_total, invoiced]
+      properties:
+        count:
+          type: integer
+          minimum: 0
+          description: Ordini del cantiere inviati o ricevuti (le bozze no).
+        received:
+          type: integer
+          minimum: 0
+          description: Quanti di questi sono già ricevuti.
+        total:
+          description: |
+            Somma dei totali degli ordini contati (senza IVA, come total dell'ordine): il costo
+            impegnato con i fornitori.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        received_total:
+          description: La parte di total degli ordini già ricevuti.
+          allOf:
+            - $ref: '#/components/schemas/Amount'
+        invoiced:
+          description: |
+            Imponibile delle fatture ricevute collegate a questi ordini, la somma di
+            invoiced_amount degli ordini. Null senza invoices.view.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
             - type: 'null'
     SiteWarehouseMaterialList:
       type: object
