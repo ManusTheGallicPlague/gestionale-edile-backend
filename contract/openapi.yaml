@@ -7600,7 +7600,8 @@ paths:
             filter[q]=testo (nel numero e nella descrizione), filter[reverse_charge]=true e
             filter[split_payment]=true (le fatture dietro reverse_charge_taxable e
             sales_split_payment_vat di getVatSummary), filter[purchase_order]=<id> (le fatture
-            ricevute di un ordine al fornitore).
+            ricevute di un ordine al fornitore), filter[direction]=received con
+            filter[has_purchase_order]=false (le fatture ricevute senza ordine).
           style: deepObject
           explode: true
           schema:
@@ -7628,6 +7629,12 @@ paths:
                 description: Le sole fatture ricevute che addebitano questo ordine al fornitore.
                 allOf:
                   - $ref: '#/components/schemas/Id'
+              has_purchase_order:
+                description: |
+                  true per le sole fatture collegate a un ordine al fornitore, false per le altre;
+                  con filter[direction]=received e false, le fatture ricevute senza ordine (da
+                  controllare: acquisti fatti fuori dagli ordini, o ordine da collegare).
+                type: boolean
       responses:
         '200':
           description: Una pagina di fatture
@@ -7717,6 +7724,12 @@ paths:
                 description: Le sole fatture ricevute che addebitano questo ordine al fornitore.
                 allOf:
                   - $ref: '#/components/schemas/Id'
+              has_purchase_order:
+                description: |
+                  true per le sole fatture collegate a un ordine al fornitore, false per le altre;
+                  con filter[direction]=received e false, le fatture ricevute senza ordine (da
+                  controllare: acquisti fatti fuori dagli ordini, o ordine da collegare).
+                type: boolean
       responses:
         '200':
           description: Il file CSV

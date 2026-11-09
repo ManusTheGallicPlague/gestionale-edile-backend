@@ -509,6 +509,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: le righe del preventivo, de
 - [x] `exportPurchaseOrderLines` su `…/purchase-orders/{order}/lines/export`: righe nell'ordine dell'ordine, in ogni stato, colonne Descrizione, Unità, Quantità, Prezzo, Importo e riga Totale (senza IVA, uguale a `total`); file `ordine-<numero>.csv` come il PDF; 404 senza `purchases.view`; nessuna migrazione, nessun permesso nuovo
 - [x] Materiale del magazzino di un cantiere in CSV (`exportSiteWarehouseMaterials` su `…/sites/{site}/warehouse-materials/export`, file `materiale-cantiere.csv`): stesse righe di `listSiteWarehouseMaterials`, quantità scaricata, tornata e netta, valore, movimenti senza costo e riga Totale uguale ad `amount`; 404 senza `sites.view`, 403 senza `warehouse.view`; nessuna migrazione, nessun permesso nuovo
 
+### 71. Fatture ricevute senza ordine
+Aggiunta il 09/11/2026, con il piano tutto spuntato: ora che le fatture ricevute si collegano agli ordini, l'ufficio vuole trovare quelle arrivate senza ordine (acquisti fatti fuori dagli ordini, o ordine da collegare) per controllarle prima di pagarle.
+
+- [x] `filter[has_purchase_order]=true|false` in `listInvoices` ed `exportInvoices`; con `filter[direction]=received` e false, le fatture ricevute senza ordine; 422 su un valore non valido; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -739,11 +744,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: il fatturato dell'ordine è l'imponibile delle fatture collegate (l'ordine è senza IVA), nascosto a chi non ha `invoices.view` come il fatturato del cantiere.
 - 09/11/2026: il numero dell'ordine nella fattura (`purchase_order`) lo vede chiunque veda la fattura, anche senza `purchases.view`, come il nome del cantiere; il contrario (`invoiced_amount` e merce senza fattura nella dashboard) resta solo con `invoices.view`.
 - 09/11/2026: CSV delle righe dell'ordine con una riga Totale in fondo (come il SAL, a differenza del preventivo che ha IVA per aliquota): l'ordine ha un solo totale senza IVA; quantità con tre decimali e virgola come nel CSV del preventivo.
+- 09/11/2026: `filter[has_purchase_order]` vale per tutte le fatture (le emesse non hanno mai un ordine, quindi con false compaiono anche loro): niente 422 senza `filter[direction]=received`, come gli altri filtri che non dipendono dalla direzione.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 09:22 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 71: `filter[has_purchase_order]` nel registro e nel CSV delle fatture (test con fattura collegata, ricevuta senza ordine, emessa, fattura senza ordine di un'altra azienda esclusa, CSV, 422 su valori non validi). Niente a metà. 913 test.
 - 2026-11-09 08:21 UTC: main locale era di nuovo staccato (HEAD detached) e con due vecchi commit divergenti: riallineato a `origin/main`, nessun lavoro perso. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 70: `exportPurchaseOrderLines` (test con punto e virgola e formula nella descrizione, riga senza unità, arrotondamento al centesimo, totale uguale a quello dell'ordine, stesso file da inviato e ricevuto, ordine senza righe, 404 da un'altra azienda, id non valido e senza `purchases.view`, 401 senza sessione). Poi, secondo push, `exportSiteWarehouseMaterials` (test con codice, punto e virgola e formula nel nome, reso senza costo con quantità negativa, scarico su un altro cantiere escluso, totale uguale all'elenco, cantiere senza materiale, 403 senza `warehouse.view`, 404 senza `sites.view`, da un'altra azienda e con un cantiere sconosciuto, 401). Niente a metà. 912 test.
 - 2026-11-09 07:47 UTC: stesso giro, terzo push: `over_invoiced` negli ordini della dashboard (test con fatturato sotto il totale, poi un centesimo sopra, stesso ordine del filtro, null con solo `purchases.view`, zero senza ordini). Niente a metà. 908 test.
 - 2026-11-09 07:42 UTC: stesso giro, secondo push: `filter[over_invoiced]` negli ordini e nel CSV (test con fatturato uguale al totale in due fatture, un centesimo in più, ordini senza righe né fatture, insieme a `filter[status]`, 422 su un valore non valido, 403 con solo `purchases.view`). Niente a metà. 908 test.

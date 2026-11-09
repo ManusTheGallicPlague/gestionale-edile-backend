@@ -165,6 +165,54 @@ describe('received invoice of a purchase order', () => {
     expect(bad.json()).toMatchObject({ errors: { 'filter[purchase_order]': [expect.any(String)] } })
   })
 
+  it('finds the received invoices without an order, in the register and the CSV', async () => {
+    const s = await scene()
+    const linked = (await s.browser.call('POST', s.base, { body: s.invoice() })).json<Invoice>()
+    const loose = (
+      await s.browser.call('POST', s.base, { body: s.invoice({ purchase_order_id: null }) })
+    ).json<Invoice>()
+    const issued = (
+      await s.browser.call('POST', s.base, {
+        body: s.invoice({
+          direction: 'issued',
+          client_id: s.client,
+          supplier_id: null,
+          purchase_order_id: null,
+        }),
+      })
+    ).json<Invoice>()
+    const other = await scene()
+    await other.browser.call('POST', other.base, {
+      body: other.invoice({ purchase_order_id: null }),
+    })
+    const ids = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.base}?sort=date&${query}`)
+      expect(res.statusCode).toBe(200)
+      return res
+        .json<{ data: Invoice[] }>()
+        .data.map((i) => i.id)
+        .sort()
+    }
+    expect(await ids('filter[direction]=received&filter[has_purchase_order]=false')).toEqual([
+      loose.id,
+    ])
+    expect(await ids('filter[has_purchase_order]=false')).toEqual([loose.id, issued.id].sort())
+    expect(await ids('filter[has_purchase_order]=true')).toEqual([linked.id])
+    const csv = await s.browser.call(
+      'GET',
+      `${s.base}/export?filter[direction]=received&filter[has_purchase_order]=false`,
+    )
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.trim().split('\n')).toHaveLength(2)
+    const bad = await s.browser.call('GET', `${s.base}?filter[has_purchase_order]=no`)
+    expect(bad.statusCode).toBe(422)
+    expect(bad.json()).toMatchObject({
+      errors: { 'filter[has_purchase_order]': ['Valori ammessi: true, false.'] },
+    })
+    const badCsv = await s.browser.call('GET', `${s.base}/export?filter[has_purchase_order]=1`)
+    expect(badCsv.statusCode).toBe(422)
+  })
+
   it('an order of another company is not found', async () => {
     const s = await scene()
     const other = await scene()
