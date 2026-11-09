@@ -330,6 +330,46 @@ describe('absences of the whole company', () => {
     expect(Object.keys(res.json<{ errors: object }>().errors)).toContain(field)
   })
 
+  it('searches the name of the employee and the notes, also in the CSV and the calendar', async () => {
+    const s = await company()
+    await ctx.owner.query(
+      `insert into public.employee_absences (company_id, employee_id, kind, starts_on, ends_on, notes)
+       values ($1, $2, 'other', '2026-10-05', '2026-10-05', 'Visita 100% medica')`,
+      [s.company.id, s.other],
+    )
+    // Another company with an employee of the same name.
+    await company()
+    const of = async (text: string) => {
+      const res = await s.browser.call('GET', `${s.list}?filter[q]=${encodeURIComponent(text)}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<{ data: Row[] }>().data.map((r) => [r.employee.last_name, r.kind])
+    }
+    const anna = [
+      ['Bianchi', 'other'],
+      ['Bianchi', 'vacation'],
+    ]
+    expect(await of(' BIANCHI ')).toEqual(anna)
+    expect(await of('anna bianchi')).toEqual(anna)
+    expect(await of('bianchi anna')).toEqual(anna)
+    expect(await of('medica')).toEqual([['Bianchi', 'other']])
+    // % is text, not a wildcard.
+    expect(await of('%')).toEqual([['Bianchi', 'other']])
+    expect(await of('   ')).toHaveLength(4)
+
+    const csv = await s.browser.call('GET', `${s.list}/export?filter[q]=operaio`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.replace('\uFEFF', '').trim().split('\r\n')).toHaveLength(3)
+    const ics = await s.browser.call('GET', `${s.list}/calendar?filter[q]=visita`)
+    expect(ics.statusCode).toBe(200)
+    expect(ics.body.match(/BEGIN:VEVENT/g)).toHaveLength(1)
+
+    for (const query of [`filter[q]=${'x'.repeat(101)}`, 'filter[q]=a&filter[q]=b']) {
+      for (const url of [s.list, `${s.list}/export`, `${s.list}/calendar`]) {
+        expect((await s.browser.call('GET', `${url}?${query}`)).statusCode).toBe(422)
+      }
+    }
+  })
+
   it('shows only the absences of this company', async () => {
     const mine = await company()
     const theirs = await company()

@@ -5940,7 +5940,10 @@ paths:
         - $ref: '#/components/parameters/PerPage'
         - name: filter
           in: query
-          description: Filtri, ad esempio filter[from]=2026-08-01&filter[to]=2026-08-31&filter[kind]=vacation.
+          description: |
+            Filtri, ad esempio filter[from]=2026-08-01&filter[to]=2026-08-31&filter[kind]=vacation
+            e filter[q]=testo (nel nome e cognome del dipendente, in qualunque ordine, e nelle
+            note, senza distinguere maiuscole e minuscole).
           style: deepObject
           explode: true
           schema:
@@ -5950,6 +5953,9 @@ paths:
               to: { $ref: '#/components/schemas/Date' }
               employee: { $ref: '#/components/schemas/Id' }
               kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di assenze
@@ -5986,6 +5992,9 @@ paths:
               to: { $ref: '#/components/schemas/Date' }
               employee: { $ref: '#/components/schemas/Id' }
               kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file CSV
@@ -6031,6 +6040,9 @@ paths:
               to: { $ref: '#/components/schemas/Date' }
               employee: { $ref: '#/components/schemas/Id' }
               kind: { $ref: '#/components/schemas/EmployeeAbsenceKind' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Il file iCalendar

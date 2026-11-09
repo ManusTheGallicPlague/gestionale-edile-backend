@@ -623,6 +623,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: la prima nota (`listPayment
 
 - [x] `filter[q]` in `listPayments` ed `exportPayments`: testo nel numero della fattura e nelle note del pagamento, senza distinguere maiuscole e minuscole e senza caratteri jolly, con `collected` e `paid` sul filtro; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
 
+### 91. Ricerca nelle assenze
+Aggiunta il 09/11/2026, con il piano tutto spuntato: le assenze di tutti i dipendenti (`listCompanyAbsences`), il loro CSV e il calendario filtravano per periodo, dipendente e tipo, ma l'ufficio cerca un dipendente scrivendone il nome, o un motivo scritto nelle note.
+
+- [x] `filter[q]` in `listCompanyAbsences`, `exportCompanyAbsences` ed `exportAbsencesCalendar`: testo nel nome e cognome del dipendente (in qualunque ordine) e nelle note, senza distinguere maiuscole e minuscole e senza caratteri jolly; testo vuoto ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -876,11 +881,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: la ricerca nelle manutenzioni vale solo per l'elenco di tutti i mezzi e il suo CSV, non per le manutenzioni del singolo mezzo (poche righe, si leggono a colpo d'occhio); non guarda il nome dell'officina, che si vede in colonna.
 - 09/11/2026: la ricerca nei movimenti di magazzino guarda anche codice e nome dell'articolo, oltre alle note, così una sola casella trova sia «DDT 451» sia «sabbia»; non guarda il nome del cantiere, che ha già il suo filtro.
 - 09/11/2026: la ricerca nella prima nota guarda il numero della fattura e le note del pagamento, non il nome del cliente o del fornitore, che hanno già i loro filtri.
+- 09/11/2026: la ricerca nelle assenze guarda anche il nome del dipendente, sia «Nome Cognome» sia «Cognome Nome», perché in ufficio si scrive il nome più spesso di quanto si scelga dall'elenco; vale anche per il calendario, che ha gli stessi filtri dell'elenco.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 21:42 UTC: stesso giro, quarto push: sezione 91, `filter[q]` nelle assenze di tutti i dipendenti, nel CSV e nel calendario (test sul cognome in maiuscolo, nome e cognome nei due ordini, note, `%` come testo, testo di soli spazi ignorato, CSV, calendario con un solo evento, dipendente omonimo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto in elenco, CSV e calendario). Niente a metà; piano tutto spuntato. 971 test.
 - 2026-11-09 21:38 UTC: stesso giro, terzo push: sezione 90, `filter[q]` nella prima nota e nel suo CSV (test con il numero di una fattura e le note di un pagamento su un'altra, 0.10 + 0.20 + 7 = 7.30 incassati, numero in minuscolo, `%` come testo, testo di soli spazi ignorato, CSV, pagamento di un'altra azienda con stesso numero e stesse note escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 970 test.
 - 2026-11-09 21:33 UTC: stesso giro, secondo push: sezione 89, `filter[q]` nei movimenti di magazzino e nel loro CSV (test sul numero della bolla nelle note, sul codice in minuscolo, sul nome in maiuscolo, `%` come testo, testo di soli spazi ignorato, CSV, movimento di un'altra azienda con le stesse note escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 969 test.
 - 2026-11-09 21:21 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (967 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 88: `filter[q]` nelle manutenzioni di tutti i mezzi e nel loro CSV (test su descrizione in maiuscolo e note, 0.10 + 0.20 trovati = 0.30, `%` come testo, testo di soli spazi ignorato, CSV, manutenzione di un'altra azienda esclusa, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 968 test.

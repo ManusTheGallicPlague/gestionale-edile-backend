@@ -193,6 +193,7 @@ function readFilters(query: Record<string, unknown>, company: boolean) {
   if (from && to && to < from) errors['filter[to]'] = ['La fine non può essere prima dell’inizio.']
   let employee: string | null = null
   let kind: AbsenceKind | null = null
+  let q: string | null = null
   let page = 1
   let perPage = 25
   if (company) {
@@ -208,9 +209,12 @@ function readFilters(query: Record<string, unknown>, company: boolean) {
       kind = ABSENCE_KINDS.find((k) => k === kindValue) ?? null
       if (!kind) errors['filter[kind]'] = [`Valori ammessi: ${ABSENCE_KINDS.join(', ')}.`]
     }
+    const text = single('filter[q]')?.trim()
+    if (text !== undefined && text.length > 100) errors['filter[q]'] = ['Al massimo 100 caratteri.']
+    else if (text) q = text
   }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { from, to, employee, kind, page, perPage }
+  return { from, to, employee, kind, q, page, perPage }
 }
 
 function expectedVersion(header: string | string[] | undefined): number {
@@ -282,8 +286,10 @@ async function readCompanyAbsences(
   offset: number,
 ) {
   const where = `($1::date is null or a.ends_on >= $1) and ($2::date is null or a.starts_on <= $2)
-    and ($3::uuid is null or a.employee_id = $3) and ($4::text is null or a.kind = $4)`
-  const values = [filters.from, filters.to, filters.employee, filters.kind]
+    and ($3::uuid is null or a.employee_id = $3) and ($4::text is null or a.kind = $4)
+    and ($5::text is null or strpos(lower(e.last_name || ' ' || e.first_name || ' ' ||
+      e.first_name || ' ' || e.last_name || ' ' || coalesce(a.notes, '')), lower($5)) > 0)`
+  const values = [filters.from, filters.to, filters.employee, filters.kind, filters.q]
   const { rows } = await client.query<CompanyAbsenceRow>(
     `select ${columns('a.')},
        e.first_name, e.last_name, e.active
@@ -291,11 +297,12 @@ async function readCompanyAbsences(
      join public.employees e on e.id = a.employee_id
      where ${where}
      order by a.starts_on desc, lower(e.last_name), lower(e.first_name), a.id
-     limit $5 offset $6`,
+     limit $6 offset $7`,
     [...values, limit, offset],
   )
   const count = await client.query<{ total: number }>(
-    `select count(*)::int as total from public.employee_absences a where ${where}`,
+    `select count(*)::int as total from public.employee_absences a
+     join public.employees e on e.id = a.employee_id where ${where}`,
     values,
   )
   return { rows, total: count.rows[0]?.total ?? 0 }
