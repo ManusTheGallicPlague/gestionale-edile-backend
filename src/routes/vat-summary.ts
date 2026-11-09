@@ -59,7 +59,7 @@ function amounts(s: Sums) {
 }
 
 /** The summary of getVatSummary, in the shape of VatSummary. */
-async function readSummary(client: PoolClient, q: Query) {
+export async function readSummary(client: PoolClient, q: Query) {
   // One row per period of the year, even with no invoices: the series drives the join.
   const { rows } = await client.query<Row>(
     `with y as (
@@ -118,6 +118,17 @@ async function readSummary(client: PoolClient, q: Query) {
     periods,
     total: amounts(total),
   }
+}
+
+/** The current month and quarter in Italy, for the dashboard (DashboardVat). */
+export async function currentVat(client: PoolClient, today: string) {
+  const pick = async (period: Period) => {
+    const s = await readSummary(client, { year: Number(today.slice(0, 4)), period })
+    const found = s.periods.find((p) => p.from <= today && today <= p.to)
+    if (!found) throw new Error(`no VAT period for ${today}`)
+    return found
+  }
+  return { month: await pick('month'), quarter: await pick('quarter') }
 }
 
 /** Amount of the contract → cell of an Italian spreadsheet. */

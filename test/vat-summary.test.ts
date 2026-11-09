@@ -239,6 +239,41 @@ describe('VAT summary', () => {
     }
   })
 
+  it('shows the current month and quarter in the dashboard', async () => {
+    const s = await scene()
+    const { rows } = await ctx.owner.query<Record<string, string>>(
+      `select t.d::text as today, to_char(t.d, 'YYYY-MM') as month,
+         to_char(t.d, 'YYYY') || '-Q' || to_char(t.d, 'Q') as quarter,
+         date_trunc('quarter', t.d)::date::text as quarter_from,
+         date_trunc('month', t.d)::date::text as month_from
+       from (select (now() at time zone 'Europe/Rome')::date as d) t`,
+    )
+    const c = rows[0] ?? {}
+    await invoice(s, { date: c.today, taxable_amount: '100', vat_amount: '22' })
+    // In the quarter but before this month, when the month is not the first of the quarter.
+    if (c.quarter_from !== c.month_from) {
+      await invoice(s, {
+        ...received(s),
+        date: c.quarter_from,
+        taxable_amount: '50',
+        vat_amount: '5',
+      })
+    }
+    const res = await s.browser.call('GET', `${s.base}/dashboard`)
+    expect(res.statusCode).toBe(200)
+    const vat = res.json<{ vat: Record<string, Record<string, string>> }>().vat
+    expect(vat.month).toMatchObject({ period: c.month, sales_vat: '22.00', balance: '22.00' })
+    expect(vat.quarter).toMatchObject({
+      period: c.quarter,
+      from: c.quarter_from,
+      sales_vat: '22.00',
+      balance: c.quarter_from === c.month_from ? '22.00' : '17.00',
+    })
+    const noView = await scene(['clients.view'])
+    const other = await noView.browser.call('GET', `${noView.base}/dashboard`)
+    expect(other.json<{ vat: unknown }>().vat).toBeNull()
+  })
+
   it('sees only the invoices of its own company', async () => {
     const s = await scene()
     await invoice(s, { date: '2025-01-10' })

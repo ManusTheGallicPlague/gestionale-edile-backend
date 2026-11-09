@@ -11909,6 +11909,7 @@ components:
           employees,
           activities,
           absences,
+          vat,
         ]
       properties:
         today: { $ref: '#/components/schemas/Date' }
@@ -11985,6 +11986,13 @@ components:
         invoices:
           oneOf:
             - $ref: '#/components/schemas/DashboardInvoices'
+            - type: 'null'
+        vat:
+          description: |
+            Con invoices.view: il riepilogo IVA (come getVatSummary) del mese e del trimestre in
+            corso in Italia, per chi liquida l'IVA mensilmente e per chi lo fa ogni trimestre.
+          oneOf:
+            - $ref: '#/components/schemas/DashboardVat'
             - type: 'null'
         progress_statements:
           description: |
@@ -12313,6 +12321,12 @@ components:
           description: Somma dell'anno.
           allOf:
             - $ref: '#/components/schemas/VatSummaryAmounts'
+    DashboardVat:
+      type: object
+      required: [month, quarter]
+      properties:
+        month: { $ref: '#/components/schemas/VatSummaryPeriod' }
+        quarter: { $ref: '#/components/schemas/VatSummaryPeriod' }
     DashboardInvoices:
       type: object
       description: |

@@ -6,6 +6,7 @@ import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
 import { requireSession } from '../http/request-context.js'
 import { REMAINING_CENTS } from './invoices.js'
+import { currentVat } from './vat-summary.js'
 import { statementTotals } from './progress-statements.js'
 import { FOLLOW_UPS as ORDER_FOLLOW_UPS } from './purchase-orders.js'
 import { FOLLOW_UPS } from './quotes.js'
@@ -471,6 +472,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
         employees: can('employees.view') ? await employeeCounts(client, can('sites.view')) : null,
         activities: can('sites.view') ? await activityCounts(client) : null,
         absences: can('employees.view') ? await absenceCounts(client, today) : null,
+        vat: can('invoices.view') ? await currentVat(client, today) : null,
       }
     })
   })
