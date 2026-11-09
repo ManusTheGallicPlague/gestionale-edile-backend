@@ -249,6 +249,60 @@ describe('unit costs and stock value of the warehouse', () => {
     ])
   })
 
+  it('gives the stock and its value at the end of a day (as_of)', async () => {
+    const s = await scene()
+    const a = await newItem(s)
+    await s.browser.call('PUT', `${s.items}/${a.id}`, {
+      body: { code: null, name: 'Cemento', unit: 'sacchi', notes: null, min_stock: '15' },
+      headers: { 'If-Match': '"1"' },
+    })
+    const at = (date: string, kind: 'in' | 'out', quantity: string, extra = {}) =>
+      move(s, a.id, kind, quantity, { date, ...extra })
+    await at('2026-12-10', 'in', '20', { unit_cost: '5' })
+    await at('2026-12-31', 'out', '4')
+    await at('2027-01-02', 'in', '20', { unit_cost: '7' })
+    await at('2027-01-03', 'out', '30')
+
+    const yearEnd = await s.browser.call('GET', `${s.items}?as_of=2026-12-31`)
+    expect(yearEnd.statusCode).toBe(200)
+    expect(yearEnd.json<{ data: Item[]; stock_value: string }>()).toMatchObject({
+      data: [{ stock: '16.000', average_cost: '5.00', stock_value: '80.00', below_min: false }],
+      stock_value: '80.00',
+    })
+    const before = await s.browser.call('GET', `${s.items}?as_of=2026-12-09`)
+    expect(before.json<{ data: Item[] }>().data[0]).toMatchObject({
+      stock: '0.000',
+      average_cost: null,
+      stock_value: null,
+      below_min: true,
+    })
+    // Today: every movement, the second load in the average.
+    expect((await s.browser.call('GET', s.items)).json<{ data: Item[] }>().data[0]).toMatchObject({
+      stock: '6.000',
+      average_cost: '6.00',
+      stock_value: '36.00',
+      below_min: true,
+    })
+    // The filter on the minimum stock looks at the same day.
+    const low = (asOf: string) =>
+      s.browser.call('GET', `${s.items}?as_of=${asOf}&filter[below_min]=true`)
+    expect((await low('2026-12-31')).json<{ data: Item[] }>().data).toEqual([])
+    expect((await low('2027-01-03')).json<{ data: Item[] }>().data).toHaveLength(1)
+
+    const csv = await s.browser.call('GET', `${s.items}/export?as_of=2026-12-31`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.headers['content-disposition']).toBe(
+      'attachment; filename="magazzino-al-2026-12-31.csv"',
+    )
+    expect(csv.body).toContain(';Cemento;sacchi;16,000;;5,00;80,00')
+
+    for (const url of [`${s.items}?as_of=31/12/2026`, `${s.items}/export?as_of=2026-02-30`]) {
+      const bad = await s.browser.call('GET', url)
+      expect(bad.statusCode, url).toBe(422)
+      expect(Object.keys(bad.json<{ errors: object }>().errors)).toEqual(['as_of'])
+    }
+  })
+
   it('counts only the loads still there, and of this company', async () => {
     const s = await scene()
     const a = await newItem(s)

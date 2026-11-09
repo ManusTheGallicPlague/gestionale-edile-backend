@@ -83,33 +83,50 @@ interface MovementRow {
 
 type Params = { company: string; item?: string; movement?: string; order?: string }
 
-const STOCK = `coalesce((select sum(case when m.kind = 'in' then m.quantity else -m.quantity end)
-    from public.warehouse_movements m where m.item_id = i.id), 0)`
+/**
+ * Movements counted in the stock: all of them, or (with `asOf`, a SQL date placeholder that
+ * may be null) only those up to that date.
+ */
+const upTo = (asOf?: string) =>
+  asOf ? ` and (${asOf}::date is null or m.movement_date <= ${asOf}::date)` : ''
+
+const stockSql = (asOf?: string) => `coalesce((select sum(case when m.kind = 'in' then m.quantity
+    else -m.quantity end)
+    from public.warehouse_movements m where m.item_id = i.id${upTo(asOf)}), 0)`
+
+const belowMinSql = (asOf?: string) =>
+  `(i.min_stock is not null and ${stockSql(asOf)} < i.min_stock)`
 
 /** Below the minimum stock: there is a minimum and the stock is under it. */
-export const BELOW_MIN = `(i.min_stock is not null and ${STOCK} < i.min_stock)`
+export const BELOW_MIN = belowMinSql()
 
-const ITEM_SELECT = `select i.id, i.code, i.name, i.unit, i.notes,
-    (${STOCK})::numeric(15, 3)::text as stock, i.min_stock::text as min_stock,
-    ${BELOW_MIN} as below_min, round(c.average)::bigint::text as average_cost_cents,
+const itemSelect = (asOf?: string) => `select i.id, i.code, i.name, i.unit, i.notes,
+    (${stockSql(asOf)})::numeric(15, 3)::text as stock, i.min_stock::text as min_stock,
+    ${belowMinSql(asOf)} as below_min, round(c.average)::bigint::text as average_cost_cents,
     case when c.average is null then null
-         else round(greatest(${STOCK}, 0) * c.average)::bigint::text end as stock_value_cents,
+         else round(greatest(${stockSql(asOf)}, 0) * c.average)::bigint::text
+    end as stock_value_cents,
     i.version, i.created_at, i.updated_at
   from public.warehouse_items i
   left join lateral (
     select sum(m.quantity * m.unit_cost_cents) / nullif(sum(m.quantity), 0) as average
     from public.warehouse_movements m
-    where m.item_id = i.id and m.kind = 'in' and m.unit_cost_cents is not null
+    where m.item_id = i.id and m.kind = 'in' and m.unit_cost_cents is not null${upTo(asOf)}
   ) c on true`
 
-const ITEM_SORTS = {
-  name: 'i.name asc, i.id asc',
-  '-name': 'i.name desc, i.id desc',
-  code: 'i.code asc nulls last, i.id asc',
-  '-code': 'i.code desc nulls last, i.id desc',
-  stock: `${STOCK} asc, i.id asc`,
-  '-stock': `${STOCK} desc, i.id desc`,
-} as const
+const ITEM_SELECT = itemSelect()
+
+const itemSorts = (asOf?: string) =>
+  ({
+    name: 'i.name asc, i.id asc',
+    '-name': 'i.name desc, i.id desc',
+    code: 'i.code asc nulls last, i.id asc',
+    '-code': 'i.code desc nulls last, i.id desc',
+    stock: `${stockSql(asOf)} asc, i.id asc`,
+    '-stock': `${stockSql(asOf)} desc, i.id desc`,
+  }) as const
+
+const ITEM_SORTS = itemSorts()
 
 const MOVEMENT_SELECT = `select m.id, m.item_id, i.code as item_code, i.name as item_name,
     i.unit as item_unit, m.movement_date::text as movement_date, m.kind,
@@ -402,16 +419,18 @@ function itemList(query: Record<string, unknown>) {
   if (belowMin !== undefined && belowMin !== 'true' && belowMin !== 'false') {
     q.errors['filter[below_min]'] = ['Indica true o false.']
   }
+  const asOf = q.date('as_of')
   q.done()
-  const values: unknown[] = []
+  // $1 is always the date of the stock (null: every movement, as today).
+  const values: unknown[] = [asOf ?? null]
   let where = 'true'
   if (search?.trim()) {
     values.push(`%${search.trim().replace(/[\\%_]/g, (c) => `\\${c}`)}%`)
-    where = `(i.name ilike $1 or i.code ilike $1)`
+    where = `(i.name ilike $2 or i.code ilike $2)`
   }
-  if (belowMin === 'true') where += ` and ${BELOW_MIN}`
-  if (belowMin === 'false') where += ` and not ${BELOW_MIN}`
-  return { q, sort, where, values }
+  if (belowMin === 'true') where += ` and ${belowMinSql('$1')}`
+  if (belowMin === 'false') where += ` and not ${belowMinSql('$1')}`
+  return { q, asOf, where, values, select: itemSelect('$1'), order: itemSorts('$1')[sort] }
 }
 
 export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): void {
@@ -420,20 +439,20 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
 
   app.get<{ Params: Params; Querystring: Record<string, unknown> }>(items, async (request) => {
     const session = requireSession(request)
-    const { q, sort, where, values } = itemList(request.query)
+    const { q, where, values, select, order } = itemList(request.query)
     return withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('warehouse.view')) throw forbidden()
       const filters = values.length
       values.push(q.perPage, (q.page - 1) * q.perPage)
       const { rows } = await client.query<ItemRow>(
-        `${ITEM_SELECT} where ${where} order by ${ITEM_SORTS[sort]}
+        `${select} where ${where} order by ${order}
          limit $${filters + 1} offset $${filters + 2}`,
         values,
       )
       const count = await client.query<{ total: number; value: string }>(
         `select count(*)::int as total, coalesce(sum(t.stock_value_cents::bigint), 0)::text as value
-         from (${ITEM_SELECT} where ${where}) t`,
+         from (${select} where ${where}) t`,
         values.slice(0, filters),
       )
       return {
@@ -513,13 +532,13 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
     `${items}/export`,
     async (request, reply) => {
       const session = requireSession(request)
-      const { sort, where, values } = itemList(request.query)
+      const { asOf, where, values, select, order } = itemList(request.query)
       const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('warehouse.view')) throw forbidden()
         values.push(MAX_EXPORT_ROWS)
         const { rows } = await client.query<ItemRow>(
-          `${ITEM_SELECT} where ${where} order by ${ITEM_SORTS[sort]} limit $${values.length}`,
+          `${select} where ${where} order by ${order} limit $${values.length}`,
           values,
         )
         return toCsv(
@@ -537,7 +556,10 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
       })
       return reply
         .header('Content-Type', 'text/csv; charset=utf-8')
-        .header('Content-Disposition', 'attachment; filename="magazzino.csv"')
+        .header(
+          'Content-Disposition',
+          `attachment; filename="${asOf ? `magazzino-al-${asOf}` : 'magazzino'}.csv"`,
+        )
         .send(csv)
     },
   )

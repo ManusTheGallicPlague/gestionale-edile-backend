@@ -3053,6 +3053,7 @@ paths:
             enum: [name, -name, code, -code, stock, -stock]
             default: name
         - $ref: '#/components/parameters/WarehouseItemFilter'
+        - $ref: '#/components/parameters/WarehouseAsOf'
       responses:
         '200':
           description: Una pagina di articoli
@@ -3154,8 +3155,9 @@ paths:
       description: |
         Permesso: warehouse.view. Stessa ricerca e ordinamento dell'elenco, senza paginazione,
         nello stesso formato dell'esportazione dei clienti. Giacenza con la virgola decimale
-        (12,500). Il file si chiama magazzino.csv. Le colonne restano quelle dell'importazione:
-        la scorta minima non c'è.
+        (12,500). Il file si chiama magazzino.csv, o magazzino-al-2026-12-31.csv con as_of. Le
+        colonne restano quelle dell'importazione, più costo medio e valore in fondo (che
+        l'importazione ignora): la scorta minima non c'è.
       parameters:
         - $ref: '#/components/parameters/Search'
         - name: sort
@@ -3165,6 +3167,7 @@ paths:
             enum: [name, -name, code, -code, stock, -stock]
             default: name
         - $ref: '#/components/parameters/WarehouseItemFilter'
+        - $ref: '#/components/parameters/WarehouseAsOf'
       responses:
         '200':
           description: Il file CSV
@@ -8856,6 +8859,14 @@ components:
         type: string
 
   parameters:
+    WarehouseAsOf:
+      name: as_of
+      in: query
+      description: |
+        Giacenza, costo medio, valore e scorta minima a fine giornata di questa data, con i soli
+        movimenti fino a quel giorno compreso: ad esempio le rimanenze al 31 dicembre. Senza,
+        contano tutti i movimenti.
+      schema: { $ref: '#/components/schemas/Date' }
     AbsenceTotalsFilter:
       name: filter
       in: query
