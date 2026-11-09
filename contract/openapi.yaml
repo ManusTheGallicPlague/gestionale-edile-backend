@@ -4096,7 +4096,10 @@ paths:
       summary: Documenti e foto di un cantiere
       description: |
         Permesso: documents.view. Senza permesso, o se il cantiere non c'è, risponde 404. Dal più
-        recente. Le foto sono i file JPEG, PNG e WebP; gli altri sono documenti.
+        recente. Le foto sono i file JPEG, PNG e WebP; gli altri sono documenti. Con filter[q]
+        solo i documenti con il testo nel titolo, nel nome del file o nelle note, senza
+        distinguere maiuscole e minuscole e senza caratteri jolly; un testo di soli spazi è
+        ignorato.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -4112,6 +4115,9 @@ paths:
             properties:
               kind: { $ref: '#/components/schemas/SiteDocumentKind' }
               daily_report: { $ref: '#/components/schemas/Id' }
+              q:
+                type: string
+                maxLength: 100
       responses:
         '200':
           description: Una pagina di documenti

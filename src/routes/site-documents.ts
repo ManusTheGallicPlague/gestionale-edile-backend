@@ -149,8 +149,10 @@ function readList(query: Record<string, unknown>) {
   if (report !== undefined && !UUID.test(report)) {
     errors['filter[daily_report]'] = ['Rapportino non valido.']
   }
+  const text = single(query, 'filter[q]', errors)?.trim()
+  if (text !== undefined && text.length > 100) errors['filter[q]'] = ['Al massimo 100 caratteri.']
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, kind, report }
+  return { page, perPage, kind, report, q: text || null }
 }
 
 function readUpload(query: Record<string, unknown>) {
@@ -245,6 +247,12 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
       if (list.report) {
         values.push(list.report)
         where += ` and d.daily_report_id = $${values.length}`
+      }
+      if (list.q) {
+        // strpos, not like: the text has no wildcards.
+        values.push(list.q)
+        where += ` and strpos(lower(d.title || ' ' || d.file_name || ' ' ||
+          coalesce(d.notes, '')), lower($${values.length})) > 0`
       }
       const filters = values.length
       const { rows } = await client.query<DocumentRow>(

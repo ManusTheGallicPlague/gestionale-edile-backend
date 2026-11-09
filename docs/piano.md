@@ -643,6 +643,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: i rifornimenti di tutti i m
 
 - [x] `filter[q]` in `listCompanyVehicleRefuelings` ed `exportVehicleRefuelings`: testo nelle note, nel nome e nella targa del mezzo e nel nome del distributore, senza distinguere maiuscole e minuscole e senza caratteri jolly, con `total_liters` e `total_amount` sul filtro; testo di soli spazi ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
 
+### 95. Ricerca nei documenti del cantiere
+Aggiunta il 09/11/2026, con il piano tutto spuntato: i documenti e le foto di un cantiere (`listSiteDocuments`) filtravano per tipo e rapportino, ma in un cantiere con centinaia di file il capo cantiere ritrova il verbale o il POS scrivendone il titolo o il nome del file.
+
+- [x] `filter[q]` in `listSiteDocuments`: testo nel titolo, nel nome del file e nelle note, senza distinguere maiuscole e minuscole e senza caratteri jolly; testo di soli spazi ignorato; 422 oltre 100 caratteri o ripetuto; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -902,6 +907,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 22:44 UTC: stesso giro, quarto push: sezione 95, `filter[q]` nei documenti e nelle foto di un cantiere (test sul nome del file in maiuscolo con spazi, sul titolo insieme a `filter[kind]`, sulle note, `%` come testo, `_` trovato solo come carattere, testo di soli spazi ignorato, documento dell'altro cantiere e di un'altra azienda esclusi, 422 oltre 100 caratteri e ripetuto). Niente a metà; piano tutto spuntato. 975 test.
 - 2026-11-09 22:39 UTC: stesso giro, terzo push: sezione 94, `filter[q]` nei rifornimenti di tutti i mezzi e nel loro CSV (test sul nome del mezzo in maiuscolo con spazi, 0.10 + 0.20 litri e euro = 0.30 sul filtro, targa in minuscolo, distributore, note, insieme a un altro mezzo con elenco vuoto, `%` e `_` come testo, testo di soli spazi ignorato, CSV, mezzo omonimo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 974 test.
 - 2026-11-09 22:36 UTC: stesso giro, secondo push: sezione 93, `filter[q]` nei SAL dell'azienda e nel loro CSV (test sul titolo del computo in maiuscolo con spazi, 1000.00 + 300.00 = 1300.00 sul filtro, codice del cantiere, note del SAL, nome del cliente con netto 90.00, insieme allo stato, `%` e `_` come testo, testo di soli spazi ignorato, CSV, SAL omonimi di un'altra azienda esclusi, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 973 test.
 - 2026-11-09 22:32 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (971 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 92: `filter[q]` nelle attività del cronoprogramma di tutti i cantieri e nel loro CSV (test sul nome dell'attività, sul testo in maiuscolo con spazi, sulle note, sul nome e sul codice del cantiere, insieme a `filter[follow_up]=late`, `%` e `_` come testo, testo di soli spazi ignorato, pagina 2 con il totale del filtro, CSV, attività omonime di un'altra azienda escluse, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 972 test.

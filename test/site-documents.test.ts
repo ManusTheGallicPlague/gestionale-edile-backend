@@ -173,6 +173,54 @@ describe('site documents and photos', () => {
     expect((await s.upload(body, type, query)).statusCode).toBe(status)
   })
 
+  it('searches the title, the file name and the notes', async () => {
+    const s = await scene()
+    const other = await scene()
+    expect((await other.upload(PDF, 'application/pdf', 'file_name=Verbale.pdf')).statusCode).toBe(
+      201,
+    )
+    const verbale = await s.upload(PDF, 'application/pdf', 'file_name=verbale_consegna.pdf')
+    const photo = await s.upload(JPEG, 'image/jpeg', 'file_name=IMG_001.jpg&title=Getto%20solaio')
+    const pos = await s.upload(DOCX, DOCX_TYPE, 'file_name=pos.docx&title=Piano%20sicurezza')
+    await ctx.owner.query(
+      "update public.site_documents set notes = 'Firmato dal coordinatore' where id = $1",
+      [pos.json<Doc>().id],
+    )
+    // A document of the other site of the same company is never in this list.
+    await s.upload(
+      PDF,
+      'application/pdf',
+      'file_name=verbale.pdf',
+      s.browser,
+      s.base.replace(s.site, s.other),
+    )
+    const titles = async (query: string) => {
+      const res = await s.browser.call('GET', `${s.base}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<{ data: Doc[]; meta: { total: number } }>()
+    }
+    expect((await titles('filter[q]=%20VERBALE%20')).data.map((d) => d.id)).toEqual([
+      verbale.json<Doc>().id,
+    ])
+    expect((await titles('filter[q]=img_001')).data.map((d) => d.id)).toEqual([
+      photo.json<Doc>().id,
+    ])
+    expect((await titles('filter[q]=solaio&filter[kind]=photo')).meta.total).toBe(1)
+    expect((await titles('filter[q]=solaio&filter[kind]=document')).meta.total).toBe(0)
+    expect((await titles('filter[q]=coordinatore')).data.map((d) => d.id)).toEqual([
+      pos.json<Doc>().id,
+    ])
+    expect((await titles('filter[q]=%25')).meta.total).toBe(0)
+    expect((await titles('filter[q]=img_')).meta.total).toBe(1)
+    expect((await titles('filter[q]=img%5F0%5F')).meta.total).toBe(0)
+    expect((await titles('filter[q]=%20%20')).meta.total).toBe(3)
+    for (const query of [`filter[q]=${'a'.repeat(101)}`, 'filter[q]=a&filter[q]=b']) {
+      const res = await s.browser.call('GET', `${s.base}?${query}`)
+      expect(res.statusCode).toBe(422)
+      expect(res.json<{ errors: Record<string, unknown> }>().errors).toHaveProperty(['filter[q]'])
+    }
+  })
+
   it('refuses an upload without session or CSRF token before reading the body', async () => {
     const s = await scene()
     const big = Buffer.concat([PDF, Buffer.alloc(20 * 1024 * 1024)])
