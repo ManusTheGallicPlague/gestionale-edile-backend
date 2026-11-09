@@ -95,7 +95,10 @@ describe('minimum stock of the warehouse items', () => {
     expect(wrong.statusCode).toBe(422)
 
     const dashboard = await s.browser.call('GET', s.dashboard)
-    expect(dashboard.json<{ warehouse: unknown }>().warehouse).toEqual({ below_min: 2 })
+    expect(dashboard.json<{ warehouse: unknown }>().warehouse).toEqual({
+      below_min: 2,
+      stock_value: '0.00',
+    })
   })
 
   it('keeps the minimum when an update does not send it, and checks it', async () => {

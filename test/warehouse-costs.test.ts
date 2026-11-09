@@ -112,6 +112,12 @@ describe('unit costs and stock value of the warehouse', () => {
       data: [{ stock_value: null }],
       stock_value: '173.60',
     })
+    const dashboard = await s.browser.call('GET', `${s.base}/dashboard`)
+    expect(dashboard.statusCode).toBe(200)
+    expect(dashboard.json<{ warehouse: unknown }>().warehouse).toEqual({
+      below_min: 0,
+      stock_value: '173.60',
+    })
     const found = await s.browser.call('GET', `${s.items}?search=sabb`)
     expect(found.json<{ stock_value: string }>().stock_value).toBe('171.88')
 

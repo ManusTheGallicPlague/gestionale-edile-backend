@@ -14,7 +14,7 @@ import { ACTIVITY_FOLLOW_UPS } from './site-activities.js'
 import { onSite } from './site-subcontractors.js'
 import { teamHas } from './site-team.js'
 import { COMPLIANCE_SQL } from './suppliers.js'
-import { BELOW_MIN } from './warehouse.js'
+import { BELOW_MIN, stockValueCents } from './warehouse.js'
 import { DOCUMENTS_SQL } from './vehicles.js'
 import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { readTotals } from './absence-totals.js'
@@ -311,7 +311,10 @@ async function warehouseCounts(client: PoolClient) {
   const { rows } = await client.query<{ below_min: number }>(
     `select count(*)::int as below_min from public.warehouse_items i where ${BELOW_MIN}`,
   )
-  return { below_min: rows[0]?.below_min ?? 0 }
+  return {
+    below_min: rows[0]?.below_min ?? 0,
+    stock_value: centsToAmount(await stockValueCents(client)),
+  }
 }
 
 /**

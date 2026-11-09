@@ -116,6 +116,14 @@ const itemSelect = (asOf?: string) => `select i.id, i.code, i.name, i.unit, i.no
 
 const ITEM_SELECT = itemSelect()
 
+/** Value of the whole stock at the average cost, in cents: the sum of every item's value. */
+export async function stockValueCents(client: PoolClient): Promise<string> {
+  const { rows } = await client.query<{ value: string }>(
+    `select coalesce(sum(t.stock_value_cents::bigint), 0)::text as value from (${ITEM_SELECT}) t`,
+  )
+  return rows[0]?.value ?? '0'
+}
+
 const itemSorts = (asOf?: string) =>
   ({
     name: 'i.name asc, i.id asc',

@@ -12075,12 +12075,18 @@ components:
           oneOf:
             - type: object
               description: Magazzino, con warehouse.view.
-              required: [below_min]
+              required: [below_min, stock_value]
               properties:
                 below_min:
                   type: integer
                   minimum: 0
                   description: Articoli sotto la scorta minima, da riordinare.
+                stock_value:
+                  description: |
+                    Valore di tutto il magazzino oggi al costo medio, come stock_value di
+                    listWarehouseItems senza filtri.
+                  allOf:
+                    - $ref: '#/components/schemas/Amount'
             - type: 'null'
         subcontractors:
           oneOf:
