@@ -546,6 +546,90 @@ describe('audit log', () => {
     ])
   })
 
+  it('filters by day on Italian time and exports the log in CSV', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'estimates.view',
+      'estimates.create',
+      'estimates.update',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const base = `/api/companies/${company.slug}/estimates`
+    const created = await browser.call('POST', base, { body: estimate() })
+    const id = created.json<{ id: string }>().id
+    const changed = await browser.call('PUT', `${base}/${id}`, {
+      body: estimate({ title: 'Bagno; cucina', status: 'final' }),
+      headers: { 'if-match': '"1"' },
+    })
+    expect(changed.statusCode).toBe(200)
+    await ctx.owner.query(
+      "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Senza autore')",
+      [company.id],
+    )
+    // 23:30 UTC on 31 October is already 1 November in Italy.
+    const at = async (entity: string, action: string, time: string) =>
+      ctx.owner.query(
+        'update public.audit_log set created_at = $1 where company_id = $2 and entity = $3 and action = $4',
+        [time, company.id, entity, action],
+      )
+    await at('estimate', 'create', '2026-10-31 23:30:00+00')
+    await at('estimate', 'update', '2026-11-02 13:05:00+00')
+    await at('client', 'create', '2026-11-03 08:00:00+00')
+    // Another company's change on the same days is never exported.
+    const theirs = await fx.companyWithUser(['audit.view', 'estimates.create'])
+    const them = new Browser(ctx.app)
+    await them.signIn(theirs.user.email)
+    const their = `/api/companies/${theirs.company.slug}/estimates`
+    expect((await them.call('POST', their, { body: estimate() })).statusCode).toBe(201)
+
+    const log = `/api/companies/${company.slug}/audit-log`
+    const november1 = await browser.call(
+      'GET',
+      `${log}?filter[from]=2026-11-01&filter[to]=2026-11-01`,
+    )
+    expect(november1.statusCode).toBe(200)
+    expect(november1.json<{ data: Entry[] }>().data).toMatchObject([
+      { entity: 'estimate', action: 'create' },
+    ])
+    const fromTwo = await browser.call('GET', `${log}?filter[from]=2026-11-02`)
+    expect(fromTwo.json<{ meta: { total: number } }>().meta.total).toBe(2)
+    const october = await browser.call('GET', `${log}?filter[to]=2026-10-31`)
+    expect(october.json<{ meta: { total: number } }>().meta.total).toBe(0)
+    expect((await browser.call('GET', `${log}?filter[from]=01/11/2026`)).statusCode).toBe(422)
+    expect((await browser.call('GET', `${log}?filter[to]=2026-02-30`)).statusCode).toBe(422)
+
+    const url = `${log}/export`
+    const res = await browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="registro-modifiche.csv"')
+    expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Data e ora;Utente;Documento;Id del documento;Azione;Campi',
+      `03/11/2026 09:00;;Cliente;${(await clientId(company.id)) ?? ''};Creazione;`,
+      `02/11/2026 14:05;Utente di prova;Computo metrico;${id};Modifica;status, title`,
+      `01/11/2026 00:30;Utente di prova;Computo metrico;${id};Creazione;`,
+    ])
+    const filtered = await browser.call(
+      'GET',
+      `${url}?filter[entity]=estimate&filter[user]=${user.id}&filter[from]=2026-11-02`,
+    )
+    expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
+    expect(filtered.body).toContain('Modifica')
+    expect((await browser.call('GET', `${url}?filter[entity]=boh`)).statusCode).toBe(422)
+    expect((await browser.call('GET', `${url}?filter[from]=ieri`)).statusCode).toBe(422)
+    expect((await browser.call('GET', `${url}?filter[user]=x`)).statusCode).toBe(422)
+
+    // Without audit.view, from another company and without a session.
+    const reader = await fx.user()
+    await fx.member(reader.id, company.id, await fx.role(company.id, 'Lettore', ['estimates.view']))
+    const readerBrowser = new Browser(ctx.app)
+    await readerBrowser.signIn(reader.email)
+    expect((await readerBrowser.call('GET', url)).statusCode).toBe(403)
+    expect((await them.call('GET', url)).statusCode).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
+  })
+
   it('needs audit.view and shows only the company of the URL', async () => {
     const reader = await fx.companyWithUser(['estimates.view', 'estimates.create'])
     const browser = new Browser(ctx.app)
@@ -565,3 +649,11 @@ describe('audit log', () => {
     expect(own.json<{ meta: { total: number } }>().meta.total).toBe(0)
   })
 })
+
+async function clientId(companyId: string): Promise<string | undefined> {
+  const { rows } = await ctx.owner.query<{ id: string }>(
+    'select id from public.clients where company_id = $1',
+    [companyId],
+  )
+  return rows[0]?.id
+}

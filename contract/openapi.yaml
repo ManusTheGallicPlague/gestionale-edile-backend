@@ -7796,7 +7796,8 @@ paths:
         scadenze, computi, preventivi, cantieri e gli altri documenti di AuditEntity (anche SAL,
         prezzari, attività del cronoprogramma e assenze dei dipendenti), e quando; dal più recente. Di una modifica si
         danno i nomi dei campi cambiati, non i valori. Con filter[entity] e filter[entity_id] si ha
-        la storia di un solo documento.
+        la storia di un solo documento. filter[from] e filter[to] sono giorni compresi, contati
+        sull'ora italiana.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -7811,12 +7812,59 @@ paths:
               entity: { $ref: '#/components/schemas/AuditEntity' }
               entity_id: { $ref: '#/components/schemas/Id' }
               user: { $ref: '#/components/schemas/Id' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
       responses:
         '200':
           description: Una pagina del registro
           content:
             application/json:
               schema: { $ref: '#/components/schemas/AuditLogList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/audit-log/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportAuditLog
+      summary: Esportazione del registro delle modifiche in CSV
+      description: |
+        Permesso: audit.view. Stessi filtri e stesso ordine dell'elenco (dal più recente), senza
+        paginazione, nello stesso formato delle altre esportazioni: ad esempio con
+        filter[from] e filter[to], le modifiche di un mese. Colonne: Data e ora (all'italiana,
+        ora italiana: 30/11/2026 14:05), Utente (vuoto se la modifica non è passata dall'API),
+        Documento (il tipo in italiano: Cliente, Cantiere…), Id del documento, Azione
+        (Creazione, Modifica o Eliminazione) e Campi (i nomi dei campi cambiati, separati da
+        virgola). Il file si chiama registro-modifiche.csv.
+      parameters:
+        - name: filter
+          in: query
+          description: Gli stessi filtri di listAuditLog.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              entity: { $ref: '#/components/schemas/AuditEntity' }
+              entity_id: { $ref: '#/components/schemas/Id' }
+              user: { $ref: '#/components/schemas/Id' }
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
