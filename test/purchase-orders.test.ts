@@ -126,6 +126,83 @@ describe('purchase orders', () => {
     expect((await browser.call('GET', `${s.base}/${order.id}/pdf`)).statusCode).toBe(404)
   })
 
+  it('exports the lines of an order as CSV, with the total', async () => {
+    const s = await scene()
+    const created = await s.browser.call('POST', s.base, {
+      body: input(s, {
+        lines: [
+          { description: 'Calcestruzzo C25/30', unit: 'm³', quantity: '12.5', unit_price: '130' },
+          { description: 'Ferro; B450C', unit: 'kg', quantity: '0.333', unit_price: '0.05' },
+          { description: '=Trasporto', unit: null, quantity: '1', unit_price: '0.10' },
+          { description: 'Distanziatori', unit: 'pz', quantity: '3', unit_price: '0.20' },
+        ],
+      }),
+    })
+    expect(created.statusCode).toBe(201)
+    const order = created.json<Order>()
+    // Another company's order never shows up in this file.
+    const theirs = await scene()
+    await theirs.browser.call('POST', theirs.base, {
+      body: input(theirs, {
+        lines: [{ description: 'Loro', unit: null, quantity: '1', unit_price: '1' }],
+      }),
+    })
+
+    const url = `${s.base}/${order.id}/lines/export`
+    const res = await s.browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    const file = `ordine-${order.number.replace('/', '-')}.csv`
+    expect(res.headers['content-disposition']).toBe(`attachment; filename="${file}"`)
+    // 1625.00 + 0.02 (0.01665 rounded) + 0.10 + 0.60 = 1625.72, as the order's total.
+    expect(order.total).toBe('1625.72')
+    expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Descrizione;Unità;Quantità;Prezzo;Importo',
+      'Calcestruzzo C25/30;m³;12,500;130,00;1625,00',
+      '"Ferro; B450C";kg;0,333;0,05;0,02',
+      "'=Trasporto;;1,000;0,10;0,10",
+      'Distanziatori;pz;3,000;0,20;0,60',
+      'Totale;;;;1625,72',
+    ])
+    expect(res.body).not.toContain('Loro')
+
+    // In any status: once received the file is the same.
+    for (const status of ['sent', 'received']) {
+      const current = (await s.browser.call('GET', `${s.base}/${order.id}`)).headers.etag
+      const moved = await s.browser.call('POST', `${s.base}/${order.id}/status`, {
+        headers: { 'if-match': String(current) },
+        body: { status },
+      })
+      expect(moved.statusCode).toBe(200)
+    }
+    expect((await s.browser.call('GET', url)).body).toBe(res.body)
+
+    // An order without lines has only the total.
+    const empty = await s.browser.call('POST', s.base, { body: input(s, { lines: [] }) })
+    expect(empty.statusCode).toBe(201)
+    const emptyCsv = await s.browser.call('GET', `${s.base}/${empty.json<Order>().id}/lines/export`)
+    expect(emptyCsv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Descrizione;Unità;Quantità;Prezzo;Importo',
+      'Totale;;;;0,00',
+    ])
+
+    // Another company, a wrong id, no permission, no session.
+    expect(
+      (await theirs.browser.call('GET', `${theirs.base}/${order.id}/lines/export`)).statusCode,
+    ).toBe(404)
+    expect((await s.browser.call('GET', `${s.base}/x/lines/export`)).statusCode).toBe(404)
+    const guest = await fx.user()
+    await fx.member(
+      guest.id,
+      s.company.id,
+      await fx.role(s.company.id, 'Ospite', ['suppliers.view']),
+    )
+    const browser = new Browser(ctx.app)
+    await browser.signIn(guest.email)
+    expect((await browser.call('GET', url)).statusCode).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', url)).statusCode).toBe(401)
+  })
+
   it('exports the orders as CSV with the same filters', async () => {
     const s = await scene()
     await s.browser.call('POST', s.base, { body: input(s) })

@@ -503,6 +503,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: dopo il collegamento tra fa
 - [x] Ordini fatturati oltre il totale (`filter[over_invoiced]=true|false` in `listPurchaseOrders` ed `exportPurchaseOrders`, con anche `invoices.view`, altrimenti 403): imponibile delle fatture ricevute collegate sopra il totale dell'ordine, da controllare con il fornitore; nessuna migrazione, nessun permesso nuovo
 - [x] Ordini fatturati oltre il totale nella dashboard (`over_invoiced` in `purchase_orders` di `getDashboard`, null senza `invoices.view`), gli stessi di `filter[over_invoiced]=true`
 
+### 70. Righe dell'ordine in CSV
+Aggiunta il 09/11/2026, con il piano tutto spuntato: le righe del preventivo, del computo e del SAL si esportano in CSV, quelle dell'ordine al fornitore solo in PDF; l'ufficio le vuole in un foglio di calcolo per confrontarle con la fattura del fornitore o con altre offerte.
+
+- [x] `exportPurchaseOrderLines` su `…/purchase-orders/{order}/lines/export`: righe nell'ordine dell'ordine, in ogni stato, colonne Descrizione, Unità, Quantità, Prezzo, Importo e riga Totale (senza IVA, uguale a `total`); file `ordine-<numero>.csv` come il PDF; 404 senza `purchases.view`; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -732,11 +737,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: una fattura ricevuta addebita al massimo un ordine al fornitore, un ordine può avere più fatture; solo ordini inviati o ricevuti e dello stesso fornitore; nella fattura solo `purchase_order_id`, senza il numero dell'ordine (chi ha `purchases.view` lo legge dall'ordine). Collegare un ordine non chiede `purchases.view`, come il SAL non chiede `estimates.view`.
 - 09/11/2026: il fatturato dell'ordine è l'imponibile delle fatture collegate (l'ordine è senza IVA), nascosto a chi non ha `invoices.view` come il fatturato del cantiere.
 - 09/11/2026: il numero dell'ordine nella fattura (`purchase_order`) lo vede chiunque veda la fattura, anche senza `purchases.view`, come il nome del cantiere; il contrario (`invoiced_amount` e merce senza fattura nella dashboard) resta solo con `invoices.view`.
+- 09/11/2026: CSV delle righe dell'ordine con una riga Totale in fondo (come il SAL, a differenza del preventivo che ha IVA per aliquota): l'ordine ha un solo totale senza IVA; quantità con tre decimali e virgola come nel CSV del preventivo.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 08:21 UTC: main locale era di nuovo staccato (HEAD detached) e con due vecchi commit divergenti: riallineato a `origin/main`, nessun lavoro perso. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 70: `exportPurchaseOrderLines` (test con punto e virgola e formula nella descrizione, riga senza unità, arrotondamento al centesimo, totale uguale a quello dell'ordine, stesso file da inviato e ricevuto, ordine senza righe, 404 da un'altra azienda, id non valido e senza `purchases.view`, 401 senza sessione). Niente a metà. 909 test.
 - 2026-11-09 07:47 UTC: stesso giro, terzo push: `over_invoiced` negli ordini della dashboard (test con fatturato sotto il totale, poi un centesimo sopra, stesso ordine del filtro, null con solo `purchases.view`, zero senza ordini). Niente a metà. 908 test.
 - 2026-11-09 07:42 UTC: stesso giro, secondo push: `filter[over_invoiced]` negli ordini e nel CSV (test con fatturato uguale al totale in due fatture, un centesimo in più, ordini senza righe né fatture, insieme a `filter[status]`, 422 su un valore non valido, 403 con solo `purchases.view`). Niente a metà. 908 test.
 - 2026-11-09 07:26 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (905 test). Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 69: `received_uninvoiced` e `received_uninvoiced_total` negli ordini della dashboard (test con un ordine ricevuto fatturato escluso anche se la fattura vale meno, ordine ricevuto senza righe contato a zero, un'altra azienda che non conta, stessi ordini e stesso totale dell'elenco filtrato, null con solo `purchases.view`, zero in un'azienda senza ordini). Poi `purchase_order` con il numero nella fattura e colonna «Ordine» in `fatture.csv` (test con numero oltre 999 a quattro cifre, campo nel corpo ignorato, null senza ordine, scheda, CSV con la colonna vuota). Niente a metà. 907 test.

@@ -2837,6 +2837,35 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/purchase-orders/{order}/lines/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/PurchaseOrderId'
+    get:
+      operationId: exportPurchaseOrderLines
+      summary: Esportazione delle righe di un ordine al fornitore in CSV
+      description: |
+        Permesso: purchases.view. Senza permesso risponde 404. Tutte le righe, nell'ordine
+        dell'ordine, in qualunque stato, nello stesso formato delle altre esportazioni, per
+        confrontarle con le offerte o con la fattura del fornitore. Colonne: Descrizione, Unità,
+        Quantità, Prezzo e Importo; numeri con la virgola decimale (1234,50). In fondo una riga
+        Totale con il solo importo, uguale al totale dell'ordine (senza IVA). Il file si chiama
+        come il PDF: ordine-<numero>.csv (la barra del numero diventa un trattino).
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/purchase-orders/{order}:
     parameters:
       - $ref: '#/components/parameters/Company'

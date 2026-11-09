@@ -654,6 +654,39 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
       .send(pdf.buffer)
   })
 
+  app.get<{ Params: Params }>(`${base}/:order/lines/export`, async (request, reply) => {
+    const session = requireSession(request)
+    const order = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('purchases.view')) throw notFound()
+      const id = request.params.order ?? ''
+      if (!UUID.test(id)) throw notFound()
+      return readOne(client, id)
+    })
+    if (!order) throw notFound()
+    const csv = toCsv(
+      ['Descrizione', 'Unità', 'Quantità', 'Prezzo', 'Importo'],
+      [
+        ...order.lines.map((l) => [
+          l.description,
+          l.unit,
+          l.quantity.replace('.', ','),
+          italianAmount(l.unit_price_cents),
+          italianAmount(l.amount_cents),
+        ]),
+        ['Totale', null, null, null, italianAmount(order.row.total_cents)],
+      ],
+    )
+    const number = summary(order.row).number
+    return reply
+      .header('Content-Type', 'text/csv; charset=utf-8')
+      .header(
+        'Content-Disposition',
+        `attachment; filename="ordine-${number.replace('/', '-')}.csv"`,
+      )
+      .send(csv)
+  })
+
   app.get<{ Params: Params }>(`${base}/:order`, async (request, reply) => {
     const session = requireSession(request)
     const order = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
