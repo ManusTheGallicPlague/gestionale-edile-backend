@@ -554,6 +554,12 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: la sezione 76 dice quanto h
 - [x] `orders` nello stesso elenco: con `purchases.view` il totale senza IVA degli ordini inviati o ricevuti al fornitore per il cantiere (le bozze no), con la regola di `purchase_orders.total` di `getSiteCostSummary`; senza `purchases.view` null
 - [x] Lo stesso elenco in CSV (`exportSupplierSites` su `…/suppliers/{supplier}/sites/export`, file `cantieri-fornitore.csv`), con le colonne Costi e Ordinato solo con i loro permessi
 
+### 78. Cantieri del cliente con il fatturato
+Aggiunta il 09/11/2026, con il piano tutto spuntato: la scheda del fornitore ha i suoi cantieri con la spesa (sezione 77); la scheda del cliente non aveva un elenco dei suoi cantieri con quanto gli si è fatturato e quanto resta da incassare su ciascuno.
+
+- [x] `listClientSites` su `…/clients/{client}/sites` (permessi `clients.view`, senza 404, e `sites.view`, senza 403): i cantieri del cliente e quelli con una fattura emessa a lui, ordinati come `listSupplierSites`; con `invoices.view` `invoiced`, `collected` e `to_collect` delle sole fatture emesse a quel cliente sul cantiere, con le regole di `revenue` di `getSiteCostSummary`, altrimenti null; nessuna migrazione, nessun permesso nuovo
+- [x] Lo stesso elenco in CSV (`exportClientSites` su `…/clients/{client}/sites/export`, file `cantieri-cliente.csv`), con le colonne Fatturato, Incassato e Da incassare solo con `invoices.view`
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -792,11 +798,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: nei costi del cantiere per fornitore entrano solo i costi inseriti a mano (manodopera e mezzi non hanno fornitore); a pari totale si ordina per nome del fornitore e la riga senza fornitore va per ultima; i fornitori archiviati restano con il loro nome.
 - 09/11/2026: `costs` in `listSupplierSites` è un campo in più, null senza `costs.view` come gli altri importi letti con un permesso diverso da quello dell'elenco; conta i soli costi inseriti a mano (gli ordini hanno il loro permesso `purchases.view` e restano fuori), su tutte le date.
 - 09/11/2026: `orders` in `listSupplierSites` conta gli ordini inviati e ricevuti, non le bozze, come il costo impegnato del riepilogo del cantiere; un cantiere con le sole bozze del fornitore resta nell'elenco con `orders` a 0.00.
+- 09/11/2026: i cantieri del cliente sono quelli con il suo `client_id` più quelli su cui gli è stata emessa una fattura (cantiere di un altro committente o senza); gli importi contano solo le sue fatture emesse, non quelle ad altri clienti sullo stesso cantiere.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 16:22 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (942 test; un primo giro di controlli è fallito solo perché ho lanciato un file di test in parallelo e il setup ha chiuso le connessioni, rilanciato verde); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 78: `listClientSites` ed `exportClientSites` (nuovo `src/routes/client-sites.ts`; test con i cantieri del cliente e quello di un altro committente con una sua fattura, ordine per stato, anticipo 0.04 su 0.10 più 0.20 pagata, fatture ad altri clienti e ricevute escluse, IVA nel da incassare, cliente archiviato, CSV con punto e virgola e virgolette e senza colonne degli importi senza `invoices.view`, 403 senza `sites.view`, 404 senza `clients.view`, con id non valido e da un'altra azienda, 401). Nessuna migrazione, nessun permesso nuovo. Niente a metà; piano tutto spuntato. 948 test.
 - 2026-11-09 15:41 UTC: stesso giro, terzo push: `exportSupplierSites` (test con punto e virgola e virgolette nel nome del cantiere, stati tradotti, colonne degli importi presenti solo con `costs.view` e `purchases.view`, 403 senza `sites.view`, 404 senza `suppliers.view`, con id non valido e da un'altra azienda, 401 senza sessione); la lettura è una funzione sola per elenco e CSV. Niente a metà; piano tutto spuntato. 942 test.
 - 2026-11-09 15:36 UTC: stesso giro, secondo push: `orders` in `listSupplierSites` (test con righe arrotondate una per una 1.5 × 3.33 due volte più un ordine ricevuto, bozze e ordini di un altro fornitore esclusi, cantiere con solo bozze o solo costi a 0.00, null senza `purchases.view`). Niente a metà; piano tutto spuntato. 940 test.
 - 2026-11-09 15:21 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (938 test; un primo giro di controlli è fallito solo perché modificavo i file mentre girava, rilanciato verde); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 77: `costs` in `listSupplierSites` (test con 0.10 + 0.20 sullo stesso cantiere, cantiere con solo un ordine a 0.00, costi di un altro fornitore e senza fornitore esclusi, importo uguale alla riga di `getSiteSupplierCosts`, null senza `costs.view`, costi di un'altra azienda che non contano). Niente a metà; piano tutto spuntato. 939 test.

@@ -661,6 +661,62 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/clients/{client}/sites:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/ClientId'
+    get:
+      operationId: listClientSites
+      summary: Cantieri di un cliente
+      description: |
+        Permessi: clients.view e sites.view. Senza clients.view il cliente è «non trovato»
+        (404), come nella scheda; senza sites.view 403. Per la scheda del cliente: i cantieri
+        del cliente (anche archiviato) e quelli su cui gli è stata emessa una fattura, di
+        qualunque stato, prima quelli in corso, poi da iniziare, sospesi e chiusi, e a parità in
+        ordine di nome, come listSupplierSites. Con invoices.view, in invoiced l'imponibile
+        delle fatture emesse al cliente per il cantiere, in collected quanto incassato e in
+        to_collect quanto resta da incassare, con le stesse regole di revenue in
+        getSiteCostSummary ma solo per le fatture di quel cliente (zero se non ce ne sono);
+        senza invoices.view i tre campi sono null.
+      responses:
+        '200':
+          description: I cantieri del cliente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ClientSiteList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
+  /api/companies/{company}/clients/{client}/sites/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/ClientId'
+    get:
+      operationId: exportClientSites
+      summary: Cantieri di un cliente in CSV
+      description: |
+        Permessi come listClientSites: clients.view (senza, 404) e sites.view (senza, 403).
+        Le stesse righe nello stesso ordine, nello stesso formato dell'esportazione dei clienti:
+        colonne Codice, Cantiere, Stato, poi Fatturato, Incassato e Da incassare solo con
+        invoices.view, importi con la virgola decimale (1234,50). Il file si chiama
+        cantieri-cliente.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/suppliers:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -11338,6 +11394,37 @@ components:
         data:
           type: array
           items: { $ref: '#/components/schemas/SiteSubcontractor' }
+    ClientSite:
+      type: object
+      required: [site_id, code, name, status, invoiced, collected, to_collect]
+      properties:
+        site_id: { $ref: '#/components/schemas/Id' }
+        code: { type: [string, 'null'] }
+        name: { type: string }
+        status: { $ref: '#/components/schemas/SiteStatus' }
+        invoiced:
+          description: |
+            Imponibile delle fatture emesse al cliente per il cantiere; null senza invoices.view.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        collected:
+          description: Incassato su quelle fatture; null senza invoices.view.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+        to_collect:
+          description: Resta da incassare su quelle fatture; null senza invoices.view.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
+    ClientSiteList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/ClientSite' }
     SupplierSite:
       type: object
       required: [site_id, code, name, status, costs, orders]
