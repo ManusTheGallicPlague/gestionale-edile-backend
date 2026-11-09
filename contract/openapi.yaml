@@ -5582,6 +5582,51 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/employees/{employee}/work-summary/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      operationId: exportEmployeeWorkSummary
+      summary: Ore del dipendente per cantiere in CSV
+      description: |
+        Permessi come getEmployeeWorkSummary: employees.view (senza, 404) e reports.view (senza, 403).
+        Gli stessi cantieri nello stesso ordine e con gli stessi filtri, nello stesso formato
+        delle altre esportazioni: colonne Codice, Cantiere, Ore, Giorni, Costo, Primo giorno,
+        Ultimo giorno, e in fondo una riga Totale con ore, giorni e costo di tutto il periodo. Ore e
+        importi con la virgola decimale (12,50), date come 30/11/2026, costo vuoto se il costo
+        orario manca. Il file si chiama ore-dipendente.csv.
+      parameters:
+        - name: filter
+          in: query
+          description: |
+            Filtri come getEmployeeWorkSummary, ad esempio filter[from]=2026-11-01&filter[to]=2026-11-30
+            (estremi compresi) e filter[status]=approved.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              status: { $ref: '#/components/schemas/DailyReportStatus' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/employees/{employee}/absences:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -6291,6 +6336,51 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/VehicleWorkSummary' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
+  /api/companies/{company}/vehicles/{vehicle}/work-summary/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/VehicleId'
+    get:
+      operationId: exportVehicleWorkSummary
+      summary: Ore del mezzo per cantiere in CSV
+      description: |
+        Permessi come getVehicleWorkSummary: vehicles.view (senza, 404) e reports.view (senza, 403).
+        Gli stessi cantieri nello stesso ordine e con gli stessi filtri, nello stesso formato
+        delle altre esportazioni: colonne Codice, Cantiere, Ore, Giorni, Costo, Primo giorno,
+        Ultimo giorno, e in fondo una riga Totale con ore, giorni e costo di tutto il periodo. Ore e
+        importi con la virgola decimale (12,50), date come 30/11/2026, costo vuoto se il costo
+        orario manca. Il file si chiama ore-mezzo.csv.
+      parameters:
+        - name: filter
+          in: query
+          description: |
+            Filtri come getVehicleWorkSummary, ad esempio filter[from]=2026-11-01&filter[to]=2026-11-30
+            (estremi compresi) e filter[status]=approved.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              status: { $ref: '#/components/schemas/DailyReportStatus' }
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }

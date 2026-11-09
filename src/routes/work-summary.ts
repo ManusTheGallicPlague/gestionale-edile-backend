@@ -6,6 +6,7 @@ import { enterCompany } from '../company.js'
 import { UUID } from '../deadlines/input.js'
 import { isIsoDate } from '../suppliers/documents.js'
 import { centsToAmount } from '../money.js'
+import { italianDate, toCsv } from '../csv.js'
 import { ValidationFailed, forbidden, notFound, type FieldErrors } from '../http/errors.js'
 import { requireSession } from '../http/request-context.js'
 import type { Permission } from '../permissions.js'
@@ -340,17 +341,25 @@ async function readFuel(client: PoolClient, id: string, query: Record<string, un
 
 /** Hours of an employee or a vehicle per site, for their cards. */
 export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
-  const routes: { path: string; param: string; permission: Permission; source: Source }[] = [
+  const routes: {
+    path: string
+    param: string
+    permission: Permission
+    source: Source
+    file: string
+  }[] = [
     {
       path: '/api/companies/:company/employees/:employee/work-summary',
       param: 'employee',
       permission: 'employees.view',
+      file: 'ore-dipendente.csv',
       source: { table: 'employees', hours: 'daily_report_labor', column: 'employee_id' },
     },
     {
       path: '/api/companies/:company/vehicles/:vehicle/work-summary',
       param: 'vehicle',
       permission: 'vehicles.view',
+      file: 'ore-mezzo.csv',
       source: { table: 'vehicles', hours: 'daily_report_vehicles', column: 'vehicle_id' },
     },
   ]
@@ -386,6 +395,55 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
         })
         if (!summary) throw notFound()
         return reply.send(summary)
+      },
+    )
+
+    app.get<{ Params: Record<string, string>; Querystring: Record<string, unknown> }>(
+      `${route.path}/export`,
+      async (request, reply) => {
+        const session = requireSession(request)
+        const summary = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+          const permissions = await enterCompany(client, request.params.company ?? '')
+          if (!permissions.has(route.permission)) throw notFound()
+          const id = request.params[route.param] ?? ''
+          if (!UUID.test(id)) throw notFound()
+          return readSummary(
+            client,
+            route.source,
+            id.toLowerCase(),
+            request.query,
+            permissions.has('reports.view'),
+          )
+        })
+        if (!summary) throw notFound()
+        const decimal = (value: string | null) => (value === null ? null : value.replace('.', ','))
+        const csv = toCsv(
+          ['Codice', 'Cantiere', 'Ore', 'Giorni', 'Costo', 'Primo giorno', 'Ultimo giorno'],
+          [
+            ...summary.sites.map((r) => [
+              r.site.code,
+              r.site.name,
+              decimal(r.hours),
+              r.days,
+              decimal(r.cost),
+              italianDate(r.first_date),
+              italianDate(r.last_date),
+            ]),
+            [
+              null,
+              'Totale',
+              decimal(summary.hours),
+              summary.days,
+              decimal(summary.cost),
+              null,
+              null,
+            ],
+          ],
+        )
+        return reply
+          .header('Content-Type', 'text/csv; charset=utf-8')
+          .header('Content-Disposition', `attachment; filename="${route.file}"`)
+          .send(csv)
       },
     )
   }
