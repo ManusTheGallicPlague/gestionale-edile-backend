@@ -865,6 +865,15 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where exists (select 1 from c) and exists (select 1 from p)`,
         [companyId],
       )
+      // The concrete invoice bills the sent concrete order, when it is of the same supplier.
+      await client.query(
+        `update public.invoices i set purchase_order_id = o.id
+         from public.purchase_orders o
+         where i.company_id = $1 and i.direction = 'received' and i.number like 'F-118/%'
+           and o.company_id = $1 and o.number_seq = 1 and o.status <> 'draft'
+           and o.supplier_id = i.supplier_id`,
+        [companyId],
+      )
       // The overdue advance invoice is partly collected: a 5,000 euro transfer.
       await client.query(
         `insert into public.invoice_payments

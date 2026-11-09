@@ -49,6 +49,8 @@ interface InvoiceInput {
   vat_nature: VatNature | null | undefined
   /** undefined when absent: null on creation, unchanged on update. */
   progress_statement_id: string | null | undefined
+  /** undefined when absent: null on creation, unchanged on update. */
+  purchase_order_id: string | null | undefined
   /** undefined when absent: 0 on creation, unchanged on update. */
   withholding_cents: string | undefined
   /** undefined when absent: false on creation, unchanged on update. */
@@ -77,6 +79,7 @@ interface InvoiceRow {
   vat_cents: string
   vat_nature: VatNature | null
   progress_statement_id: string | null
+  purchase_order_id: string | null
   total_cents: string
   withholding_cents: string
   split_payment: boolean
@@ -126,7 +129,7 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
     i.client_id, c.name as client_name, i.supplier_id, p.name as supplier_name,
     i.site_id, s.name as site_name, s.code as site_code, i.description,
     i.taxable_cents::text as taxable_cents, i.vat_cents::text as vat_cents,
-    i.vat_nature, i.progress_statement_id, (i.taxable_cents + i.vat_cents)::text as total_cents,
+    i.vat_nature, i.progress_statement_id, i.purchase_order_id, (i.taxable_cents + i.vat_cents)::text as total_cents,
     i.withholding_cents::text as withholding_cents, i.split_payment, i.retention_release,
     (${DUE_CENTS})::text as due_cents, ${PAID_CENTS}::text as paid_cents,
     (${REMAINING_CENTS})::text as remaining_cents,
@@ -166,6 +169,7 @@ function toContract(row: InvoiceRow) {
     vat_amount: centsToAmount(row.vat_cents),
     vat_nature: row.vat_nature,
     progress_statement_id: row.progress_statement_id,
+    purchase_order_id: row.purchase_order_id,
     retention_release: row.retention_release,
     total: centsToAmount(row.total_cents),
     withholding_amount: centsToAmount(row.withholding_cents),
@@ -285,6 +289,13 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
       add('progress_statement_id', 'Si collega un SAL solo a una fattura emessa.')
     }
   }
+  let purchase_order_id: string | null | undefined
+  if ('purchase_order_id' in raw && raw.purchase_order_id !== undefined) {
+    purchase_order_id = id('purchase_order_id', 'Ordine non trovato.')
+    if (purchase_order_id !== null && direction === 'issued') {
+      add('purchase_order_id', ORDER_RECEIVED)
+    }
+  }
   let withholding_cents: string | undefined
   if ('withholding_amount' in raw && raw.withholding_amount !== undefined) {
     withholding_cents = amount('withholding_amount') ?? undefined
@@ -338,6 +349,7 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
     vat_cents,
     vat_nature,
     progress_statement_id,
+    purchase_order_id,
     withholding_cents,
     split_payment,
     retention_release,
@@ -360,6 +372,8 @@ function checkRetentionRelease(input: InvoiceInput) {
           : null
   if (message) throw new ValidationFailed({ retention_release: [message] })
 }
+
+const ORDER_RECEIVED = 'Si collega un ordine solo a una fattura ricevuta.'
 
 const SPLIT_ISSUED = 'La scissione dei pagamenti vale solo per le fatture emesse.'
 
@@ -393,6 +407,20 @@ async function checkReferences(client: PoolClient, input: InvoiceInput) {
     else if (statement.status !== 'approved') errors[field] = ['Si fattura solo un SAL approvato.']
     else if (input.site_id && statement.site_id !== input.site_id) {
       errors[field] = ['Il SAL è di un altro cantiere.']
+    }
+  }
+  if (input.purchase_order_id) {
+    const { rows } = await client.query<{ status: string; supplier_id: string }>(
+      'select status, supplier_id from public.purchase_orders where id = $1',
+      [input.purchase_order_id],
+    )
+    const order = rows[0]
+    const field = 'purchase_order_id'
+    if (!order) errors[field] = ['Ordine non trovato.']
+    else if (order.status === 'draft') {
+      errors[field] = ['Si collega solo un ordine già inviato al fornitore.']
+    } else if (input.supplier_id && order.supplier_id !== input.supplier_id) {
+      errors[field] = ["L'ordine è di un altro fornitore."]
     }
   }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
@@ -596,6 +624,7 @@ function readList(query: Record<string, unknown>) {
   const clientId = id('filter[client]')
   const supplierId = id('filter[supplier]')
   const siteId = id('filter[site]')
+  const purchaseOrderId = id('filter[purchase_order]')
   const from = date('filter[from]')
   const to = date('filter[to]')
   const qValue = single('filter[q]')?.trim()
@@ -623,6 +652,7 @@ function readList(query: Record<string, unknown>) {
     clientId,
     supplierId,
     siteId,
+    purchaseOrderId,
     from,
     to,
     q,
@@ -641,6 +671,7 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.clientId) add((p) => `i.client_id = ${p}`, list.clientId)
   if (list.supplierId) add((p) => `i.supplier_id = ${p}`, list.supplierId)
   if (list.siteId) add((p) => `i.site_id = ${p}`, list.siteId)
+  if (list.purchaseOrderId) add((p) => `i.purchase_order_id = ${p}`, list.purchaseOrderId)
   if (list.from) add((p) => `i.invoice_date >= ${p}`, list.from)
   if (list.to) add((p) => `i.invoice_date <= ${p}`, list.to)
   if (list.reverseCharge !== undefined) {
@@ -988,9 +1019,10 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
         .query<{ id: string }>(
           `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
              supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on, notes,
-             vat_nature, progress_statement_id, withholding_cents, split_payment, retention_release)
+             vat_nature, progress_statement_id, withholding_cents, split_payment, retention_release,
+             purchase_order_id)
            values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             $13, $14, $15, $16, $17)
+             $13, $14, $15, $16, $17, $18)
            returning id`,
           [
             input.direction,
@@ -1010,6 +1042,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.withholding_cents ?? '0',
             input.split_payment ?? false,
             input.retention_release ?? false,
+            input.purchase_order_id ?? null,
           ],
         )
         .catch(writeFailed)
@@ -1042,6 +1075,13 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
           })
         }
       }
+      // Absent: the order stays, and is checked again against the new direction and supplier.
+      if (input.purchase_order_id === undefined) {
+        input.purchase_order_id = current.purchase_order_id
+        if (current.purchase_order_id && input.direction === 'issued') {
+          throw new ValidationFailed({ purchase_order_id: [ORDER_RECEIVED] })
+        }
+      }
       // Absent: the withholding stays, if it still fits the new taxable amount.
       if (input.withholding_cents === undefined) {
         input.withholding_cents = current.withholding_cents
@@ -1070,7 +1110,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
                vat_nature = case when $9::bigint <> 0 then null
                                  when $16::boolean then $15::text else vat_nature end,
                progress_statement_id = $17, withholding_cents = $18, split_payment = $19,
-               retention_release = $20, version = version + 1, updated_at = now()
+               retention_release = $20, purchase_order_id = $21, version = version + 1, updated_at = now()
            where id = $13 and version = $14`,
           [
             input.direction,
@@ -1093,6 +1133,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.withholding_cents,
             input.split_payment,
             input.retention_release,
+            input.purchase_order_id,
           ],
         )
         .catch(writeFailed)

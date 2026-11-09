@@ -1851,6 +1851,33 @@ describe('the API role cannot cross companies', () => {
     ).rejects.toThrow(/foreign key/)
   })
 
+  it('invoices: cannot bill a purchase order of another company', async () => {
+    const supplierB = await owner.query<{ id: string }>(
+      "insert into public.suppliers (company_id, name) values ($1, 'Fornitore B') returning id",
+      [companyB.id],
+    )
+    const orderB = await owner.query<{ id: string }>(
+      `insert into public.purchase_orders (company_id, number_year, number_seq, supplier_id,
+         order_date, status, sent_at) values ($1, 2026, 901, $2, '2026-10-20', 'sent', now())
+       returning id`,
+      [companyB.id, supplierB.rows[0]?.id],
+    )
+    const supplierA = await owner.query<{ id: string }>(
+      "insert into public.suppliers (company_id, name) values ($1, 'Fornitore A') returning id",
+      [companyA.id],
+    )
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.invoices (company_id, direction, number, invoice_date, supplier_id,
+             taxable_cents, vat_cents, purchase_order_id)
+           values ($1, 'received', 'X-1', '2026-11-02', $2, 100, 0, $3)`,
+          [companyA.id, supplierA.rows[0]?.id, orderB.rows[0]?.id],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
+  })
+
   it('price lists and their items: cannot read, write or attach across companies', async () => {
     const listB = await owner.query<{ id: string }>(
       "insert into public.price_lists (company_id, name) values ($1, 'B') returning id",
