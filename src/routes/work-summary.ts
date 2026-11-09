@@ -468,4 +468,73 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
       return reply.send(summary)
     },
   )
+
+  app.get<{ Params: { company: string; site: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/sites/:site/work-summary/export',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('sites.view')) throw notFound()
+        if (!UUID.test(request.params.site)) throw notFound()
+        const canSeeCosts = permissions.has('costs.view')
+        const summary = await readSiteSummary(
+          client,
+          request.params.site.toLowerCase(),
+          request.query,
+          permissions.has('reports.view'),
+          canSeeCosts,
+        )
+        return summary && { summary, canSeeCosts }
+      })
+      if (!result) throw notFound()
+      const { summary, canSeeCosts } = result
+      const decimal = (value: string | null) => (value === null ? null : value.replace('.', ','))
+      const line = (
+        kind: string,
+        name: string | null,
+        plate: string | null,
+        r: {
+          hours: string
+          cost: string | null
+          days?: number
+          first_date?: string
+          last_date?: string
+        },
+      ) => [
+        kind,
+        name,
+        plate,
+        decimal(r.hours),
+        r.days,
+        ...(canSeeCosts ? [decimal(r.cost)] : []),
+        r.first_date && italianDate(r.first_date),
+        r.last_date && italianDate(r.last_date),
+      ]
+      const csv = toCsv(
+        [
+          'Tipo',
+          'Nome',
+          'Targa',
+          'Ore',
+          'Giorni',
+          ...(canSeeCosts ? ['Costo'] : []),
+          'Primo giorno',
+          'Ultimo giorno',
+        ],
+        [
+          ...summary.labor.rows.map((r) =>
+            line('Dipendente', `${r.employee.last_name} ${r.employee.first_name}`, null, r),
+          ),
+          line('Totale dipendenti', null, null, summary.labor),
+          ...summary.vehicles.rows.map((r) => line('Mezzo', r.vehicle.name, r.vehicle.plate, r)),
+          line('Totale mezzi', null, null, summary.vehicles),
+        ],
+      )
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="ore-cantiere.csv"')
+        .send(csv)
+    },
+  )
 }

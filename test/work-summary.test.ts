@@ -685,6 +685,78 @@ describe('ore di un cantiere per dipendente e per mezzo', () => {
   })
 })
 
+describe('ore di un cantiere per dipendente e per mezzo in CSV', () => {
+  const lines = (body: string) => body.replace('\uFEFF', '').trim().split('\r\n')
+
+  it('le stesse righe del riepilogo, con i totali; il costo solo con costs.view', async () => {
+    const s = await scene(SITE)
+    await s.report(s.villa, '2026-10-01', 'approved', { verdi: '8', bassi: '4', digger: '3.5' })
+    await s.report(s.villa, '2026-10-02', 'draft', { bassi: '8' })
+    await s.report(s.condo, '2026-10-02', 'approved', { verdi: '8', digger: '8' })
+    await ctx.owner.query(
+      `update public.vehicles set name = 'Escavatore; "grande"', plate = 'AB123CD' where id = $1`,
+      [s.digger],
+    )
+
+    const res = await s.browser.call('GET', `${siteUrl(s.slug, s.villa)}/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe('attachment; filename="ore-cantiere.csv"')
+    expect(lines(res.body)).toEqual([
+      'Tipo;Nome;Targa;Ore;Giorni;Costo;Primo giorno;Ultimo giorno',
+      'Dipendente;Bassi Anna;;12,00;2;;01/10/2026;02/10/2026',
+      'Dipendente;Verdi Luca;;8,00;1;228,00;01/10/2026;01/10/2026',
+      'Totale dipendenti;;;20,00;;228,00;;',
+      'Mezzo;"Escavatore; ""grande""";AB123CD;3,50;1;157,50;01/10/2026;01/10/2026',
+      'Totale mezzi;;;3,50;;157,50;;',
+    ])
+
+    const approved = await s.browser.call(
+      'GET',
+      `${siteUrl(s.slug, s.villa)}/export?filter[status]=approved&filter[to]=2026-10-01`,
+    )
+    expect(lines(approved.body)).toEqual([
+      'Tipo;Nome;Targa;Ore;Giorni;Costo;Primo giorno;Ultimo giorno',
+      'Dipendente;Verdi Luca;;8,00;1;228,00;01/10/2026;01/10/2026',
+      'Dipendente;Bassi Anna;;4,00;1;;01/10/2026;01/10/2026',
+      'Totale dipendenti;;;12,00;;228,00;;',
+      'Mezzo;"Escavatore; ""grande""";AB123CD;3,50;1;157,50;01/10/2026;01/10/2026',
+      'Totale mezzi;;;3,50;;157,50;;',
+    ])
+
+    const plain = await scene(['sites.view', 'reports.view'])
+    await plain.report(plain.villa, '2026-10-01', 'approved', { verdi: '8' })
+    const noCosts = await plain.browser.call('GET', `${siteUrl(plain.slug, plain.villa)}/export`)
+    expect(lines(noCosts.body)).toEqual([
+      'Tipo;Nome;Targa;Ore;Giorni;Primo giorno;Ultimo giorno',
+      'Dipendente;Verdi Luca;;8,00;1;01/10/2026;01/10/2026',
+      'Totale dipendenti;;;8,00;;;',
+      'Totale mezzi;;;0,00;;;',
+    ])
+  })
+
+  it('422, un’altra azienda, 404, 403 e 401', async () => {
+    const s = await scene(SITE)
+    const url = (x: { slug: string }, site: string, query = '') =>
+      `${siteUrl(x.slug, site)}/export${query}`
+    expect((await s.browser.call('GET', url(s, s.villa, '?filter[status]=boh'))).statusCode).toBe(
+      422,
+    )
+    const other = await scene(SITE)
+    await other.report(other.villa, '2026-10-01', 'approved', { verdi: '8' })
+    expect((await s.browser.call('GET', url(s, other.villa))).statusCode).toBe(404)
+    expect((await s.browser.call('GET', url(other, other.villa))).statusCode).toBe(404)
+    expect((await s.browser.call('GET', url(s, 'x'))).statusCode).toBe(404)
+    const noSites = await scene(['reports.view', 'costs.view'])
+    expect((await noSites.browser.call('GET', url(noSites, noSites.villa))).statusCode).toBe(404)
+    const noReports = await scene(['sites.view', 'costs.view'])
+    expect((await noReports.browser.call('GET', url(noReports, noReports.villa))).statusCode).toBe(
+      403,
+    )
+    expect((await new Browser(ctx.app).call('GET', url(s, s.villa))).statusCode).toBe(401)
+  })
+})
+
 describe('ore mensili dei dipendenti per cantiere in CSV', () => {
   const url = (slug: string, query: string) =>
     `/api/companies/${slug}/daily-reports/monthly-site-hours?${query}`
