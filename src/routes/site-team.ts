@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify'
+import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { italianDate, toCsv } from '../csv.js'
 import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
@@ -11,6 +11,7 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 import type { AbsenceKind } from './employee-absences.js'
 import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { SITES_ORDER, type SupplierSiteRow } from './site-subcontractors.js'
+import { STATUS_LABELS } from './sites.js'
 import {
   EMPLOYEE_DOCUMENT_KINDS,
   KIND_LABEL,
@@ -198,30 +199,52 @@ export function siteTeamRoutes(app: FastifyInstance, config: Config, db: Db): vo
   })
 
   // The other way round: the sites whose team has the employee, for the employee's page.
+  const employeeSites = (
+    request: FastifyRequest<{ Params: { company: string; employee: string } }>,
+  ) => {
+    const session = requireSession(request)
+    return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+      const permissions = await enterCompany(client, request.params.company)
+      if (!permissions.has('employees.view')) throw notFound()
+      const id = request.params.employee
+      if (!UUID.test(id)) throw notFound()
+      const found = await client.query('select 1 from public.employees where id = $1', [id])
+      if (found.rowCount === 0) throw notFound()
+      if (!permissions.has('sites.view')) throw forbidden()
+      const { rows } = await client.query<SupplierSiteRow>(
+        `select s.id, s.code, s.name, s.status
+         from public.sites s
+         where exists (select 1 from public.site_team t
+                       where t.site_id = s.id and t.employee_id = $1)
+         order by ${SITES_ORDER}`,
+        [id],
+      )
+      return rows
+    })
+  }
+
   app.get<{ Params: { company: string; employee: string } }>(
     '/api/companies/:company/employees/:employee/sites',
     async (request) => {
-      const session = requireSession(request)
-      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
-        const permissions = await enterCompany(client, request.params.company)
-        if (!permissions.has('employees.view')) throw notFound()
-        const id = request.params.employee
-        if (!UUID.test(id)) throw notFound()
-        const found = await client.query('select 1 from public.employees where id = $1', [id])
-        if (found.rowCount === 0) throw notFound()
-        if (!permissions.has('sites.view')) throw forbidden()
-        const { rows } = await client.query<SupplierSiteRow>(
-          `select s.id, s.code, s.name, s.status
-           from public.sites s
-           where exists (select 1 from public.site_team t
-                         where t.site_id = s.id and t.employee_id = $1)
-           order by ${SITES_ORDER}`,
-          [id],
-        )
-        return {
-          data: rows.map((r) => ({ site_id: r.id, code: r.code, name: r.name, status: r.status })),
-        }
-      })
+      const rows = await employeeSites(request)
+      return {
+        data: rows.map((r) => ({ site_id: r.id, code: r.code, name: r.name, status: r.status })),
+      }
+    },
+  )
+
+  app.get<{ Params: { company: string; employee: string } }>(
+    '/api/companies/:company/employees/:employee/sites/export',
+    async (request, reply) => {
+      const rows = await employeeSites(request)
+      const csv = toCsv(
+        ['Codice', 'Cantiere', 'Stato'],
+        rows.map((r) => [r.code, r.name, STATUS_LABELS[r.status as keyof typeof STATUS_LABELS]]),
+      )
+      return reply
+        .header('Content-Type', 'text/csv; charset=utf-8')
+        .header('Content-Disposition', 'attachment; filename="cantieri-dipendente.csv"')
+        .send(csv)
     },
   )
 

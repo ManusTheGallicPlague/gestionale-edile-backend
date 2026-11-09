@@ -126,4 +126,53 @@ describe('sites of an employee', () => {
     })
     expect((await mine.browser.call('GET', mine.url)).json()).toEqual({ data: [] })
   })
+
+  it('exports the same sites in CSV, in the same order', async () => {
+    const { browser, company, employeeId: e, url } = await scene()
+    await site(company.id, 'Arena', 'completed', [e])
+    await site(company.id, 'Villetta', 'active', [e])
+    await site(company.id, 'Box; "nord"', 'planned', [e])
+    await site(company.id, 'Altra squadra', 'active', [await employee(company.id)])
+
+    const res = await browser.call('GET', `${url}/export`)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
+    expect(res.headers['content-disposition']).toBe(
+      'attachment; filename="cantieri-dipendente.csv"',
+    )
+    expect(res.body.replace('\ufeff', '').trim().split('\r\n')).toEqual([
+      'Codice;Cantiere;Stato',
+      'C-01;Villetta;In corso',
+      ';"Box; ""nord""";Da iniziare',
+      ';Arena;Chiuso',
+    ])
+    expect(res.body).not.toContain('4567')
+
+    const none = await employee(company.id)
+    const empty = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/employees/${none}/sites/export`,
+    )
+    expect(empty.statusCode).toBe(200)
+    expect(empty.body.replace('\ufeff', '').trim()).toBe('Codice;Cantiere;Stato')
+  })
+
+  it('refuses the CSV like the list', async () => {
+    const office = await scene(['employees.view'])
+    expect((await office.browser.call('GET', `${office.url}/export`)).statusCode).toBe(403)
+    const chief = await scene(['sites.view'])
+    expect((await chief.browser.call('GET', `${chief.url}/export`)).statusCode).toBe(404)
+    const mine = await scene()
+    const theirs = await scene()
+    await site(theirs.company.id, 'Loro', 'active', [theirs.employeeId])
+    const other = `/api/companies/${mine.company.slug}/employees/${theirs.employeeId}/sites/export`
+    const res = await mine.browser.call('GET', other)
+    expect(res.statusCode).toBe(404)
+    expect(res.body).not.toContain('Loro')
+    expect(
+      (await mine.browser.call('GET', mine.url.replace(mine.employeeId, 'nope') + '/export'))
+        .statusCode,
+    ).toBe(404)
+    expect((await new Browser(ctx.app).call('GET', `${mine.url}/export`)).statusCode).toBe(401)
+  })
 })

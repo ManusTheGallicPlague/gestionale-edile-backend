@@ -567,6 +567,11 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: le schede di dipendente e m
 - [x] `exportEmployeeWorkSummary` ed `exportVehicleWorkSummary` su `…/work-summary/export` (file `ore-dipendente.csv` e `ore-mezzo.csv`): stessi permessi, filtri e ordine del riepilogo, colonne Codice, Cantiere, Ore, Giorni, Costo, Primo giorno, Ultimo giorno e riga Totale in fondo; nessuna migrazione, nessun permesso nuovo
 - [x] `exportSiteWorkSummary` su `…/sites/{site}/work-summary/export` (file `ore-cantiere.csv`): ore del cantiere per dipendente e per mezzo, con le righe «Totale dipendenti» e «Totale mezzi», colonna Costo solo con `costs.view`, stessi permessi e filtri di `getSiteWorkSummary`
 
+### 80. Cantieri del dipendente in CSV
+Aggiunta il 09/11/2026, con il piano tutto spuntato: i cantieri del fornitore e del cliente hanno l'esportazione (sezioni 77 e 78), quelli del dipendente (`listEmployeeSites`, sezione 59) no, mentre la schermata «A. Elenco» di `docs/frontend.md` la prevede.
+
+- [x] `exportEmployeeSites` su `…/employees/{employee}/sites/export` (file `cantieri-dipendente.csv`): stessi permessi, righe e ordine di `listEmployeeSites`, colonne Codice, Cantiere, Stato; nessuna migrazione, nessun permesso nuovo
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -809,11 +814,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: i cantieri del cliente sono quelli con il suo `client_id` più quelli su cui gli è stata emessa una fattura (cantiere di un altro committente o senza); gli importi contano solo le sue fatture emesse, non quelle ad altri clienti sullo stesso cantiere.
 - 09/11/2026: nel CSV delle ore per cantiere di dipendente e mezzo c'è una riga Totale in fondo (come il CSV del SAL), con le ore, i giorni distinti e il costo di tutto il periodo; il costo segue le regole del riepilogo (costo orario attuale, cella vuota se manca) e, come lì, non chiede `costs.view`.
 - 09/11/2026: nel CSV delle ore del cantiere dipendenti e mezzi stanno nello stesso file, distinti dalla colonna Tipo, invece di due file; nelle righe dei totali i giorni restano vuoti perché il riepilogo non li somma (lo stesso giorno conta per più persone).
+- 09/11/2026: `exportEmployeeSites` senza colonne di ore o costi: le ore per cantiere del dipendente hanno già la loro esportazione (`exportEmployeeWorkSummary`), qui solo l'elenco dei cantieri come in `exportSupplierSites` senza i permessi sugli importi.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-09 18:21 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (953 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 80: `exportEmployeeSites` (lettura unica per elenco e CSV; test con punto e virgola e virgolette nel nome del cantiere, ordine per stato, cantiere di un altro dipendente escluso, dipendente senza cantieri, 403 senza `sites.view`, 404 senza `employees.view`, con id non valido e da un'altra azienda, 401). Niente a metà; piano tutto spuntato. 955 test.
 - 2026-11-09 17:32 UTC: stesso giro, secondo push: `exportSiteWorkSummary` (test con punto e virgola e virgolette nel nome del mezzo, totali di dipendenti e mezzi, filtri, colonna Costo assente senza `costs.view`, 422, 404 da un'altra azienda, con id non valido e senza `sites.view`, 403 senza `reports.view`, 401). Niente a metà; piano tutto spuntato. 953 test.
 - 2026-11-09 17:22 UTC: main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (949 test; un primo giro di controlli è fallito solo perché ho lanciato un file di test in parallelo, rilanciato verde); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 79: `exportEmployeeWorkSummary` ed `exportVehicleWorkSummary` (test con punto e virgola e virgolette nel nome del cantiere, riga Totale, filtri per periodo e stato, costo vuoto senza costo orario, mezzo senza ore, 422, 404 da un'altra azienda, con id non valido e senza il permesso della scheda, 403 senza `reports.view`, 401). Nessuna migrazione, nessun permesso nuovo. Niente a metà; piano tutto spuntato. 951 test.
 - 2026-11-09 16:35 UTC: stesso giro, secondo push: `quoted` in `listClientSites` e colonna Preventivo in `exportClientSites` (test con righe scontate e una sezione che non conta, 120.5 × 18.40 + 1250.00 − 20% = 3217.20, cantiere senza preventivo a null e cella vuota, null e niente colonna senza `quotes.view`). Niente a metà; piano tutto spuntato. 949 test.

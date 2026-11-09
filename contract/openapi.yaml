@@ -5588,6 +5588,33 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
 
+  /api/companies/{company}/employees/{employee}/sites/export:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/EmployeeId'
+    get:
+      operationId: exportEmployeeSites
+      summary: Cantieri di un dipendente in CSV
+      description: |
+        Permessi come listEmployeeSites: employees.view (senza, 404) e sites.view (senza, 403).
+        Le stesse righe nello stesso ordine, nello stesso formato di exportSupplierSites:
+        colonne Codice, Cantiere, Stato. Il file si chiama cantieri-dipendente.csv.
+      responses:
+        '200':
+          description: Il file CSV
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/employees/{employee}/work-summary:
     parameters:
       - $ref: '#/components/parameters/Company'
