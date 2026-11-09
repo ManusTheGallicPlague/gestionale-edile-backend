@@ -449,6 +449,54 @@ describe('purchase orders', () => {
     expect((await s.browser.call('GET', `${s.base}?sort=boh`)).statusCode).toBe(422)
   })
 
+  it('searches the number, the notes and the lines with filter[q], also in the CSV', async () => {
+    const s = await scene()
+    for (const body of [
+      input(s),
+      input(s, {
+        notes: 'Consegna con GRU',
+        lines: [{ description: 'Sabbia', unit: null, quantity: '1', unit_price: '0.10' }],
+      }),
+      input(s, { lines: [{ description: 'Viti', unit: null, quantity: '1', unit_price: '0.20' }] }),
+    ]) {
+      expect((await s.browser.call('POST', s.base, { body })).statusCode).toBe(201)
+    }
+    const stranger = await scene()
+    await stranger.browser.call('POST', stranger.base, { body: input(stranger) })
+
+    type List = { data: Order[]; meta: { total: number }; total_amount: string }
+    const list = async (q: string) =>
+      (await s.browser.call('GET', `${s.base}?filter[q]=${q}&sort=number`)).json<List>()
+    const byLine = await list('%20b450c%20')
+    expect(byLine.data.map((o) => o.number)).toEqual(['2026/001'])
+    expect(byLine.total_amount).toBe('1625.02')
+    const byNotes = await list('gru')
+    expect(byNotes.data.map((o) => o.number)).toEqual(['2026/002'])
+    const byNumber = await list('2026%2F003')
+    expect(byNumber.data.map((o) => o.number)).toEqual(['2026/003'])
+    // A line that matches twice still counts the order once.
+    const twiceMatched = await list('c')
+    expect(twiceMatched.meta.total).toBe(2)
+    expect(twiceMatched.total_amount).toBe('1625.12')
+    expect((await list('%25')).meta.total).toBe(0)
+    expect((await list('%20')).meta.total).toBe(3)
+
+    const csv = await s.browser.call('GET', `${s.base}/export?filter[q]=viti`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toContain('2026/003')
+
+    for (const path of [s.base, `${s.base}/export`]) {
+      const long = await s.browser.call('GET', `${path}?filter[q]=${'a'.repeat(101)}`)
+      expect(long.statusCode).toBe(422)
+      expect(long.json()).toMatchObject({ errors: { 'filter[q]': ['Al massimo 100 caratteri.'] } })
+      const twice = await s.browser.call('GET', `${path}?filter[q]=a&filter[q]=b`)
+      expect(twice.statusCode).toBe(422)
+      expect(twice.json()).toMatchObject({ errors: { 'filter[q]': ['Indicalo una volta sola.'] } })
+    }
+  })
+
   it('needs the purchases permissions', async () => {
     const owner = await scene()
     const created = await owner.browser.call('POST', owner.base, { body: input(owner) })

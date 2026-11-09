@@ -2892,8 +2892,9 @@ paths:
           description: |
             Filtri, ad esempio filter[supplier]=<id>, filter[site]=<id>, filter[status]=sent,
             filter[from]=2026-11-01 e filter[to]=2026-11-30 (sulla data dell'ordine),
-            filter[follow_up]=late, filter[invoiced]=false. Con sort=delivery_date gli ordini senza data di consegna
-            vanno in fondo.
+            filter[follow_up]=late, filter[invoiced]=false, filter[q]=testo (nel numero come
+            2026/007, nelle note e nelle descrizioni delle righe, senza distinguere maiuscole e
+            minuscole). Con sort=delivery_date gli ordini senza data di consegna vanno in fondo.
           style: deepObject
           explode: true
           schema:
@@ -2905,6 +2906,9 @@ paths:
               follow_up: { $ref: '#/components/schemas/PurchaseOrderFollowUp' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
               invoiced:
                 description: |
                   true per i soli ordini con almeno una fattura ricevuta collegata, false per
@@ -2985,6 +2989,9 @@ paths:
               follow_up: { $ref: '#/components/schemas/PurchaseOrderFollowUp' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
+              q:
+                type: string
+                maxLength: 100
               invoiced:
                 description: |
                   true per i soli ordini con almeno una fattura ricevuta collegata, false per

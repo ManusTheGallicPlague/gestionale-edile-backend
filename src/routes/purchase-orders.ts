@@ -443,8 +443,13 @@ function readList(query: Record<string, unknown>) {
   else if (overValue !== undefined) {
     errors['filter[over_invoiced]'] = ['Valori ammessi: true, false.']
   }
+  const qValue = single('filter[q]')?.trim()
+  if (qValue !== undefined && qValue.length > 100)
+    errors['filter[q]'] = ['Al massimo 100 caratteri.']
+  const q = qValue ? qValue : undefined
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
+    q,
     invoiced,
     overInvoiced,
     page,
@@ -472,6 +477,16 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.siteId) add((p) => `o.site_id = ${p}`, list.siteId)
   if (list.from) add((p) => `o.order_date >= ${p}`, list.from)
   if (list.to) add((p) => `o.order_date <= ${p}`, list.to)
+  if (list.q) {
+    add(
+      (p) => `(strpos(lower(o.number_year || '/' || lpad(o.number_seq::text,
+          greatest(3, length(o.number_seq::text)), '0') || ' ' || coalesce(o.notes, '')),
+          lower(${p})) > 0
+        or exists (select 1 from public.purchase_order_lines l
+          where l.order_id = o.id and strpos(lower(l.description), lower(${p})) > 0))`,
+      list.q,
+    )
+  }
   if (list.invoiced !== undefined) {
     add(
       (p) => `exists (select 1 from public.invoices i where i.purchase_order_id = o.id) = ${p}`,
