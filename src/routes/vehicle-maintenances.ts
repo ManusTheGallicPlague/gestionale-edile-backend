@@ -85,6 +85,12 @@ const SELECT = `select m.id, m.vehicle_id, m.performed_on::text as performed_on,
   from public.vehicle_maintenances m
   left join public.suppliers s on s.id = m.supplier_id`
 
+/** SELECT with the vehicle, for the list of all the vehicles. */
+const SELECT_WITH_VEHICLE = SELECT.replace(
+  'm.created_at, m.updated_at',
+  'm.created_at, m.updated_at, v.name as vehicle_name, v.plate',
+).replace('left join', 'join public.vehicles v on v.id = m.vehicle_id\n  left join')
+
 function toContract(row: MaintenanceRow) {
   return {
     id: row.id,
@@ -201,6 +207,18 @@ export function parseMaintenanceInput(body: unknown): MaintenanceInput {
 
 function readPeriod(query: Record<string, unknown>, withVehicle = false) {
   const errors: FieldErrors = {}
+  const integer = (name: string, fallback: number, max?: number): number => {
+    const value = query[name]
+    if (value === undefined) return fallback
+    const n = typeof value === 'string' && /^\d{1,9}$/.test(value) ? Number(value) : NaN
+    if (!Number.isInteger(n) || n < 1 || (max !== undefined && n > max)) {
+      errors[name] = [max ? `Un numero intero da 1 a ${max}.` : 'Un numero intero da 1 in su.']
+      return fallback
+    }
+    return n
+  }
+  const page = integer('page', 1)
+  const perPage = integer('per_page', 25, 100)
   const date = (name: string): string | null => {
     const value = query[`filter[${name}]`]
     if (value === undefined) return null
@@ -224,7 +242,7 @@ function readPeriod(query: Record<string, unknown>, withVehicle = false) {
     else if (value !== undefined) errors['filter[vehicle]'] = ['Identificativo non valido.']
   }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { from, to, vehicle }
+  return { from, to, vehicle, page, perPage }
 }
 
 function expectedVersion(header: string | string[] | undefined): number {
@@ -371,6 +389,44 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
         .header('Content-Type', 'text/csv; charset=utf-8')
         .header('Content-Disposition', 'attachment; filename="manutenzioni.csv"')
         .send(csv)
+    },
+  )
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/vehicle-maintenances',
+    async (request) => {
+      const session = requireSession(request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        const permissions = await enterCompany(client, request.params.company)
+        if (!permissions.has('vehicles.view')) throw forbidden()
+        const { from, to, vehicle, page, perPage } = readPeriod(request.query, true)
+        const where = `where ($1::date is null or m.performed_on >= $1)
+             and ($2::date is null or m.performed_on <= $2)
+             and ($3::uuid is null or m.vehicle_id = $3)`
+        const totals = await client.query<{ total: number; amount: string }>(
+          `select count(*)::int as total, coalesce(sum(m.amount_cents), 0)::text as amount
+           from public.vehicle_maintenances m ${where}`,
+          [from, to, vehicle],
+        )
+        const { rows } = await client.query<
+          MaintenanceRow & { vehicle_name: string; plate: string | null }
+        >(
+          `${SELECT_WITH_VEHICLE}
+           ${where}
+           order by m.performed_on desc, v.name, m.created_at desc, m.id desc
+           limit $4 offset $5`,
+          [from, to, vehicle, perPage, (page - 1) * perPage],
+        )
+        const sums = totals.rows[0]
+        return {
+          data: rows.map((r) => ({
+            ...toContract(r),
+            vehicle: { id: r.vehicle_id, name: r.vehicle_name, plate: r.plate },
+          })),
+          meta: { total: sums?.total ?? 0, page, per_page: perPage },
+          total_amount: centsToAmount(sums?.amount ?? '0'),
+        }
+      })
     },
   )
 

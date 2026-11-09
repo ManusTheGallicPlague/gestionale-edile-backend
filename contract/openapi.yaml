@@ -7102,6 +7102,45 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/vehicle-maintenances:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listCompanyVehicleMaintenances
+      summary: Manutenzioni di tutti i mezzi
+      description: |
+        Permesso: vehicles.view (senza, 403 come per l'esportazione). Le stesse righe di
+        exportVehicleMaintenances, nello stesso ordine (dalla più recente) e con gli stessi
+        filtri, a pagine, con il mezzo di ogni manutenzione. total_amount è la somma delle spese
+        di tutte le manutenzioni che rispettano i filtri, non solo della pagina (quelle senza
+        importo contano zero). Con filter[vehicle] di un mezzo che non c'è l'elenco è vuoto.
+      parameters:
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/PerPage'
+        - name: filter
+          in: query
+          description: |
+            Filtri, ad esempio filter[from]=2026-01-01&filter[to]=2026-12-31 (estremi compresi)
+            e filter[vehicle]=<id>.
+          style: deepObject
+          explode: true
+          schema:
+            type: object
+            properties:
+              from: { $ref: '#/components/schemas/Date' }
+              to: { $ref: '#/components/schemas/Date' }
+              vehicle: { $ref: '#/components/schemas/Id' }
+      responses:
+        '200':
+          description: Una pagina di manutenzioni
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyVehicleMaintenanceList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/vehicle-maintenances/export:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -10810,6 +10849,30 @@ components:
           items: { $ref: '#/components/schemas/VehicleMaintenance' }
         total_amount:
           description: Somma delle spese dell'elenco (quelle senza importo contano zero).
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+    CompanyVehicleMaintenanceList:
+      type: object
+      required: [data, meta, total_amount]
+      properties:
+        data:
+          type: array
+          items:
+            allOf:
+              - $ref: '#/components/schemas/VehicleMaintenance'
+              - type: object
+                required: [vehicle]
+                properties:
+                  vehicle:
+                    type: object
+                    required: [id, name, plate]
+                    properties:
+                      id: { $ref: '#/components/schemas/Id' }
+                      name: { type: string }
+                      plate: { type: [string, 'null'] }
+        meta: { $ref: '#/components/schemas/ListMeta' }
+        total_amount:
+          description: Somma delle spese di tutte le manutenzioni filtrate, non solo della pagina.
           allOf:
             - $ref: '#/components/schemas/SignedAmount'
     VehicleRefuelingInput:
