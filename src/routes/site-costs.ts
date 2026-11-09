@@ -619,9 +619,14 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
           other: string
           total: string
           cumulative: string
+          invoiced: string
+          cumulative_invoiced: string
         }>(
           `with lines as (
-             select * from (${COST_LINES}) x where x.site_id = $1
+             select day, cents, kind from (${COST_LINES}) x where x.site_id = $1
+             union all
+             select invoice_date, taxable_cents, 'invoiced' from public.invoices
+             where $2 and site_id = $1 and direction = 'issued'
            ), months as (
              select generate_series(date_trunc('month', min(day)), date_trunc('month', max(day)),
                interval '1 month')::date as month
@@ -631,7 +636,8 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
                coalesce(sum(l.cents) filter (where l.kind = 'labor'), 0) as labor,
                coalesce(sum(l.cents) filter (where l.kind = 'vehicles'), 0) as vehicles,
                coalesce(sum(l.cents) filter (where l.kind = 'other'), 0) as other,
-               coalesce(sum(l.cents), 0) as total
+               coalesce(sum(l.cents) filter (where l.kind <> 'invoiced'), 0) as total,
+               coalesce(sum(l.cents) filter (where l.kind = 'invoiced'), 0) as invoiced
              from months m
              left join lines l on l.day >= m.month and l.day < m.month + interval '1 month'
              group by m.month
@@ -639,11 +645,13 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
            select to_char(month, 'YYYY-MM') as month, labor::bigint::text as labor,
              vehicles::bigint::text as vehicles, other::bigint::text as other,
              total::bigint::text as total,
-             (sum(total) over (order by month))::bigint::text as cumulative
+             (sum(total) over (order by month))::bigint::text as cumulative,
+             invoiced::bigint::text as invoiced,
+             (sum(invoiced) over (order by month))::bigint::text as cumulative_invoiced
            from sums order by month`,
-          [request.params.site],
+          [request.params.site, permissions.has('invoices.view')],
         )
-        return { budget: found.budget_cents, rows }
+        return { budget: found.budget_cents, rows, revenue: permissions.has('invoices.view') }
       })
       if (!result) throw notFound()
       return reply.send({
@@ -655,6 +663,8 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
           other: centsToAmount(r.other),
           total: centsToAmount(r.total),
           cumulative: centsToAmount(r.cumulative),
+          invoiced: result.revenue ? centsToAmount(r.invoiced) : null,
+          cumulative_invoiced: result.revenue ? centsToAmount(r.cumulative_invoiced) : null,
         })),
       })
     },

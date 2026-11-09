@@ -3709,7 +3709,11 @@ paths:
         con un costo, compresi quelli in mezzo senza costi (a zero); nessuna riga se il
         cantiere non ha costi. cumulative è il totale dall'inizio fino a quel mese compreso,
         da confrontare con budget; l'ultimo cumulative è uguale al total di getSiteCostSummary.
-        Importi senza IVA.
+        Con invoices.view anche invoiced, l'imponibile delle fatture emesse collegate al
+        cantiere per mese della data della fattura, e il suo progressivo cumulative_invoiced
+        (l'ultimo è il fatturato di revenue in getSiteCostSummary); i mesi vanno allora dal primo
+        all'ultimo con un costo o una fattura. Senza quel permesso i due campi sono null e le
+        fatture non allungano l'elenco. Importi senza IVA.
       responses:
         '200':
           description: I costi per mese
@@ -13142,12 +13146,22 @@ components:
       allOf:
         - $ref: '#/components/schemas/DashboardMonthCosts'
         - type: object
-          required: [cumulative]
+          required: [cumulative, invoiced, cumulative_invoiced]
           properties:
             cumulative:
               description: Totale dei costi dal primo mese fino a questo compreso.
               allOf:
                 - $ref: '#/components/schemas/SignedAmount'
+            invoiced:
+              description: Imponibile delle fatture emesse del mese. Null senza invoices.view.
+              oneOf:
+                - $ref: '#/components/schemas/SignedAmount'
+                - type: 'null'
+            cumulative_invoiced:
+              description: Fatturato dal primo mese fino a questo compreso. Null senza invoices.view.
+              oneOf:
+                - $ref: '#/components/schemas/SignedAmount'
+                - type: 'null'
     DashboardSiteProgress:
       type: object
       required: [site, activities, progress, planned]
