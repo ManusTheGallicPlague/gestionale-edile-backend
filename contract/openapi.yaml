@@ -7354,7 +7354,9 @@ paths:
             Filtri, ad esempio filter[direction]=issued, filter[client]=<id>,
             filter[supplier]=<id>, filter[site]=<id>, filter[status]=overdue,
             filter[from]=2026-11-01 e filter[to]=2026-11-30 (sulla data della fattura) e
-            filter[q]=testo (nel numero e nella descrizione).
+            filter[q]=testo (nel numero e nella descrizione), filter[reverse_charge]=true e
+            filter[split_payment]=true (le fatture dietro reverse_charge_taxable e
+            sales_split_payment_vat di getVatSummary).
           style: deepObject
           explode: true
           schema:
@@ -7370,6 +7372,14 @@ paths:
               q:
                 type: string
                 maxLength: 100
+              reverse_charge:
+                description: |
+                  true per le sole fatture con natura IVA N6.x (inversione contabile), false
+                  per le altre.
+                type: boolean
+              split_payment:
+                description: true per le sole fatture in scissione dei pagamenti, false per le altre.
+                type: boolean
       responses:
         '200':
           description: Una pagina di fatture
@@ -7446,6 +7456,14 @@ paths:
               q:
                 type: string
                 maxLength: 100
+              reverse_charge:
+                description: |
+                  true per le sole fatture con natura IVA N6.x (inversione contabile), false
+                  per le altre.
+                type: boolean
+              split_payment:
+                description: true per le sole fatture in scissione dei pagamenti, false per le altre.
+                type: boolean
       responses:
         '200':
           description: Il file CSV

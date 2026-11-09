@@ -602,8 +602,19 @@ function readList(query: Record<string, unknown>) {
   if (qValue !== undefined && qValue.length > 100)
     errors['filter[q]'] = ['Al massimo 100 caratteri.']
   const q = qValue ? qValue : undefined
+  const flag = (name: string): boolean | undefined => {
+    const value = single(name)
+    if (value === undefined) return undefined
+    if (value === 'true' || value === 'false') return value === 'true'
+    errors[name] = ['Valori ammessi: true, false.']
+    return undefined
+  }
+  const reverseCharge = flag('filter[reverse_charge]')
+  const splitPayment = flag('filter[split_payment]')
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
+    reverseCharge,
+    splitPayment,
     page,
     perPage,
     sort: sort ?? '-date',
@@ -632,6 +643,10 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.siteId) add((p) => `i.site_id = ${p}`, list.siteId)
   if (list.from) add((p) => `i.invoice_date >= ${p}`, list.from)
   if (list.to) add((p) => `i.invoice_date <= ${p}`, list.to)
+  if (list.reverseCharge !== undefined) {
+    add((p) => `(coalesce(i.vat_nature, '') like 'N6.%') = ${p}`, list.reverseCharge)
+  }
+  if (list.splitPayment !== undefined) add((p) => `i.split_payment = ${p}`, list.splitPayment)
   if (list.q) {
     add(
       (p) => `strpos(lower(i.number || ' ' || coalesce(i.description, '')), lower(${p})) > 0`,

@@ -211,6 +211,34 @@ describe('VAT summary', () => {
     expect(monthly.body.split('\r\n')[5]).toBe('05/2025;1234,50;271,59;0,00;0,00;0,00;0,00;271,59')
   })
 
+  it('lists and exports the invoices behind the reverse charge and split payment columns', async () => {
+    const s = await scene()
+    await invoice(s, { number: 'PA-1', split_payment: true })
+    await invoice(s, { number: 'V-1' })
+    await invoice(s, { ...received(s), number: 'RC-1', vat_amount: '0', vat_nature: 'N6.3' })
+    await invoice(s, { ...received(s), number: 'ES-1', vat_amount: '0', vat_nature: 'N4' })
+    const numbers = async (filter: string) => {
+      const res = await s.browser.call('GET', `${s.base}/invoices?${filter}&sort=date`)
+      expect(res.statusCode).toBe(200)
+      return res
+        .json<{ data: { number: string }[] }>()
+        .data.map((i) => i.number)
+        .sort()
+    }
+    expect(await numbers('filter[reverse_charge]=true')).toEqual(['RC-1'])
+    expect(await numbers('filter[reverse_charge]=false')).toEqual(['ES-1', 'PA-1', 'V-1'])
+    expect(await numbers('filter[split_payment]=true')).toEqual(['PA-1'])
+    expect(await numbers('filter[split_payment]=false')).toEqual(['ES-1', 'RC-1', 'V-1'])
+    const csv = await s.browser.call('GET', `${s.base}/invoices/export?filter[reverse_charge]=true`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.trim().split('\r\n')).toHaveLength(2)
+    expect(csv.body).toContain('RC-1')
+    for (const bad of ['filter[reverse_charge]=yes', 'filter[split_payment]=1']) {
+      expect((await s.browser.call('GET', `${s.base}/invoices?${bad}`)).statusCode).toBe(422)
+      expect((await s.browser.call('GET', `${s.base}/invoices/export?${bad}`)).statusCode).toBe(422)
+    }
+  })
+
   it('sees only the invoices of its own company', async () => {
     const s = await scene()
     await invoice(s, { date: '2025-01-10' })
