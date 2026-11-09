@@ -14,15 +14,16 @@ import { STATUS_LABELS } from './sites.js'
 type Request = FastifyRequest<{ Params: { company: string; client: string } }>
 
 interface Row extends SupplierSiteRow {
+  quoted: string | null
   invoiced: string
   collected: string
   to_collect: string
 }
 
 /**
- * The sites of a client (its own and those with an invoice issued to it), with what was
- * invoiced, collected and left to collect on each, as revenue in the site cost summary but
- * only for the invoices of that client.
+ * The sites of a client (its own and those with an invoice issued to it), with the taxable
+ * amount of the quote the site came from and what was invoiced, collected and left to collect
+ * on each, as revenue in the site cost summary but only for the invoices of that client.
  */
 export function clientSiteRoutes(app: FastifyInstance, db: Db): void {
   const clientSites = (request: Request) => {
@@ -38,7 +39,12 @@ export function clientSiteRoutes(app: FastifyInstance, db: Db): void {
       const { rows } = await client.query<Row>(
         `select s.id, s.code, s.name, s.status,
            r.invoiced::bigint::text as invoiced, r.collected::bigint::text as collected,
-           r.to_collect::bigint::text as to_collect
+           r.to_collect::bigint::text as to_collect,
+         case when s.quote_id is not null then
+           (select coalesce(sum(round(l.quantity * l.unit_price_cents
+               * (100 - l.discount_percent) / 100)), 0)::bigint
+            from public.quote_lines l where l.quote_id = s.quote_id and l.kind = 'item'
+           )::text end as quoted
          from public.sites s
          cross join lateral (
            select coalesce(sum(i.taxable_cents), 0) as invoiced,
@@ -54,20 +60,25 @@ export function clientSiteRoutes(app: FastifyInstance, db: Db): void {
          order by ${SITES_ORDER}`,
         [id],
       )
-      return { rows, amounts: permissions.has('invoices.view') }
+      return {
+        rows,
+        amounts: permissions.has('invoices.view'),
+        quotes: permissions.has('quotes.view'),
+      }
     })
   }
 
   app.get<{ Params: { company: string; client: string } }>(
     '/api/companies/:company/clients/:client/sites',
     async (request) => {
-      const { rows, amounts } = await clientSites(request)
+      const { rows, amounts, quotes } = await clientSites(request)
       return {
         data: rows.map((r) => ({
           site_id: r.id,
           code: r.code,
           name: r.name,
           status: r.status,
+          quoted: quotes && r.quoted !== null ? centsToAmount(r.quoted) : null,
           invoiced: amounts ? centsToAmount(r.invoiced) : null,
           collected: amounts ? centsToAmount(r.collected) : null,
           to_collect: amounts ? centsToAmount(r.to_collect) : null,
@@ -79,18 +90,20 @@ export function clientSiteRoutes(app: FastifyInstance, db: Db): void {
   app.get<{ Params: { company: string; client: string } }>(
     '/api/companies/:company/clients/:client/sites/export',
     async (request, reply) => {
-      const { rows, amounts } = await clientSites(request)
+      const { rows, amounts, quotes } = await clientSites(request)
       const csv = toCsv(
         [
           'Codice',
           'Cantiere',
           'Stato',
+          ...(quotes ? ['Preventivo'] : []),
           ...(amounts ? ['Fatturato', 'Incassato', 'Da incassare'] : []),
         ],
         rows.map((r) => [
           r.code,
           r.name,
           STATUS_LABELS[r.status as keyof typeof STATUS_LABELS],
+          ...(quotes ? [r.quoted === null ? null : italianAmount(r.quoted)] : []),
           ...(amounts
             ? [italianAmount(r.invoiced), italianAmount(r.collected), italianAmount(r.to_collect)]
             : []),

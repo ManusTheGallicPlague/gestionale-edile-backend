@@ -75,11 +75,34 @@ async function payment(companyId: string, invoiceId: string, cents: number) {
   )
 }
 
+async function quote(companyId: string, clientId: string, siteId: string) {
+  const { rows } = await ctx.owner.query<{ id: string }>(
+    `insert into public.quotes (company_id, client_id, subject, validity_days, status,
+       number_year, number_seq, revision, issue_date, sent_at)
+     values ($1, $2, 'Rifacimento del tetto', 30, 'accepted', 2026,
+       floor(random() * 1e6)::int + 1, 0, '2026-11-02', now())
+     returning id`,
+    [companyId, clientId],
+  )
+  const quoteId = rows[0]?.id ?? ''
+  // 120.5 × 18.40 = 2217.20 and 1250.00 less 20% = 1000.00; the section does not count.
+  await ctx.owner.query(
+    `insert into public.quote_lines (company_id, quote_id, kind, description, unit, quantity,
+       unit_price_cents, discount_percent, vat_rate, position)
+     values ($1, $2, 'item', 'Rimozione del manto', 'm²', 120.5, 1840, 0, 10, 0),
+            ($1, $2, 'item', 'Lattonerie', 'a corpo', 1, 125000, 20, 22, 1),
+            ($1, $2, 'section', 'Note', null, null, null, null, null, 2)`,
+    [companyId, quoteId],
+  )
+  await ctx.owner.query('update public.sites set quote_id = $2 where id = $1', [siteId, quoteId])
+}
+
 const row = (siteId: string, name: string, status: string, code: string | null = null) => ({
   site_id: siteId,
   code,
   name,
   status,
+  quoted: null,
   invoiced: null,
   collected: null,
   to_collect: null,
@@ -169,6 +192,39 @@ describe('sites of a client', () => {
         },
       ],
     })
+  })
+
+  it('adds the taxable amount of the quote the site came from, with quotes.view', async () => {
+    const { browser, company, clientId, url } = await scene([
+      'sites.view',
+      'clients.view',
+      'quotes.view',
+    ])
+    const fromQuote = await site(company.id, 'Tetto', 'active', clientId)
+    await quote(company.id, clientId, fromQuote)
+    const plain = await site(company.id, 'Box', 'planned', clientId)
+    const res = await browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({
+      data: [
+        { ...row(fromQuote, 'Tetto', 'active'), quoted: '3217.20' },
+        row(plain, 'Box', 'planned'),
+      ],
+    })
+    const csv = await browser.call('GET', `${url}/export`)
+    expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
+      'Codice;Cantiere;Stato;Preventivo',
+      ';Tetto;In corso;3217,20',
+      ';Box;Da iniziare;',
+    ])
+
+    // Without quotes.view the amount is not there.
+    const other = await scene()
+    const s = await site(other.company.id, 'Tetto', 'active', other.clientId)
+    await quote(other.company.id, other.clientId, s)
+    const hidden = await other.browser.call('GET', other.url)
+    expect(hidden.json()).toEqual({ data: [row(s, 'Tetto', 'active')] })
+    expect(hidden.body).not.toContain('3217')
   })
 
   it('exports the same sites in CSV, with the amounts only with invoices.view', async () => {

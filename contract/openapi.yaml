@@ -677,7 +677,9 @@ paths:
         delle fatture emesse al cliente per il cantiere, in collected quanto incassato e in
         to_collect quanto resta da incassare, con le stesse regole di revenue in
         getSiteCostSummary ma solo per le fatture di quel cliente (zero se non ce ne sono);
-        senza invoices.view i tre campi sono null.
+        senza invoices.view i tre campi sono null. Con quotes.view, in quoted l'imponibile del
+        preventivo da cui è nato il cantiere (createSiteFromQuote), con la regola di taxable del
+        preventivo; quoted è null per i cantieri non nati da un preventivo e senza quotes.view.
       responses:
         '200':
           description: I cantieri del cliente
@@ -698,7 +700,8 @@ paths:
       description: |
         Permessi come listClientSites: clients.view (senza, 404) e sites.view (senza, 403).
         Le stesse righe nello stesso ordine, nello stesso formato dell'esportazione dei clienti:
-        colonne Codice, Cantiere, Stato, poi Fatturato, Incassato e Da incassare solo con
+        colonne Codice, Cantiere, Stato, poi Preventivo solo con quotes.view (vuota per i
+        cantieri non nati da un preventivo), poi Fatturato, Incassato e Da incassare solo con
         invoices.view, importi con la virgola decimale (1234,50). Il file si chiama
         cantieri-cliente.csv.
       responses:
@@ -11396,12 +11399,19 @@ components:
           items: { $ref: '#/components/schemas/SiteSubcontractor' }
     ClientSite:
       type: object
-      required: [site_id, code, name, status, invoiced, collected, to_collect]
+      required: [site_id, code, name, status, quoted, invoiced, collected, to_collect]
       properties:
         site_id: { $ref: '#/components/schemas/Id' }
         code: { type: [string, 'null'] }
         name: { type: string }
         status: { $ref: '#/components/schemas/SiteStatus' }
+        quoted:
+          description: |
+            Imponibile del preventivo da cui è nato il cantiere; null se non è nato da un
+            preventivo o senza quotes.view.
+          oneOf:
+            - $ref: '#/components/schemas/Amount'
+            - type: 'null'
         invoiced:
           description: |
             Imponibile delle fatture emesse al cliente per il cantiere; null senza invoices.view.
