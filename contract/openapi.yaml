@@ -8602,8 +8602,9 @@ paths:
       description: |
         Permesso: invoices.view. Dal più recente. Filtri sulla data del pagamento
         (filter[from], filter[to]), sul tipo di fattura (filter[direction]: issued per gli
-        incassi, received per i pagamenti), sul cantiere della fattura (filter[site]) e sulla
-        modalità (filter[method]). collected e paid sono le somme di incassi e pagamenti che
+        incassi, received per i pagamenti), sul cantiere della fattura (filter[site]), sul
+        cliente o sul fornitore della fattura (filter[client], filter[supplier]; uno di un'altra
+        azienda dà un elenco vuoto) e sulla modalità (filter[method]). collected e paid sono le somme di incassi e pagamenti che
         rispettano i filtri, non solo della pagina. Le fatture segnate pagate senza pagamenti
         registrati non compaiono.
       parameters:
@@ -8618,6 +8619,8 @@ paths:
             properties:
               direction: { $ref: '#/components/schemas/InvoiceDirection' }
               site: { $ref: '#/components/schemas/Id' }
+              client: { $ref: '#/components/schemas/Id' }
+              supplier: { $ref: '#/components/schemas/Id' }
               method: { $ref: '#/components/schemas/InvoicePaymentMethod' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }
@@ -8652,6 +8655,8 @@ paths:
             properties:
               direction: { $ref: '#/components/schemas/InvoiceDirection' }
               site: { $ref: '#/components/schemas/Id' }
+              client: { $ref: '#/components/schemas/Id' }
+              supplier: { $ref: '#/components/schemas/Id' }
               method: { $ref: '#/components/schemas/InvoicePaymentMethod' }
               from: { $ref: '#/components/schemas/Date' }
               to: { $ref: '#/components/schemas/Date' }

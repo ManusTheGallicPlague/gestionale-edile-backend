@@ -746,6 +746,15 @@ function readPaymentList(query: Record<string, unknown>) {
     if (!UUID.test(site)) errors['filter[site]'] = ['Identificativo non valido.']
     else add((p) => `i.site_id = ${p}`, site)
   }
+  for (const [name, column] of [
+    ['filter[client]', 'i.client_id'],
+    ['filter[supplier]', 'i.supplier_id'],
+  ] as const) {
+    const value = single(name)
+    if (value === undefined) continue
+    if (!UUID.test(value)) errors[name] = ['Identificativo non valido.']
+    else add((p) => `${column} = ${p}`, value)
+  }
   for (const [name, op] of [
     ['filter[from]', '>='],
     ['filter[to]', '<='],

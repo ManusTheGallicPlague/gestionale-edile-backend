@@ -321,6 +321,84 @@ describe('invoice payments', () => {
     expect((await blind.browser.call('GET', `${blindUrl}/export`)).statusCode).toBe(403)
   })
 
+  it('filters the payments by client and by supplier, in the list and in the CSV', async () => {
+    const s = await scene()
+    const supplier =
+      (
+        await ctx.owner.query<{ id: string }>(
+          "insert into public.suppliers (company_id, name) values ($1, 'Calcestruzzi Srl') returning id",
+          [s.company.id],
+        )
+      ).rows[0]?.id ?? ''
+    const anna =
+      (
+        await ctx.owner.query<{ id: string }>(
+          "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Anna Verdi') returning id",
+          [s.company.id],
+        )
+      ).rows[0]?.id ?? ''
+    const mario = await invoice(s)
+    const verdi = await invoice(s, { client_id: anna })
+    const into = await invoice(s, { direction: 'received', client_id: null, supplier_id: supplier })
+    for (const [id, amount, date] of [
+      [mario.id, '0.10', '2026-11-05'],
+      [mario.id, '0.20', '2026-11-06'],
+      [verdi.id, '7', '2026-11-07'],
+      [into.id, '50', '2026-11-08'],
+    ] as const) {
+      const version = id === mario.id && amount === '0.20' ? '"2"' : '"1"'
+      const res = await s.browser.call('POST', `${s.base}/${id}/payments`, {
+        body: payment({ date, amount }),
+        headers: { 'If-Match': version },
+      })
+      expect(res.statusCode).toBe(200)
+    }
+    const url = `/api/companies/${s.company.slug}/invoice-payments`
+    type Payments = {
+      data: { date: string }[]
+      meta: { total: number }
+      collected: string
+      paid: string
+    }
+    const get = async (query: string) => {
+      const res = await s.browser.call('GET', `${url}?${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<Payments>()
+    }
+    const ofMario = await get(`filter[client]=${s.client}`)
+    expect(ofMario.data.map((p) => p.date)).toEqual(['2026-11-06', '2026-11-05'])
+    expect(ofMario).toMatchObject({ meta: { total: 2 }, collected: '0.30', paid: '0.00' })
+    const toSupplier = await get(`filter[supplier]=${supplier}`)
+    expect(toSupplier).toMatchObject({ meta: { total: 1 }, collected: '0.00', paid: '50.00' })
+    // A client only has issued invoices: with the supplier filter too nothing is left.
+    expect((await get(`filter[client]=${anna}&filter[supplier]=${supplier}`)).meta.total).toBe(0)
+    const csv = await s.browser.call('GET', `${url}/export?filter[client]=${anna}`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.replace('\ufeff', '').trim().split('\r\n')
+    expect(lines).toHaveLength(2)
+    expect(lines[1]).toMatch(/;Anna Verdi;;7,00;/)
+    // A client or supplier of another company gives an empty list.
+    const other = await scene()
+    const foreign = await invoice(other)
+    await other.browser.call('POST', `${other.base}/${foreign.id}/payments`, {
+      body: payment(),
+      headers: { 'If-Match': '"1"' },
+    })
+    expect(await get(`filter[client]=${other.client}`)).toMatchObject({
+      data: [],
+      meta: { total: 0 },
+      collected: '0.00',
+    })
+    for (const query of [
+      'filter[client]=abc',
+      'filter[supplier]=abc',
+      `filter[client]=${s.client}&filter[client]=${anna}`,
+    ]) {
+      expect((await s.browser.call('GET', `${url}?${query}`)).statusCode).toBe(422)
+      expect((await s.browser.call('GET', `${url}/export?${query}`)).statusCode).toBe(422)
+    }
+  })
+
   it('needs the invoices permissions; other companies see nothing', async () => {
     const s = await scene()
     const inv = await invoice(s)
