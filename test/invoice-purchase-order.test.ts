@@ -303,4 +303,52 @@ describe('received invoice of a purchase order', () => {
     expect(byNumber('A/2').endsWith(';2026/1234')).toBe(true)
     expect(byNumber('A/3').endsWith(';')).toBe(true)
   })
+  it('filters the orders invoiced over their total, only for who sees invoices', async () => {
+    const s = await scene([...ALL, 'purchases.view'])
+    const orders = `/api/companies/${s.company.slug}/purchase-orders`
+    const line = (orderId: string, quantity: string, cents: number) =>
+      ctx.owner.query(
+        `insert into public.purchase_order_lines (company_id, order_id, position, description,
+           quantity, unit_price_cents) values ($1, $2, 0, 'Cemento', $3, $4)`,
+        [s.company.id, orderId, quantity, cents],
+      )
+    // Sent: 1000.00 ordered, two invoices of 500.00 and 500.00: equal, not over.
+    await line(s.sent, '2.5', 40000)
+    for (const taxable of ['500.00', '500.00']) {
+      await s.browser.call('POST', s.base, { body: s.invoice({ taxable_amount: taxable }) })
+    }
+    // Received: 1000.00 ordered, billed 1000.01: over by one cent.
+    await line(s.received, '1', 100000)
+    await s.browser.call('POST', s.base, {
+      body: s.invoice({ purchase_order_id: s.received, taxable_amount: '1000.01' }),
+    })
+    // The other supplier's order has no lines and no invoices: not over.
+    const ids = async (query: string) => {
+      const res = await s.browser.call('GET', `${orders}?sort=number&${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<{ data: { id: string }[] }>().data.map((o) => o.id)
+    }
+    expect(await ids('filter[over_invoiced]=true')).toEqual([s.received])
+    expect(await ids('filter[over_invoiced]=false')).toEqual([s.sent, s.draft, s.otherOrder])
+    expect(await ids('filter[over_invoiced]=true&filter[status]=sent')).toEqual([])
+    const csv = await s.browser.call('GET', `${orders}/export?filter[over_invoiced]=true`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.trim().split('\r\n')).toHaveLength(2)
+    const bad = await s.browser.call('GET', `${orders}?filter[over_invoiced]=1`)
+    expect(bad.statusCode).toBe(422)
+    expect(bad.json()).toMatchObject({ errors: { 'filter[over_invoiced]': [expect.any(String)] } })
+
+    const blind = new Browser(ctx.app)
+    const buyer = await fx.user()
+    await fx.member(
+      buyer.id,
+      s.company.id,
+      await fx.role(s.company.id, 'Acquisti', ['purchases.view']),
+    )
+    await blind.signIn(buyer.email)
+    expect((await blind.call('GET', `${orders}?filter[over_invoiced]=false`)).statusCode).toBe(403)
+    expect(
+      (await blind.call('GET', `${orders}/export?filter[over_invoiced]=true`)).statusCode,
+    ).toBe(403)
+  })
 })

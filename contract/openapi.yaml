@@ -2705,6 +2705,12 @@ paths:
                   quelli senza (con filter[status]=received: merce arrivata, fattura da
                   registrare). Chiede anche invoices.view, altrimenti 403.
                 type: boolean
+              over_invoiced:
+                description: |
+                  true per i soli ordini con l'imponibile fatturato (invoiced_amount) oltre il
+                  totale dell'ordine, da controllare con il fornitore; false per gli altri,
+                  anche senza fatture. Chiede anche invoices.view, altrimenti 403.
+                type: boolean
       responses:
         '200':
           description: Una pagina di ordini
@@ -2778,6 +2784,12 @@ paths:
                   true per i soli ordini con almeno una fattura ricevuta collegata, false per
                   quelli senza (con filter[status]=received: merce arrivata, fattura da
                   registrare). Chiede anche invoices.view, altrimenti 403.
+                type: boolean
+              over_invoiced:
+                description: |
+                  true per i soli ordini con l'imponibile fatturato (invoiced_amount) oltre il
+                  totale dell'ordine, da controllare con il fornitore; false per gli altri,
+                  anche senza fatture. Chiede anche invoices.view, altrimenti 403.
                 type: boolean
       responses:
         '200':

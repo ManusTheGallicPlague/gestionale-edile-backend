@@ -437,9 +437,16 @@ function readList(query: Record<string, unknown>) {
   else if (invoicedValue !== undefined) {
     errors['filter[invoiced]'] = ['Valori ammessi: true, false.']
   }
+  const overValue = single('filter[over_invoiced]')
+  let overInvoiced: boolean | undefined
+  if (overValue === 'true' || overValue === 'false') overInvoiced = overValue === 'true'
+  else if (overValue !== undefined) {
+    errors['filter[over_invoiced]'] = ['Valori ammessi: true, false.']
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     invoiced,
+    overInvoiced,
     page,
     perPage,
     sort: sort ?? '-date',
@@ -471,6 +478,16 @@ function listFilter(list: ReturnType<typeof readList>) {
       list.invoiced,
     )
   }
+  if (list.overInvoiced !== undefined) {
+    // The same amounts as invoiced_amount and the order total.
+    add(
+      (p) => `((select coalesce(sum(i.taxable_cents), 0) from public.invoices i
+          where i.purchase_order_id = o.id)
+        > (select coalesce(sum(round(l.quantity * l.unit_price_cents)), 0)
+          from public.purchase_order_lines l where l.order_id = o.id)) = ${p}`,
+      list.overInvoiced,
+    )
+  }
   return { where, values }
 }
 
@@ -479,7 +496,8 @@ function checkInvoicedFilter(
   list: ReturnType<typeof readList>,
   permissions: ReadonlySet<Permission>,
 ) {
-  if (list.invoiced !== undefined && !permissions.has('invoices.view')) throw forbidden()
+  const byInvoices = list.invoiced !== undefined || list.overInvoiced !== undefined
+  if (byInvoices && !permissions.has('invoices.view')) throw forbidden()
 }
 
 export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db): void {
