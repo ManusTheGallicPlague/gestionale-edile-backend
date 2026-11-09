@@ -902,7 +902,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
         [companyId, invoicePdf.length, invoicePdf],
       )
       // A few warehouse items: loaded on 2 November, part taken to the first site. The planks
-      // are below their minimum stock, to reorder.
+      // are below their minimum stock, to reorder; five sacks of cement came back from the site.
       await client.query(
         `with i as (
            insert into public.warehouse_items (company_id, code, name, unit, min_stock)
@@ -912,17 +912,18 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            returning id, code
          )
          insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
-           quantity, site_id, unit_cost_cents)
+           quantity, site_id, unit_cost_cents, site_return)
          select $1, i.id, m.day::date, m.kind, m.quantity::numeric,
-           case when m.kind = 'out' then (select s.id from public.sites s
+           case when m.kind = 'out' or m.back then (select s.id from public.sites s
              where s.company_id = $1 and s.code = '2026-01') end,
-           m.cost::bigint
+           m.cost::bigint, m.back
          from i join (values
-           ('CEM-325', '2026-11-02', 'in', '200', '650'),
-           ('CEM-325', '2026-11-04', 'out', '40', null),
-           ('SAB-02', '2026-11-02', 'in', '12', '3800'),
-           ('TAV-50', '2026-11-02', 'in', '60', null)
-         ) as m (code, day, kind, quantity, cost) on m.code = i.code`,
+           ('CEM-325', '2026-11-02', 'in', '200', '650', false),
+           ('CEM-325', '2026-11-04', 'out', '40', null, false),
+           ('CEM-325', '2026-11-06', 'in', '5', null, true),
+           ('SAB-02', '2026-11-02', 'in', '12', '3800', false),
+           ('TAV-50', '2026-11-02', 'in', '60', null, false)
+         ) as m (code, day, kind, quantity, cost, back) on m.code = i.code`,
         [companyId],
       )
       // A document and a photo on the first site, so the archive is not empty; the photo

@@ -3294,7 +3294,8 @@ paths:
       summary: Carico o scarico di un articolo
       description: |
         Permesso: warehouse.create. Un movimento non si modifica: si elimina e se ne registra un
-        altro. Lo scarico verso un cantiere indica site_id.
+        altro. Lo scarico verso un cantiere indica site_id; il materiale che torna dal cantiere
+        è un carico con site_id e site_return true.
       security:
         - session: []
           csrf: []
@@ -3324,7 +3325,7 @@ paths:
         Permesso: warehouse.view. Stessi filtri e stesso ordine dell'elenco (dal più recente),
         senza paginazione, nello stesso formato delle altre esportazioni: ad esempio con
         filter[site]=<id> e filter[kind]=out, il materiale scaricato su un cantiere. Colonne:
-        Data (all'italiana), Tipo (Carico o Scarico), Codice, Articolo, Unità, Quantità con la
+        Data (all'italiana), Tipo (Carico, Scarico o Reso dal cantiere), Codice, Articolo, Unità, Quantità con la
         virgola decimale (12,500), Cantiere (codice e nome), Ordine (numero dell'ordine da cui
         viene il carico), Note, Costo unitario (dei carichi) e Valore (come value). Il file si chiama movimenti-magazzino.csv.
       parameters:
@@ -3515,8 +3516,9 @@ paths:
         senza fattura (certified_uninvoiced), con la ritenuta di garanzia trattenuta
         (retention_held) e quella ancora da svincolare (retention_to_release); lo svincolo già
         fatturato (retention_released) c'è anche senza estimates.view. Con warehouse.view
-        anche warehouse_materials: il materiale scaricato dal magazzino sul cantiere, valutato
-        al costo medio dei carichi fino al giorno di ogni scarico; è un'informazione a parte e
+        anche warehouse_materials: il materiale scaricato dal magazzino sul cantiere, meno quello
+        tornato in magazzino (site_return), valutato al costo medio dei carichi fino al giorno di
+        ogni movimento; è un'informazione a parte e
         non entra nel totale né nel margine (il materiale può essere già tra i costi inseriti
         a mano). Senza quel permesso warehouse_materials è null.
       responses:
@@ -11779,6 +11781,15 @@ components:
           oneOf:
             - $ref: '#/components/schemas/Amount'
             - type: 'null'
+        site_return:
+          type: boolean
+          default: false
+          description: |
+            Materiale che torna in magazzino dal cantiere site_id: un carico (kind in) con
+            site_id e senza unit_cost (altrimenti 422). Vale il costo medio dell'articolo fino
+            al suo giorno, non entra nel costo medio e si sottrae da warehouse_materials nel
+            riepilogo dei costi del cantiere. Si può omettere; false per un carico qualsiasi,
+            anche consegnato in cantiere.
     WarehouseStockCountLine:
       type: object
       required: [item_id, stock, counted, movement]
@@ -11798,7 +11809,8 @@ components:
       allOf:
         - $ref: '#/components/schemas/WarehouseMovementInput'
         - type: object
-          required: [id, item, site, unit_cost, value, purchase_order, created_by, created_at]
+          required:
+            [id, item, site, unit_cost, site_return, value, purchase_order, created_by, created_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             unit_cost:
@@ -11808,8 +11820,9 @@ components:
             value:
               description: |
                 Calcolato, si ignora nel corpo. Un carico vale la quantità per il suo costo
-                unitario (null senza costo); uno scarico la quantità per il costo medio ponderato
-                dei carichi con costo dell'articolo fino al suo giorno (null se non ce ne sono).
+                unitario (null senza costo); uno scarico o un reso dal cantiere la quantità per il
+                costo medio ponderato dei carichi con costo dell'articolo fino al suo giorno (null
+                se non ce ne sono).
                 Arrotondato al centesimo. È lo stesso valore che somma warehouse_materials nel
                 riepilogo dei costi del cantiere.
               oneOf:
@@ -11913,21 +11926,26 @@ components:
             - type: 'null'
     SiteWarehouseMaterials:
       type: object
-      required: [amount, movements, missing_costs]
+      required: [amount, movements, returns, missing_costs]
       properties:
         amount:
           description: |
-            Somma degli scarichi verso il cantiere, ciascuno per il costo medio ponderato dei
-            carichi con costo dell'articolo fino al giorno dello scarico, arrotondato al
-            centesimo per ogni scarico. Gli scarichi senza un costo medio valgono zero.
+            Somma degli scarichi verso il cantiere meno i resi dal cantiere (site_return),
+            ciascuno per il costo medio ponderato dei carichi con costo dell'articolo fino al
+            suo giorno, arrotondato al centesimo movimento per movimento. Gli scarichi e i resi
+            senza un costo medio valgono zero. Può essere negativo se il materiale torna quando
+            il costo medio è salito.
           allOf:
-            - $ref: '#/components/schemas/Amount'
+            - $ref: '#/components/schemas/SignedAmount'
         movements:
           type: integer
           description: Scarichi dal magazzino verso il cantiere.
+        returns:
+          type: integer
+          description: Resi dal cantiere al magazzino.
         missing_costs:
           type: integer
-          description: Scarichi di articoli senza nessun carico con costo fino a quel giorno.
+          description: Scarichi e resi di articoli senza nessun carico con costo fino a quel giorno.
     SiteRevenue:
       type: object
       required:

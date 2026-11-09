@@ -58,6 +58,8 @@ interface MovementInput {
   notes: string | null
   /** Cents, or null when unknown; always null for an unload. */
   unit_cost_cents: string | null
+  /** A load returned from site_id, valued at the average cost. */
+  site_return: boolean
 }
 
 interface MovementRow {
@@ -74,7 +76,8 @@ interface MovementRow {
   site_code: string | null
   notes: string | null
   unit_cost_cents: string | null
-  /** Cents: a load at its own cost, an unload at the average cost up to its day. */
+  site_return: boolean
+  /** Cents: a load at its own cost, an unload or a return at the average cost up to its day. */
   value_cents: string | null
   purchase_order_id: string | null
   order_year: number | null
@@ -142,8 +145,8 @@ const ITEM_SORTS = itemSorts()
 const MOVEMENT_SELECT = `select m.id, m.item_id, i.code as item_code, i.name as item_name,
     i.unit as item_unit, m.movement_date::text as movement_date, m.kind,
     m.quantity::text as quantity, m.site_id, s.name as site_name, s.code as site_code, m.notes,
-    m.unit_cost_cents::text as unit_cost_cents,
-    (case when m.kind = 'in' then round(m.quantity * m.unit_cost_cents)
+    m.unit_cost_cents::text as unit_cost_cents, m.site_return,
+    (case when m.kind = 'in' and not m.site_return then round(m.quantity * m.unit_cost_cents)
       else round(m.quantity * c.average) end)::bigint::text as value_cents,
     m.purchase_order_id, o.number_year as order_year, o.number_seq as order_seq,
     m.created_by, cu.name as created_by_name, m.created_at
@@ -156,7 +159,7 @@ const MOVEMENT_SELECT = `select m.id, m.item_id, i.code as item_code, i.name as 
     from public.warehouse_movements l
     where l.item_id = m.item_id and l.kind = 'in' and l.unit_cost_cents is not null
       and l.movement_date <= m.movement_date
-  ) c on m.kind = 'out'
+  ) c on m.kind = 'out' or m.site_return
   left join lateral app.audit_users(array[m.created_by]) cu on true`
 
 function itemToContract(row: ItemRow) {
@@ -188,6 +191,7 @@ function movementToContract(row: MovementRow) {
     site: row.site_id ? { id: row.site_id, name: row.site_name ?? '', code: row.site_code } : null,
     notes: row.notes,
     unit_cost: row.unit_cost_cents === null ? null : centsToAmount(row.unit_cost_cents),
+    site_return: row.site_return,
     value: row.value_cents === null ? null : centsToAmount(row.value_cents),
     purchase_order: row.purchase_order_id
       ? {
@@ -295,10 +299,24 @@ function parseMovementInput(body: unknown): MovementInput {
   if (unit_cost_cents !== null && kind === 'out') {
     add('unit_cost', 'Uno scarico non ha costo: lascia il campo vuoto.')
   }
+  const returnValue = (body as Record<string, unknown>).site_return
+  if (returnValue !== undefined && returnValue !== null && typeof returnValue !== 'boolean') {
+    add('site_return', 'Indica sì o no.')
+  }
+  const site_return = returnValue === true
+  if (site_return) {
+    if (kind === 'out') add('site_return', 'Un reso dal cantiere è un carico.')
+    else if (site_id === null && !errors.site_id) {
+      add('site_id', 'Indica il cantiere da cui torna il materiale.')
+    }
+    if (unit_cost_cents !== null) {
+      add('unit_cost', 'Un reso vale il costo medio dell’articolo: lascia il campo vuoto.')
+    }
+  }
   if (Object.keys(errors).length > 0 || !item_id || !date || !kind || !quantity) {
     throw new ValidationFailed(errors)
   }
-  return { item_id, date, kind, quantity, site_id, notes, unit_cost_cents }
+  return { item_id, date, kind, quantity, site_id, notes, unit_cost_cents, site_return }
 }
 
 function parseLoadInput(body: unknown): {
@@ -867,7 +885,7 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
             const m = movementToContract(r)
             return [
               italianDate(m.date),
-              m.kind === 'in' ? 'Carico' : 'Scarico',
+              m.site_return ? 'Reso dal cantiere' : m.kind === 'in' ? 'Carico' : 'Scarico',
               m.item.code,
               m.item.name,
               m.item.unit,
@@ -908,8 +926,8 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
       const { rows } = await client
         .query<{ id: string }>(
           `insert into public.warehouse_movements (company_id, item_id, movement_date, kind,
-             quantity, site_id, notes, created_by, unit_cost_cents)
-           values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8) returning id`,
+             quantity, site_id, notes, created_by, unit_cost_cents, site_return)
+           values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
           [
             input.item_id,
             input.date,
@@ -919,6 +937,7 @@ export function warehouseRoutes(app: FastifyInstance, config: Config, db: Db): v
             input.notes,
             session.user.id,
             input.unit_cost_cents,
+            input.site_return,
           ],
         )
         .catch((error: unknown) => {

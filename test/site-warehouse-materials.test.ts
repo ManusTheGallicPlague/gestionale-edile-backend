@@ -74,6 +74,7 @@ async function move(
     body: { item_id: itemId, date, kind, quantity, site_id: null, notes: null, ...extra },
   })
   expect(res.statusCode).toBe(201)
+  return res.json<{ id: string; site_return: boolean; value: string | null }>()
 }
 
 describe('warehouse materials in the cost summary of a site', () => {
@@ -110,7 +111,7 @@ describe('warehouse materials in the cost summary of a site', () => {
     expect(res.json()).toMatchObject({
       materials: '0.00',
       total: '0.00',
-      warehouse_materials: { amount: '8.80', movements: 5, missing_costs: 2 },
+      warehouse_materials: { amount: '8.80', movements: 5, returns: 0, missing_costs: 2 },
     })
 
     // The other site sees only its own unload, at 1.50.
@@ -221,5 +222,129 @@ describe('warehouse materials in the cost summary of a site', () => {
     const s = await scene()
     const res = await new Browser(ctx.app).call('GET', s.summary)
     expect(res.statusCode).toBe(401)
+  })
+})
+
+describe('material returned from a site to the warehouse', () => {
+  it('is subtracted from the site at the average cost up to its day', async () => {
+    const s = await scene()
+    const cement = await item(s, 'Cemento')
+    const sand = await item(s, 'Sabbia')
+    await move(s, cement, 'in', '10', '2026-11-01', { unit_cost: '1.00' })
+    await move(s, cement, 'out', '6', '2026-11-02', { site_id: s.site })
+    await move(s, cement, 'in', '10', '2026-11-05', { unit_cost: '2.00' })
+    // Back on 6 November, when the average is 1.50: 2 × 1.50 = 3.00 off the site.
+    const back = await move(s, cement, 'in', '2', '2026-11-06', {
+      site_id: s.site,
+      site_return: true,
+    })
+    expect(back).toMatchObject({ site_return: true, value: '3.00', unit_cost: null })
+    // A load delivered to the site, not marked as a return, is still not subtracted.
+    const delivered = await move(s, cement, 'in', '5', '2026-11-07', {
+      site_id: s.site,
+      unit_cost: '9.00',
+    })
+    expect(delivered).toMatchObject({ site_return: false, value: '45.00' })
+    // A return of an item without costs: counted, worth zero.
+    await move(s, sand, 'in', '1', '2026-11-06', { site_id: s.site, site_return: true })
+    // A return to another site is not this site's.
+    await move(s, cement, 'in', '1', '2026-11-06', { site_id: s.other, site_return: true })
+
+    const res = await s.browser.call('GET', s.summary)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({
+      total: '0.00',
+      warehouse_materials: { amount: '3.00', movements: 1, returns: 2, missing_costs: 1 },
+    })
+    const other = await s.browser.call('GET', `${s.base}/sites/${s.other}/cost-summary`)
+    expect(other.json()).toMatchObject({
+      warehouse_materials: { amount: '-1.50', movements: 0, returns: 1, missing_costs: 0 },
+    })
+  })
+
+  it('goes back into the stock without changing the average cost', async () => {
+    const s = await scene()
+    const cement = await item(s, 'Cemento')
+    await move(s, cement, 'in', '10', '2026-11-01', { unit_cost: '1.00' })
+    await move(s, cement, 'out', '4', '2026-11-02', { site_id: s.site })
+    await move(s, cement, 'in', '3', '2026-11-03', { site_id: s.site, site_return: true })
+    const res = await s.browser.call('GET', `${s.base}/warehouse/items/${cement}`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ stock: '9.000', average_cost: '1.00', stock_value: '9.00' })
+  })
+
+  it('says it is a return in the list and in the CSV', async () => {
+    const s = await scene()
+    const cement = await item(s, 'Cemento')
+    await move(s, cement, 'in', '10', '2026-11-01', { unit_cost: '1.00' })
+    await move(s, cement, 'out', '4', '2026-11-02', { site_id: s.site })
+    await move(s, cement, 'in', '1.5', '2026-11-03', { site_id: s.site, site_return: true })
+    const list = await s.browser.call('GET', `${s.base}/warehouse/movements`)
+    expect(list.statusCode).toBe(200)
+    expect(
+      list
+        .json<{ data: { kind: string; site_return: boolean; value: string | null }[] }>()
+        .data.map((m) => [m.kind, m.site_return, m.value]),
+    ).toEqual([
+      ['in', true, '1.50'],
+      ['out', false, '4.00'],
+      ['in', false, '10.00'],
+    ])
+    const csv = await s.browser.call('GET', `${s.base}/warehouse/movements/export`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.trim().split(/\r?\n/)
+    expect(lines[1]).toContain('Reso dal cantiere')
+    expect(lines[2]).toContain('Scarico')
+    expect(lines[3]).toContain('Carico')
+  })
+
+  it('refuses a return that is an unload, without a site or with its own cost', async () => {
+    const s = await scene()
+    const cement = await item(s, 'Cemento')
+    const bad = async (body: Record<string, unknown>, field: string) => {
+      const res = await s.writer.call('POST', `${s.base}/warehouse/movements`, {
+        body: {
+          item_id: cement,
+          date: '2026-11-03',
+          kind: 'in',
+          quantity: '1',
+          site_id: s.site,
+          notes: null,
+          site_return: true,
+          ...body,
+        },
+      })
+      expect(res.statusCode).toBe(422)
+      expect(res.json<{ errors: Record<string, string[]> }>().errors).toHaveProperty(field)
+    }
+    await bad({ kind: 'out' }, 'site_return')
+    await bad({ site_id: null }, 'site_id')
+    await bad({ unit_cost: '1.00' }, 'unit_cost')
+    await bad({ site_return: 'sì' }, 'site_return')
+    const list = await s.browser.call('GET', `${s.base}/warehouse/movements`)
+    expect(list.json<{ data: unknown[] }>().data).toEqual([])
+  })
+
+  it('cannot come back to a site of another company', async () => {
+    const s = await scene()
+    const intruder = await scene()
+    const theirs = await item(intruder, 'Cemento')
+    await move(intruder, theirs, 'in', '10', '2026-11-01', { unit_cost: '5.00' })
+    const res = await intruder.writer.call('POST', `${intruder.base}/warehouse/movements`, {
+      body: {
+        item_id: theirs,
+        date: '2026-11-02',
+        kind: 'in',
+        quantity: '1',
+        site_id: s.site,
+        notes: null,
+        site_return: true,
+      },
+    })
+    expect(res.statusCode).toBe(422)
+    const mine = await s.browser.call('GET', s.summary)
+    expect(mine.json()).toMatchObject({
+      warehouse_materials: { amount: '0.00', movements: 0, returns: 0, missing_costs: 0 },
+    })
   })
 })
