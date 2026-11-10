@@ -112,3 +112,13 @@ export function holidaysOfMonth(month: string, patron: string | null): string[] 
   if (patron) all.push(`${year}-${patron}`)
   return all.filter((day) => day.startsWith(`${month}-`)).sort()
 }
+
+/** National holidays and the patron saint day of the years from `first` to `last`, AAAA-MM-GG. */
+export function holidaysOfYears(first: number, last: number, patron: string | null): string[] {
+  const all: string[] = []
+  for (let year = first; year <= last; year++) {
+    all.push(...nationalHolidays(year))
+    if (patron) all.push(`${year}-${patron}`)
+  }
+  return all.sort()
+}

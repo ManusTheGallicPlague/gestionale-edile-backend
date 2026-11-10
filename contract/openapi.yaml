@@ -5906,8 +5906,9 @@ paths:
         Permessi come getEmployeeWorkSummary: employees.view (senza, 404) e reports.view (senza, 403).
         Gli stessi cantieri nello stesso ordine e con gli stessi filtri, nello stesso formato
         delle altre esportazioni: colonne Codice, Cantiere, Ore, Giorni, Costo, Primo giorno,
-        Ultimo giorno, Di cui straordinario, Giorni di trasferta, Ore perse per maltempo, e in
-        fondo una riga Totale con ore, giorni, costo e le tre voci di payroll di tutto il periodo
+        Ultimo giorno, Di cui straordinario, Giorni di trasferta, Ore perse per maltempo, Di cui
+        festive, e in fondo una riga Totale con ore, giorni, costo e le quattro voci di payroll di
+        tutto il periodo
         (nel totale un giorno di trasferta su due cantieri conta una volta). I cantieri dove nel
         periodo il dipendente ha soltanto ore perse per maltempo, assenti da sites, vengono dopo
         gli altri in ordine di nome, con ore e giorni a zero. Ore e importi con la virgola decimale
@@ -15079,12 +15080,15 @@ components:
                 (anche filter[status]), di tutti i cantieri. overtime_hours: somma di
                 overtime_hours, già comprese in hours; travel_days: giorni con travel, un giorno
                 su due cantieri conta una volta; weather_hours: somma di weather_hours, anche
-                dalle giornate perse tutte (non comprese in hours né in days).
-              required: [overtime_hours, travel_days, weather_hours]
+                dalle giornate perse tutte (non comprese in hours né in days); holiday_hours: ore
+                lavorate di domenica, nei festivi nazionali (Pasquetta compresa) e nel santo
+                patrono dei dati dell'azienda, già comprese in hours.
+              required: [overtime_hours, travel_days, weather_hours, holiday_hours]
               properties:
                 overtime_hours: { $ref: '#/components/schemas/WorkHours' }
                 travel_days: { type: integer, minimum: 0 }
                 weather_hours: { $ref: '#/components/schemas/WorkHours' }
+                holiday_hours: { $ref: '#/components/schemas/WorkHours' }
             absences:
               type: object
               description: |

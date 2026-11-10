@@ -17,6 +17,7 @@ interface Payroll {
   overtime_hours: string
   travel_days: number
   weather_hours: string
+  holiday_hours: string
 }
 
 /** A company with two sites and two employees, and a way to write their daily reports. */
@@ -111,6 +112,7 @@ describe('voci delle buste paga nel riepilogo ore del dipendente', () => {
       overtime_hours: '2.50',
       travel_days: 2,
       weather_hours: '13.00',
+      holiday_hours: '0.00',
     })
 
     // filter[status] works on these too.
@@ -122,6 +124,7 @@ describe('voci delle buste paga nel riepilogo ore del dipendente', () => {
       overtime_hours: '2.50',
       travel_days: 2,
       weather_hours: '5.00',
+      holiday_hours: '0.00',
     })
     const drafts = await s.payroll(s.verdi, '?filter[status]=draft')
     expect(drafts).toMatchObject({ hours: '0.00', days: 0 })
@@ -129,6 +132,7 @@ describe('voci delle buste paga nel riepilogo ore del dipendente', () => {
       overtime_hours: '0.00',
       travel_days: 0,
       weather_hours: '8.00',
+      holiday_hours: '0.00',
     })
 
     // Without filters, every report.
@@ -136,11 +140,13 @@ describe('voci delle buste paga nel riepilogo ore del dipendente', () => {
       overtime_hours: '4.50',
       travel_days: 3,
       weather_hours: '14.00',
+      holiday_hours: '0.00',
     })
     expect((await s.payroll(s.bassi)).payroll).toEqual({
       overtime_hours: '2.00',
       travel_days: 1,
       weather_hours: '1.00',
+      holiday_hours: '0.00',
     })
   })
 
@@ -157,6 +163,7 @@ describe('voci delle buste paga nel riepilogo ore del dipendente', () => {
       overtime_hours: '0.00',
       travel_days: 0,
       weather_hours: '0.00',
+      holiday_hours: '0.00',
     })
     expect((await other.payroll(other.verdi)).payroll.travel_days).toBe(1)
     // Verdi of the other company is not reachable from this one.
@@ -257,7 +264,7 @@ describe('voci delle buste paga nel CSV del dipendente', () => {
   const lines = (body: string) => body.replace('﻿', '').trim().split('\r\n')
   const header =
     'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;' +
-    'Di cui straordinario;Giorni di trasferta;Ore perse per maltempo'
+    'Di cui straordinario;Giorni di trasferta;Ore perse per maltempo;Di cui festive'
 
   it('aggiunge straordinario, trasferte e maltempo per cantiere e nel totale', async () => {
     const s = await scene()
@@ -290,10 +297,10 @@ describe('voci delle buste paga nel CSV del dipendente', () => {
     expect(res.statusCode).toBe(200)
     expect(lines(res.body)).toEqual([
       header,
-      ';Villetta;15,00;2;420,00;02/11/2026;03/11/2026;2,50;2;2,00',
-      ';Condominio;4,00;1;112,00;02/11/2026;02/11/2026;0,00;1;0,00',
-      ';Deposito;0,00;0;0,00;05/11/2026;05/11/2026;0,00;0;8,00',
-      ';Totale;19,00;2;532,00;;;2,50;2;10,00',
+      ';Villetta;15,00;2;420,00;02/11/2026;03/11/2026;2,50;2;2,00;0,00',
+      ';Condominio;4,00;1;112,00;02/11/2026;02/11/2026;0,00;1;0,00;0,00',
+      ';Deposito;0,00;0;0,00;05/11/2026;05/11/2026;0,00;0;8,00;0,00',
+      ';Totale;19,00;2;532,00;;;2,50;2;10,00;0,00',
     ])
 
     // Same filters as the summary: without the drafts the site with only lost hours goes away.
@@ -303,8 +310,8 @@ describe('voci delle buste paga nel CSV del dipendente', () => {
     )
     expect(lines(approved.body)).toEqual([
       header,
-      ';Villetta;15,00;2;420,00;02/11/2026;03/11/2026;2,50;2;2,00',
-      ';Totale;15,00;2;420,00;;;2,50;2;2,00',
+      ';Villetta;15,00;2;420,00;02/11/2026;03/11/2026;2,50;2;2,00;0,00',
+      ';Totale;15,00;2;420,00;;;2,50;2;2,00;0,00',
     ])
   })
 
@@ -321,8 +328,62 @@ describe('voci delle buste paga nel CSV del dipendente', () => {
     expect(res.statusCode).toBe(200)
     expect(lines(res.body)).toEqual([
       header,
-      ';Condominio;0,00;0;;04/11/2026;04/11/2026;0,00;0;8,00',
-      ';Totale;0,00;0;;;;0,00;0;8,00',
+      ';Condominio;0,00;0;;04/11/2026;04/11/2026;0,00;0;8,00;0,00',
+      ';Totale;0,00;0;;;;0,00;0;8,00;0,00',
+    ])
+  })
+})
+
+describe('ore festive nelle voci delle buste paga del dipendente', () => {
+  const patron = async (companyId: string, day: string) =>
+    ctx.owner.query(
+      `insert into public.company_profiles (company_id, legal_name, patron_saint_day)
+       values ($1, 'Impresa di prova', $2)
+       on conflict (company_id) do update set patron_saint_day = excluded.patron_saint_day`,
+      [companyId, day],
+    )
+
+  it('conta domeniche, festivi nazionali, Pasquetta e patrono, anche a cavallo d’anno', async () => {
+    const s = await scene()
+    await patron(s.company.id, '11-11')
+    // Another company with a different patron: its day does not count here.
+    const other = await scene()
+    await patron(other.company.id, '11-12')
+    await s.row(s.villa, s.verdi, '2026-11-07', 'approved', { hours: '8' }) // Saturday
+    await s.row(s.villa, s.verdi, '2026-11-08', 'approved', { hours: '4', overtime: '1' }) // Sunday
+    await s.row(s.condo, s.verdi, '2026-11-08', 'submitted', { hours: '2' }) // Sunday, other site
+    await s.row(s.villa, s.verdi, '2026-11-11', 'approved', { hours: '3' }) // patron
+    await s.row(s.villa, s.verdi, '2026-11-12', 'approved', { hours: '7' }) // other's patron
+    await s.row(s.condo, s.verdi, '2026-12-08', 'approved', { hours: '5' }) // Immacolata
+    await s.row(s.condo, s.verdi, '2027-03-29', 'approved', { hours: '6' }) // Easter Monday
+    // A whole day lost to the rain on a Sunday: no hours worked, nothing festive.
+    await s.row(s.villa, s.verdi, '2026-11-15', 'draft', { hours: '0', weather: '8' })
+    await s.row(s.villa, s.bassi, '2026-11-01', 'approved', { hours: '9' }) // another employee
+
+    const all = await s.payroll(s.verdi)
+    expect(all).toMatchObject({ hours: '35.00' })
+    expect(all.payroll.holiday_hours).toBe('20.00')
+    const november = await s.payroll(s.verdi, '?filter[from]=2026-11-01&filter[to]=2026-11-30')
+    expect(november.payroll.holiday_hours).toBe('9.00')
+    const approved = await s.payroll(s.verdi, '?filter[status]=approved')
+    expect(approved.payroll.holiday_hours).toBe('18.00')
+    expect((await s.payroll(s.bassi)).payroll.holiday_hours).toBe('9.00')
+    // Without daily reports in the period: zero.
+    const empty = await s.payroll(s.verdi, '?filter[from]=2025-01-01&filter[to]=2025-12-31')
+    expect(empty.payroll.holiday_hours).toBe('0.00')
+
+    const res = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/employees/${s.verdi}/work-summary/export`,
+    )
+    expect(res.statusCode).toBe(200)
+    const rows = res.body.replace('﻿', '').trim().split('\r\n')
+    expect(rows[0]?.split(';').at(-1)).toBe('Di cui festive')
+    expect(rows.map((r) => [r.split(';')[1], r.split(';').at(-1)])).toEqual([
+      ['Cantiere', 'Di cui festive'],
+      ['Villetta', '7,00'],
+      ['Condominio', '13,00'],
+      ['Totale', '20,00'],
     ])
   })
 })

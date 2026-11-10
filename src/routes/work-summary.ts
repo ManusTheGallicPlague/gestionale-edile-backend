@@ -7,6 +7,7 @@ import { UUID } from '../deadlines/input.js'
 import { isIsoDate } from '../suppliers/documents.js'
 import { centsToAmount } from '../money.js'
 import { italianDate, toCsv, type Cell } from '../csv.js'
+import { holidaysOfYears, patronSaintDay } from '../holidays.js'
 import { ValidationFailed, forbidden, notFound, type FieldErrors } from '../http/errors.js'
 import { requireSession } from '../http/request-context.js'
 import type { Permission } from '../permissions.js'
@@ -315,6 +316,36 @@ async function readAbsences(client: PoolClient, id: string, query: Record<string
 }
 
 /**
+ * Sundays are found in SQL; this gives the national holidays and the patron saint day of the
+ * years with daily reports of the employee in the period of the summary.
+ */
+async function payrollHolidays(
+  client: PoolClient,
+  id: string,
+  query: Record<string, unknown>,
+): Promise<string[]> {
+  const { from, to, status } = readFilters(query)
+  const { rows } = await client.query<{ first: number | null; last: number | null }>(
+    `select extract(year from min(r.report_date))::int as first,
+       extract(year from max(r.report_date))::int as last
+     from public.daily_report_labor h
+     join public.daily_reports r on r.id = h.report_id
+     where h.employee_id = $1
+       and ($2::date is null or r.report_date >= $2) and ($3::date is null or r.report_date <= $3)
+       and ($4::text is null or r.status = $4)`,
+    [id, from ?? null, to ?? null, status ?? null],
+  )
+  const first = rows[0]?.first
+  const last = rows[0]?.last
+  if (first == null || last == null) return []
+  return holidaysOfYears(first, last, await patronSaintDay(client))
+}
+
+/** Hours worked on Sundays and holidays, for the sums of the payroll items. */
+const HOLIDAY_HOURS = `coalesce(sum(h.hours) filter (where extract(isodow from r.report_date) = 7
+         or r.report_date = any($5::date[])), 0)::numeric(10, 2)::text as holiday_hours`
+
+/**
  * Payroll items of an employee from the daily reports of the summary, with the same filters:
  * overtime hours, travel days (once per day, even on two sites) and hours lost to bad weather,
  * including the days lost entirely (no hours worked).
@@ -325,21 +356,24 @@ async function readPayroll(client: PoolClient, id: string, query: Record<string,
     overtime_hours: string
     travel_days: number
     weather_hours: string
+    holiday_hours: string
   }>(
     `select coalesce(sum(h.overtime_hours), 0)::numeric(10, 2)::text as overtime_hours,
        count(distinct r.report_date) filter (where h.travel)::int as travel_days,
-       coalesce(sum(h.weather_hours), 0)::numeric(10, 2)::text as weather_hours
+       coalesce(sum(h.weather_hours), 0)::numeric(10, 2)::text as weather_hours,
+       ${HOLIDAY_HOURS}
      from public.daily_report_labor h
      join public.daily_reports r on r.id = h.report_id
      where h.employee_id = $1
        and ($2::date is null or r.report_date >= $2) and ($3::date is null or r.report_date <= $3)
        and ($4::text is null or r.status = $4)`,
-    [id, from ?? null, to ?? null, status ?? null],
+    [id, from ?? null, to ?? null, status ?? null, await payrollHolidays(client, id, query)],
   )
   return {
     overtime_hours: rows[0]?.overtime_hours ?? '0.00',
     travel_days: rows[0]?.travel_days ?? 0,
     weather_hours: rows[0]?.weather_hours ?? '0.00',
+    holiday_hours: rows[0]?.holiday_hours ?? '0.00',
   }
 }
 
@@ -350,6 +384,7 @@ interface PayrollSiteRow {
   overtime_hours: string
   travel_days: number
   weather_hours: string
+  holiday_hours: string
   first_date: string
   last_date: string
 }
@@ -365,6 +400,7 @@ async function readPayrollBySite(client: PoolClient, id: string, query: Record<s
        coalesce(sum(h.overtime_hours), 0)::numeric(10, 2)::text as overtime_hours,
        count(distinct r.report_date) filter (where h.travel)::int as travel_days,
        coalesce(sum(h.weather_hours), 0)::numeric(10, 2)::text as weather_hours,
+       ${HOLIDAY_HOURS},
        min(r.report_date)::text as first_date,
        max(r.report_date)::text as last_date
      from public.daily_report_labor h
@@ -375,7 +411,7 @@ async function readPayrollBySite(client: PoolClient, id: string, query: Record<s
        and ($4::text is null or r.status = $4)
      group by s.id
      order by lower(s.name), s.id`,
-    [id, from ?? null, to ?? null, status ?? null],
+    [id, from ?? null, to ?? null, status ?? null, await payrollHolidays(client, id, query)],
   )
   return rows
 }
@@ -562,11 +598,18 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
             decimal(p?.overtime_hours ?? '0.00'),
             p?.travel_days ?? 0,
             decimal(p?.weather_hours ?? '0.00'),
+            decimal(p?.holiday_hours ?? '0.00'),
           ]
           const worked = new Set(summary.sites.map((r) => r.site.id))
           const weatherOnly = summary.payrollSites.filter((p) => !worked.has(p.id))
           csv = toCsv(
-            [...header, 'Di cui straordinario', 'Giorni di trasferta', 'Ore perse per maltempo'],
+            [
+              ...header,
+              'Di cui straordinario',
+              'Giorni di trasferta',
+              'Ore perse per maltempo',
+              'Di cui festive',
+            ],
             [
               ...summary.sites.map((r, n) => [...(rows[n] ?? []), ...items(bySite.get(r.site.id))]),
               ...weatherOnly.map((p) => [
@@ -584,6 +627,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
                 decimal(summary.payroll.overtime_hours),
                 summary.payroll.travel_days,
                 decimal(summary.payroll.weather_hours),
+                decimal(summary.payroll.holiday_hours),
               ],
             ],
           )

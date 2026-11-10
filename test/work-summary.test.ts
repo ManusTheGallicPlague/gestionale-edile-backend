@@ -104,7 +104,12 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
       hours: '26.83',
       days: 4,
       cost: '764.66',
-      payroll: { overtime_hours: '0.00', travel_days: 0, weather_hours: '0.00' },
+      payroll: {
+        overtime_hours: '0.00',
+        travel_days: 0,
+        weather_hours: '0.00',
+        holiday_hours: '0.00',
+      },
       absences: { days: 0, hours: '0.00', kinds: [] },
       sites: [
         {
@@ -179,7 +184,12 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
       days: 0,
       cost: '0.00',
       sites: [],
-      payroll: { overtime_hours: '0.00', travel_days: 0, weather_hours: '0.00' },
+      payroll: {
+        overtime_hours: '0.00',
+        travel_days: 0,
+        weather_hours: '0.00',
+        holiday_hours: '0.00',
+      },
       absences: { days: 0, hours: '0.00', kinds: [] },
     })
   })
@@ -479,10 +489,10 @@ describe('ore di dipendenti e mezzi per cantiere in CSV', () => {
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="ore-dipendente.csv"')
     expect(lines(res.body)).toEqual([
-      'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Di cui straordinario;Giorni di trasferta;Ore perse per maltempo',
-      'C-1;"Villetta; ""nord""";15,50;2;441,75;01/10/2026;02/10/2026;0,00;0;0,00',
-      ';Condominio;11,33;3;322,91;30/09/2026;05/10/2026;0,00;0;0,00',
-      ';Totale;26,83;4;764,66;;;0,00;0;0,00',
+      'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Di cui straordinario;Giorni di trasferta;Ore perse per maltempo;Di cui festive',
+      'C-1;"Villetta; ""nord""";15,50;2;441,75;01/10/2026;02/10/2026;0,00;0;0,00;0,00',
+      ';Condominio;11,33;3;322,91;30/09/2026;05/10/2026;0,00;0;0,00;0,00',
+      ';Totale;26,83;4;764,66;;;0,00;0;0,00;0,00',
     ])
 
     // Same filters as the summary; no hourly cost leaves the cost empty.
@@ -491,9 +501,9 @@ describe('ore di dipendenti e mezzi per cantiere in CSV', () => {
       `${employeeUrl(s.slug, s.bassi)}/export?filter[from]=2026-10-02&filter[to]=2026-10-02`,
     )
     expect(lines(filtered.body)).toEqual([
-      'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Di cui straordinario;Giorni di trasferta;Ore perse per maltempo',
-      ';Condominio;8,00;1;;02/10/2026;02/10/2026;0,00;0;0,00',
-      ';Totale;8,00;1;;;;0,00;0;0,00',
+      'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Di cui straordinario;Giorni di trasferta;Ore perse per maltempo;Di cui festive',
+      ';Condominio;8,00;1;;02/10/2026;02/10/2026;0,00;0;0,00;0,00',
+      ';Totale;8,00;1;;;;0,00;0;0,00;0,00',
     ])
     const approved = await s.browser.call(
       'GET',
