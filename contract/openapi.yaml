@@ -2393,8 +2393,9 @@ paths:
         Permesso: reports.view. Stessi filtri e ordinamento dell'elenco, senza paginazione, nello
         stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con la
         virgola decimale (1234,50). In fondo le colonne «Ore straordinario»
-        (total_overtime_hours), «Ore perse per maltempo» (total_weather_hours) e «Dipendenti in
-        trasferta» (travel_count). Il file si chiama rapportini.csv.
+        (total_overtime_hours), «Ore perse per maltempo» (total_weather_hours), «Dipendenti in
+        trasferta» (travel_count) e «Festivo» (holiday, Sì o No). Il file si chiama
+        rapportini.csv.
       parameters:
         - name: sort
           in: query
@@ -12378,6 +12379,7 @@ components:
         - total_overtime_hours
         - total_weather_hours
         - travel_count
+        - holiday
         - total_vehicle_hours
         - created_by
         - submitted_at
@@ -12417,6 +12419,12 @@ components:
           description: |
             Quanti dipendenti del rapportino sono in trasferta (travel) quel giorno: le trasferte
             si vedono dall'elenco senza aprire il rapportino.
+        holiday:
+          type: boolean
+          description: |
+            Il giorno del rapportino è festivo: domenica, festivo nazionale (Pasquetta compresa) o
+            santo patrono dei dati dell'azienda (patron_saint_day). Le stesse giornate delle ore
+            festive dei fogli ore mensili, da pagare con la maggiorazione.
         total_vehicle_hours: { $ref: '#/components/schemas/Hours' }
         created_by:
           description: Chi ha scritto il rapportino; null per i dati caricati fuori dall'API.

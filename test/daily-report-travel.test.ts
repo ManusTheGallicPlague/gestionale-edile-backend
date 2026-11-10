@@ -240,8 +240,8 @@ describe('travel in daily reports', () => {
     const csv = await s.browser.call('GET', `${s.base}/export?sort=date`)
     expect(csv.statusCode).toBe(200)
     const lines = csvLines(csv.body)
-    expect(lines[0]?.split(';').at(-1)).toBe('Dipendenti in trasferta')
-    expect(lines.slice(1).map((l) => l.split(';').at(-1))).toEqual(['2', '1'])
+    expect(lines[0]?.split(';').at(-2)).toBe('Dipendenti in trasferta')
+    expect(lines.slice(1).map((l) => l.split(';').at(-2))).toEqual(['2', '1'])
 
     // Another company sees none of it.
     const theirs = await scene()

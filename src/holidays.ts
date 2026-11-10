@@ -122,3 +122,13 @@ export function holidaysOfYears(first: number, last: number, patron: string | nu
   }
   return all.sort()
 }
+
+/**
+ * Whether a day (AAAA-MM-GG) is a holiday for the company: a Sunday, a national holiday (Easter
+ * Monday included) or its patron saint day (MM-DD), if given.
+ */
+export function isHoliday(day: string, patron: string | null): boolean {
+  if (new Date(`${day}T00:00:00Z`).getUTCDay() === 0) return true
+  if (patron !== null && day.slice(5) === patron) return true
+  return nationalHolidays(Number(day.slice(0, 4))).has(day)
+}

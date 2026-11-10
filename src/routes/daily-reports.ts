@@ -19,7 +19,7 @@ import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 import { centsToAmount } from '../money.js'
 import { reportPdf, reportsPdf, type ReportPdfData } from '../daily-reports/pdf.js'
 import { italianQuantity } from '../quotes/pdf.js'
-import { holidaysOfMonth, patronSaintDay } from '../holidays.js'
+import { holidaysOfMonth, isHoliday, patronSaintDay } from '../holidays.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
 import { ABSENCE_CODES, type AbsenceKind } from './employee-absences.js'
@@ -75,6 +75,8 @@ interface ReportRow {
   weather_hours: string
   travel_count: number
   vehicle_hours: string
+  /** Patron saint day of the company (MM-DD), for the holiday flag. */
+  patron_day: string | null
   version: number
   created_at: Date
   updated_at: Date
@@ -123,6 +125,8 @@ const SELECT = `select r.id, r.site_id, s.name as site_name, s.code as site_code
       where l.report_id = r.id and l.travel)::int as travel_count,
     coalesce((select sum(v.hours) from public.daily_report_vehicles v where v.report_id = r.id),
       0)::numeric(6, 2)::text as vehicle_hours,
+    (select p.patron_saint_day from public.company_profiles p
+      where p.company_id = r.company_id) as patron_day,
     r.version, r.created_at, r.updated_at
   from public.daily_reports r
   join public.sites s on s.id = r.site_id
@@ -150,6 +154,7 @@ function summary(row: ReportRow) {
     total_overtime_hours: row.overtime_hours,
     total_weather_hours: row.weather_hours,
     travel_count: row.travel_count,
+    holiday: isHoliday(row.report_date, row.patron_day),
     total_vehicle_hours: row.vehicle_hours,
     created_by: row.created_by ? { id: row.created_by, name: row.created_by_name ?? '' } : null,
     submitted_at: row.submitted_at?.toISOString() ?? null,
@@ -703,6 +708,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             'Ore straordinario',
             'Ore perse per maltempo',
             'Dipendenti in trasferta',
+            'Festivo',
           ],
           rows.map((r) => [
             italianDate(r.report_date),
@@ -719,6 +725,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             r.overtime_hours.replace('.', ','),
             r.weather_hours.replace('.', ','),
             r.travel_count,
+            isHoliday(r.report_date, r.patron_day) ? 'Sì' : 'No',
           ]),
         )
       })
