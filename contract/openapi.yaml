@@ -10245,9 +10245,11 @@ components:
           type: string
           description: |
             Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
-            Per ora: csrf_invalid, stale_record, precondition_required, has_documents,
-            statement_draft_exists, statement_not_draft, invalid_transition, site_exists,
-            current_session.
+            Tutti quelli in uso: already_member, credit_note, csrf_invalid, current_session,
+            database_unavailable, has_documents, invalid_transition, last_manager,
+            number_in_use, order_not_draft, precondition_required, quote_not_draft,
+            report_not_draft, role_in_use, self_deactivation, site_exists, stale_record,
+            statement_draft_exists, statement_not_draft.
     ValidationError:
       type: object
       required: [message, errors]
