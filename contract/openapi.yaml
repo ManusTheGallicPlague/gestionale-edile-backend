@@ -4174,8 +4174,10 @@ paths:
         una riga «Totale dipendenti», poi i mezzi e una riga «Totale mezzi». Colonne Tipo
         (Dipendente o Mezzo), Nome (cognome e nome del dipendente, nome del mezzo), Targa, Ore,
         Giorni, poi Costo solo con costs.view (vuoto senza costo orario), poi Primo giorno e
-        Ultimo giorno, e in fondo Ore perse per maltempo (vuota per i mezzi). Ore e importi con
-        la virgola decimale (12,50), date come 30/11/2026. Il file si chiama ore-cantiere.csv.
+        Ultimo giorno, e in fondo Ore perse per maltempo, Di cui straordinario e Giorni di
+        trasferta (vuote per i mezzi; nella riga «Totale dipendenti» i totali di labor). Ore e
+        importi con la virgola decimale (12,50), date come 30/11/2026. Il file si chiama
+        ore-cantiere.csv.
       parameters:
         - name: filter
           in: query
@@ -15105,9 +15107,18 @@ components:
       properties:
         labor:
           type: object
-          required: [hours, weather_hours, cost, rows]
+          required: [hours, overtime_hours, travel_days, weather_hours, cost, rows]
           properties:
             hours: { $ref: '#/components/schemas/WorkHours' }
+            overtime_hours:
+              description: Di cui straordinario sul cantiere, somma delle righe.
+              allOf: [{ $ref: '#/components/schemas/WorkHours' }]
+            travel_days:
+              type: integer
+              minimum: 0
+              description: |
+                Giorni di trasferta sul cantiere, somma delle righe: due dipendenti in trasferta
+                lo stesso giorno contano due.
             weather_hours:
               description: Ore perse per maltempo sul cantiere, somma delle righe.
               allOf: [{ $ref: '#/components/schemas/WorkHours' }]

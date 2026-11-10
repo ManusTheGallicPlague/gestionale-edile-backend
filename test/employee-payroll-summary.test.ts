@@ -205,3 +205,50 @@ describe('straordinario e trasferte per dipendente nel riepilogo ore del cantier
     ).toMatchObject({ overtime_hours: '1.00', travel_days: 1 })
   })
 })
+
+describe('straordinario e trasferte nei totali e nel CSV delle ore del cantiere', () => {
+  it('somma lo straordinario e i giorni di trasferta di tutti, e li mette in fondo al CSV', async () => {
+    const s = await scene()
+    await s.row(s.villa, s.verdi, '2026-11-02', 'approved', {
+      hours: '9',
+      overtime: '1',
+      travel: true,
+    })
+    // Travel days of every employee add up.
+    await s.row(s.villa, s.bassi, '2026-11-03', 'approved', {
+      hours: '8',
+      overtime: '0.5',
+      travel: true,
+    })
+    // Another site does not count.
+    await s.row(s.condo, s.verdi, '2026-11-03', 'approved', {
+      hours: '10',
+      overtime: '2',
+      travel: true,
+    })
+    const url = `/api/companies/${s.company.slug}/sites/${s.villa}/work-summary`
+
+    const res = await s.browser.call('GET', url)
+    expect(res.statusCode).toBe(200)
+    expect(res.json<{ labor: unknown }>().labor).toMatchObject({
+      hours: '17.00',
+      overtime_hours: '1.50',
+      travel_days: 2,
+    })
+
+    const csv = await s.browser.call('GET', `${url}/export`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.replace('﻿', '').trim().split('\r\n')
+    expect(lines.map((l) => l.split(';').slice(-3))).toEqual([
+      ['Ore perse per maltempo', 'Di cui straordinario', 'Giorni di trasferta'],
+      ['0,00', '1,00', '1'],
+      ['0,00', '0,50', '1'],
+      ['0,00', '1,50', '2'],
+      ['', '', ''],
+    ])
+    expect(lines[3]?.startsWith('Totale dipendenti;')).toBe(true)
+
+    const draft = await s.browser.call('GET', `${url}?filter[status]=draft`)
+    expect(draft.json()).toMatchObject({ labor: { overtime_hours: '0.00', travel_days: 0 } })
+  })
+})

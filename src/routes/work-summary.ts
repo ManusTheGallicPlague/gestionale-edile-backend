@@ -238,7 +238,13 @@ async function readSiteSummary(
     '(h.hours > 0 or h.weather_hours > 0)',
   )
   let weatherHundredths = 0n
-  for (const r of labor.rows) weatherHundredths += BigInt(r.weather_hours.replace('.', ''))
+  let overtimeHundredths = 0n
+  let travelDays = 0
+  for (const r of labor.rows) {
+    weatherHundredths += BigInt(r.weather_hours.replace('.', ''))
+    overtimeHundredths += BigInt(r.overtime_hours.replace('.', ''))
+    travelDays += r.travel_days
+  }
   const vehicles = await part<ResourceRow & { name: string; plate: string | null }>(
     'daily_report_vehicles',
     'vehicle_id',
@@ -257,6 +263,8 @@ async function readSiteSummary(
   return {
     labor: {
       hours: labor.hours,
+      overtime_hours: centsToAmount(overtimeHundredths.toString()),
+      travel_days: travelDays,
       weather_hours: centsToAmount(weatherHundredths.toString()),
       cost: labor.cost,
       rows: labor.rows.map((r) => ({
@@ -559,6 +567,8 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           first_date?: string
           last_date?: string
           weather_hours?: string
+          overtime_hours?: string
+          travel_days?: number
         },
       ) => [
         kind,
@@ -570,6 +580,8 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
         r.first_date && italianDate(r.first_date),
         r.last_date && italianDate(r.last_date),
         r.weather_hours === undefined ? null : decimal(r.weather_hours),
+        r.overtime_hours === undefined ? null : decimal(r.overtime_hours),
+        r.travel_days,
       ]
       const csv = toCsv(
         [
@@ -582,6 +594,8 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           'Primo giorno',
           'Ultimo giorno',
           'Ore perse per maltempo',
+          'Di cui straordinario',
+          'Giorni di trasferta',
         ],
         [
           ...summary.labor.rows.map((r) =>
