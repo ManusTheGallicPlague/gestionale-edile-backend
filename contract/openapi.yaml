@@ -10617,6 +10617,9 @@ components:
         invoice_payment: pagamento, incasso o rimborso registrato su una fattura.
         supplier_document: documento di un fornitore (DURC, visura...).
         warehouse_movement: carico o scarico di magazzino (anche inventario e resi).
+        role: ruolo (nome e permessi; i permessi cambiati compaiono come campo permissions).
+        user: utente dell'azienda, con entity_id uguale all'id dell'utente di …/users/{user}
+        (creazione all'accettazione dell'invito, modifica di role_id o disabled_at).
       enum:
         [
           client,
@@ -10644,6 +10647,8 @@ components:
           invoice_payment,
           supplier_document,
           warehouse_movement,
+          role,
+          user,
         ]
     AuditEntry:
       type: object

@@ -756,6 +756,87 @@ describe('audit log', () => {
     expect(csv.body).toContain(`Movimento di magazzino;${id};Eliminazione`)
   })
 
+  it('records who changed a role, its permissions and the users of the company', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'users.view',
+      'users.manage',
+      'roles.manage',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const base = `/api/companies/${company.slug}`
+    const created = await browser.call('POST', `${base}/roles`, {
+      body: { name: 'Capo cantiere', permissions: ['clients.view'] },
+    })
+    expect(created.statusCode).toBe(201)
+    const roleId = created.json<{ id: string }>().id
+    const put = (body: object) => browser.call('PUT', `${base}/roles/${roleId}`, { body })
+    // Same name and permissions: nothing changes, nothing is logged.
+    expect((await put({ name: 'Capo cantiere', permissions: ['clients.view'] })).statusCode).toBe(
+      200,
+    )
+    // Only the permissions, then name and permissions together: one entry each.
+    expect(
+      (await put({ name: 'Capo cantiere', permissions: ['clients.view', 'sites.view'] }))
+        .statusCode,
+    ).toBe(200)
+    expect((await put({ name: 'Capocantiere', permissions: ['sites.view'] })).statusCode).toBe(200)
+    expect((await put({ name: 'Capo squadra', permissions: ['sites.view'] })).statusCode).toBe(200)
+    const colleague = await fx.user({ name: 'Collega' })
+    await fx.member(colleague.id, company.id, roleId)
+    const users = `${base}/users/${colleague.id}`
+    const ownerRole = await ctx.owner.query<{ id: string }>(
+      "select id from public.roles where company_id = $1 and name = 'Titolare'",
+      [company.id],
+    )
+    expect(
+      (await browser.call('PUT', `${users}/role`, { body: { role_id: ownerRole.rows[0]?.id } }))
+        .statusCode,
+    ).toBe(200)
+    expect((await browser.call('POST', `${users}/deactivate`)).statusCode).toBe(200)
+    // Twice changes nothing, so no second entry.
+    expect((await browser.call('POST', `${users}/deactivate`)).statusCode).toBe(200)
+    expect((await browser.call('DELETE', `${base}/roles/${roleId}`)).statusCode).toBe(204)
+    // Another company's role and member: not in this log.
+    const other = await fx.company()
+    const theirs = await fx.role(other.id, 'Altrui', ['clients.view'])
+    await fx.member(colleague.id, other.id, theirs)
+    await ctx.owner.query("update public.roles set name = 'Altri' where id = $1", [theirs])
+    const author = { id: user.id, name: 'Utente di prova' }
+    const roles = await browser.call('GET', `${base}/audit-log?filter[entity]=role`)
+    expect(roles.statusCode).toBe(200)
+    expect(
+      roles
+        .json<{ data: Entry[] }>()
+        .data.filter((e) => e.entity_id === roleId)
+        .map((e) => [e.entity_id, e.action, e.fields, e.user]),
+    ).toEqual([
+      [roleId, 'delete', [], author],
+      [roleId, 'update', ['name'], author],
+      [roleId, 'update', ['name', 'permissions'], author],
+      [roleId, 'update', ['permissions'], author],
+      [roleId, 'create', [], author],
+    ])
+    const members = await browser.call('GET', `${base}/audit-log?filter[entity]=user`)
+    expect(members.statusCode).toBe(200)
+    expect(
+      members.json<{ data: Entry[] }>().data.map((e) => [e.entity_id, e.action, e.fields, e.user]),
+    ).toEqual([
+      [colleague.id, 'update', ['disabled_at'], author],
+      [colleague.id, 'update', ['role_id'], author],
+      // Added outside the API (as by the fixtures): no author.
+      [colleague.id, 'create', [], null],
+    ])
+    const csv = await browser.call('GET', `${base}/audit-log/export?filter[entity]=user`)
+    expect(csv.body).toContain(`Utente dell'azienda;${colleague.id};Modifica`)
+    const roleCsv = await browser.call(
+      'GET',
+      `${base}/audit-log/export?filter[entity]=role&filter[action]=delete`,
+    )
+    expect(roleCsv.body).toContain(`Ruolo;${roleId};Eliminazione`)
+  })
+
   it('filters by day on Italian time and exports the log in CSV', async () => {
     const { company, user } = await fx.companyWithUser([
       'audit.view',

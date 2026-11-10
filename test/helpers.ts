@@ -110,6 +110,8 @@ export class Fixtures {
     const roleId = await this.role(company.id, roleName, permissions)
     const user = await this.user()
     await this.member(user.id, company.id, roleId)
+    // The scene starts with an empty change log: setting up the access is not part of it.
+    await this.owner.query('delete from public.audit_log where company_id = $1', [company.id])
     return { company, user, roleId }
   }
 }

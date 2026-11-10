@@ -161,7 +161,11 @@ export function roleRoutes(app: FastifyInstance, config: Config, db: Db): void {
         [id, input.name],
       )
       if (rowCount === 0) throw notFound()
-      await client.query('delete from public.role_permissions where role_id = $1', [id])
+      // Only what changes, so that the log records a permission change only when there is one.
+      await client.query(
+        'delete from public.role_permissions where role_id = $1 and permission <> all($2::text[])',
+        [id, input.permissions],
+      )
       await setPermissions(client, id, input.permissions)
       await assertManagersRemain(client, before)
       return { id, name: input.name, permissions: input.permissions }
@@ -244,7 +248,8 @@ function readRole(body: unknown): { name: string; permissions: Permission[] } {
 async function setPermissions(client: pg.PoolClient, roleId: string, permissions: Permission[]) {
   if (permissions.length === 0) return
   await client.query(
-    'insert into public.role_permissions (role_id, permission) select $1, unnest($2::text[])',
+    `insert into public.role_permissions (role_id, permission) select $1, unnest($2::text[])
+     on conflict do nothing`,
     [roleId, permissions],
   )
 }
