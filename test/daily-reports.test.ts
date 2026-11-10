@@ -367,12 +367,14 @@ describe('daily reports', () => {
     const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
     expect(lines).toHaveLength(3)
     expect(lines[0]).toBe(
-      'Data;Cantiere;Codice cantiere;Stato;Ore manodopera;Ore mezzi;Meteo;Lavori eseguiti;Note;Compilato da;Approvato da;Ore straordinario',
+      'Data;Cantiere;Codice cantiere;Stato;Ore manodopera;Ore mezzi;Meteo;Lavori eseguiti;Note;Compilato da;Approvato da;Ore straordinario;Ore perse per maltempo',
     )
     expect(lines[1]).toMatch(
-      /^05\/11\/2026;Villetta;C-1;Bozza;15,50;3,25;Sereno;Getto del solaio;;[^;]+;;0,00$/,
+      /^05\/11\/2026;Villetta;C-1;Bozza;15,50;3,25;Sereno;Getto del solaio;;[^;]+;;0,00;0,00$/,
     )
-    expect(lines[2]).toMatch(/^06\/11\/2026;Condominio;;Bozza;0,00;0,00;;'@scavo;;[^;]+;;0,00$/)
+    expect(lines[2]).toMatch(
+      /^06\/11\/2026;Condominio;;Bozza;0,00;0,00;;'@scavo;;[^;]+;;0,00;0,00$/,
+    )
     const filtered = await s.browser.call('GET', `${url}?filter[site]=${s.site}`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
     expect((await s.browser.call('GET', `${url}?filter[status]=chiuso`)).statusCode).toBe(422)

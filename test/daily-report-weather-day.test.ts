@@ -91,6 +91,16 @@ describe('a whole day lost to bad weather', () => {
     ])
     const pdf = await s.browser.call('GET', `${s.base}/${report.id}/pdf`)
     expect(pdf.statusCode).toBe(200)
+
+    // The lost hours of the day are in the list and in its CSV, outside the hours worked.
+    const list = await s.browser.call('GET', s.base)
+    expect(list.statusCode).toBe(200)
+    expect(list.json<{ data: { total_weather_hours: string }[] }>().data).toEqual([
+      expect.objectContaining({ total_labor_hours: '0.00', total_weather_hours: '16.00' }),
+    ])
+    const csv = await s.browser.call('GET', `${s.base}/export`)
+    expect(csvLines(csv.body)[0]?.split(';').at(-1)).toBe('Ore perse per maltempo')
+    expect(csvLines(csv.body)[1]?.split(';').slice(-2)).toEqual(['0,00', '16,00'])
   })
 
   it('still rejects a row with neither worked nor lost hours, and zero hours of vehicles', async () => {

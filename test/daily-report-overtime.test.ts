@@ -99,9 +99,9 @@ describe('overtime in daily reports', () => {
     expect(pdf).toContain('(Bassi Anna)')
     expect(pdf).toContain('(di cui straordinario)')
 
-    // The CSV of the reports has it at the end.
+    // The CSV of the reports has it near the end, before the hours lost to bad weather.
     const csv = await s.browser.call('GET', `${s.base}/export`)
-    expect(csv.body.trim().split('\r\n')[1]).toMatch(/;2,00$/)
+    expect(csv.body.trim().split('\r\n')[1]).toMatch(/;2,00;0,00$/)
 
     // The list has the total too.
     const list = await s.browser.call('GET', s.base)
