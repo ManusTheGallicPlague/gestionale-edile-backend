@@ -10673,8 +10673,9 @@ components:
           description: |
             Per update, i nomi dei campi cambiati, in ordine alfabetico. Sono i nomi delle
             colonne del database, quasi sempre uguali ai campi del contratto (name, status,
-            client_id…); gli importi hanno il suffisso _cents (amount_cents). Vuoto per create
-            e delete.
+            client_id…); gli importi hanno il suffisso _cents (amount_cents). Fanno eccezione
+            permissions per un ruolo (permessi cambiati) e team per un cantiere (dipendenti
+            aggiunti o tolti dalla squadra). Vuoto per create e delete.
           items:
             type: string
         user:

@@ -700,6 +700,13 @@ Aggiunta il 10/11/2026: chi ha dato un permesso a un ruolo, chi ha cambiato il r
 - [x] `invitation` e `company_profile` in `AuditEntity`, con i trigger del registro su `invitations` e `company_profiles` (una riga per salvataggio, anche con il patrono)
   (fatto il 10/11/2026, migrazione 0089)
 
+### 104. Squadra del cantiere nel registro delle modifiche
+
+Aggiunta il 10/11/2026: chi ha messo o tolto un dipendente dalla squadra di un cantiere è la domanda del titolare quando le ore o i documenti della squadra non tornano.
+
+- [x] Trigger del registro su `site_team`: aggiungere o togliere dipendenti è una modifica del cantiere con il campo `team`
+  (fatto il 10/11/2026, migrazione 0090)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -972,11 +979,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 10/11/2026: anche i movimenti di magazzino hanno righe proprie nel registro (`warehouse_movement`), compresi quelli creati da inventario, resi e ordini: una riga per movimento, senza raggrupparli per operazione.
 - 10/11/2026: ruoli e utenti nel registro (`role`, `user`). I permessi di un ruolo compaiono come campo `permissions` del ruolo, una sola riga per ruolo e transazione (unita a quella del cambio di nome); niente riga per i permessi di un ruolo appena creato o eliminato con lui. L'utente ha `entity_id` uguale all'id dell'utente (le adesioni non hanno un id proprio), con i campi `role_id` e `disabled_at`; la creazione è l'accettazione dell'invito. `PUT …/roles/{role}` ora tocca solo i permessi che cambiano, così riscrivere gli stessi permessi non lascia righe. Nei test `companyWithUser` svuota il registro dell'azienda appena preparata.
 - 10/11/2026: inviti nel registro (`invitation`, con il trigger solito: l'accettazione è una modifica di `accepted_at` e `accepted_user_id`, il nuovo utente compare anche come creazione di `user`) e dati dell'azienda (`company_profile`, `entity_id` uguale all'id dell'azienda, una riga per salvataggio anche quando il patrono si scrive a parte; un primo salvataggio è solo la creazione). Il logo resta fuori dal registro, come gli altri file.
+- 10/11/2026: squadra del cantiere nel registro come campo `team` del cantiere (`entity` `site`), come i permessi di un ruolo: la squadra non ha un id proprio. Una riga per cantiere e transazione, qualunque numero di dipendenti aggiunti o tolti; niente righe per la squadra di un cantiere appena creato o eliminato con lui. Non si salva quali dipendenti, come per gli altri campi si salva solo il nome.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-10 05:21 UTC: main verde all'inizio (999 test); main locale era di nuovo staccato: lavoro su un branch locale da `origin/main`, nessun lavoro perso. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 104, squadra del cantiere nel registro delle modifiche (migrazione 0090, campo `team` del cantiere; test con due dipendenti aggiunti in una riga, stessa squadra senza righe, uno tolto e uno aggiunto in una riga, cambio di nome a parte, cantiere eliminato con la squadra solo come eliminazione, squadra di un'altra azienda esclusa). Nessuna tabella e nessun permesso nuovi. Niente a metà; piano tutto spuntato. 1000 test.
 - 2026-11-10 04:40 UTC: stesso giro, secondo push: sezione 103, inviti e dati dell'azienda nel registro delle modifiche (migrazione 0089, `invitation` e `company_profile` in `AuditEntity` e nel CSV; test con invito ritirato, invito accettato da un nuovo utente, primo salvataggio con il patrono come sola creazione, salvataggio uguale senza righe, città da sola, città e patrono in una riga, dati di un'altra azienda esclusi). Nessuna tabella e nessun permesso nuovi. Niente a metà; piano tutto spuntato. 999 test.
 - 2026-11-10 04:35 UTC: main verde all'inizio (997 test); main locale era di nuovo staccato e con una storia diversa da `origin/main`: lavoro su un branch locale da `origin/main`, nessun lavoro perso. Piano tutto spuntato; aggiunta e fatta la sezione 103, ruoli e utenti nel registro delle modifiche (migrazione 0088, `role` e `user` in `AuditEntity` e nel CSV; test su ruolo creato, permessi riscritti uguali senza righe, solo permessi, nome e permessi insieme in una riga, solo nome, ruolo eliminato; utente con cambio di ruolo e disattivazione ripetuta una volta sola; ruolo e utente di un'altra azienda esclusi). Corretto in corsa un `text[] || 'testo'` nel trigger delle adesioni (lo prende lo stesso test). Nessuna tabella e nessun permesso nuovi. Niente a metà; piano tutto spuntato. 998 test.
 - 2026-11-10 03:45 UTC: stesso giro, terzo push: sezione 102, movimenti di magazzino nel registro delle modifiche (migrazione 0087, `warehouse_movement` in `AuditEntity` e nel CSV; test con carico da 0.1 creato ed eliminato con l'autore, movimento di un'altra azienda escluso, riga «Movimento di magazzino» nel CSV). Nessuna tabella e nessun permesso nuovi. Niente a metà; piano tutto spuntato. 997 test.

@@ -837,6 +837,79 @@ describe('audit log', () => {
     expect(roleCsv.body).toContain(`Ruolo;${roleId};Eliminazione`)
   })
 
+  it('records changes to the team of a site as an update of the site', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'sites.view',
+      'sites.update',
+      'sites.delete',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const base = `/api/companies/${company.slug}`
+    const site = await ctx.owner.query<{ id: string }>(
+      "insert into public.sites (company_id, name) values ($1, 'Villetta') returning id",
+      [company.id],
+    )
+    const siteId = site.rows[0]?.id ?? ''
+    const employees = await ctx.owner.query<{ id: string }>(
+      `insert into public.employees (company_id, first_name, last_name, hourly_cost_cents)
+       values ($1, 'Luca', 'Verdi', 2800), ($1, 'Anna', 'Bassi', 3000) returning id`,
+      [company.id],
+    )
+    const [verdi, bassi] = employees.rows.map((r) => r.id)
+    const team = (employee_ids: (string | undefined)[]) =>
+      browser.call('PUT', `${base}/sites/${siteId}/team`, { body: { employee_ids } })
+    // Two employees added at once: one entry.
+    expect((await team([verdi, bassi])).statusCode).toBe(200)
+    // The same team again: nothing changes, nothing is logged.
+    expect((await team([bassi, verdi])).statusCode).toBe(200)
+    // One removed and one added in the same request: still one entry.
+    expect((await team([verdi])).statusCode).toBe(200)
+    // A rename and a team change in two requests: two entries.
+    const renamed = await browser.call('PUT', `${base}/sites/${siteId}`, {
+      headers: { 'if-match': '"1"' },
+      body: {
+        ...(await browser.call('GET', `${base}/sites/${siteId}`)).json<object>(),
+        name: 'Villa',
+      },
+    })
+    expect(renamed.statusCode).toBe(200)
+    // The other company's site with the same team change: not in this log.
+    const other = await fx.company()
+    const theirs = await ctx.owner.query<{ id: string }>(
+      "insert into public.sites (company_id, name) values ($1, 'Altrui') returning id",
+      [other.id],
+    )
+    const theirEmployee = await ctx.owner.query<{ id: string }>(
+      `insert into public.employees (company_id, first_name, last_name, hourly_cost_cents)
+       values ($1, 'Mario', 'Neri', 2500) returning id`,
+      [other.id],
+    )
+    await ctx.owner.query(
+      'insert into public.site_team (company_id, site_id, employee_id) values ($1, $2, $3)',
+      [other.id, theirs.rows[0]?.id, theirEmployee.rows[0]?.id],
+    )
+    // Deleting the site removes its team: only the deletion is logged.
+    const current = await browser.call('GET', `${base}/sites/${siteId}`)
+    const deleted = await browser.call('DELETE', `${base}/sites/${siteId}`, {
+      headers: { 'if-match': String(current.headers.etag) },
+    })
+    expect(deleted.statusCode).toBe(204)
+    const author = { id: user.id, name: 'Utente di prova' }
+    const log = await browser.call('GET', `${base}/audit-log?filter[entity]=site`)
+    expect(log.statusCode).toBe(200)
+    expect(
+      log.json<{ data: Entry[] }>().data.map((e) => [e.entity_id, e.action, e.fields, e.user]),
+    ).toEqual([
+      [siteId, 'delete', [], author],
+      [siteId, 'update', ['name'], author],
+      [siteId, 'update', ['team'], author],
+      [siteId, 'update', ['team'], author],
+      [siteId, 'create', [], null],
+    ])
+  })
+
   it('records invitations and changes to the company details', async () => {
     const { company, user, roleId } = await fx.companyWithUser([
       'audit.view',
