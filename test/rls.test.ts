@@ -1153,8 +1153,20 @@ describe('the API role cannot cross companies', () => {
           ),
         ),
       ).rejects.toThrow(/row-level security/)
+      // Hours are updated in place, only in company A and only the values: never moved.
+      const updated = await as(alice.id, companyA.id, (c) =>
+        c.query(`update public.${table} set hours = 1 where company_id = $1`, [companyB.id]),
+      )
+      expect(updated.rowCount).toBe(0)
       await expect(
-        as(alice.id, companyA.id, (c) => c.query(`update public.${table} set hours = 1`)),
+        as(alice.id, companyA.id, (c) =>
+          c.query(`update public.${table} set report_id = $1`, [reportB.rows[0]?.id]),
+        ),
+      ).rejects.toThrow(/permission denied/)
+      await expect(
+        as(alice.id, companyA.id, (c) =>
+          c.query(`update public.${table} set company_id = $1`, [companyB.id]),
+        ),
       ).rejects.toThrow(/permission denied/)
     }
     const changed = await as(alice.id, companyA.id, async (c) => {
@@ -1293,14 +1305,24 @@ describe('the API role cannot cross companies', () => {
       return u.rowCount! + l.rowCount! + d.rowCount!
     })
     expect(changed).toBe(0)
-    // Lines are replaced, never updated.
-    await expect(
-      as(alice.id, companyA.id, (c) =>
-        c.query('update public.purchase_order_lines set quantity = 2 where order_id = $1', [
-          orderA,
-        ]),
-      ),
-    ).rejects.toThrow(/permission denied/)
+    // Lines are updated in place, only in company A and only the values: never moved.
+    const updated = await as(alice.id, companyA.id, (c) =>
+      c.query('update public.purchase_order_lines set quantity = 2 where order_id = $1', [orderB]),
+    )
+    expect(updated.rowCount).toBe(0)
+    for (const [set, value] of [
+      ['order_id', orderB],
+      ['company_id', companyB.id],
+    ]) {
+      await expect(
+        as(alice.id, companyA.id, (c) =>
+          c.query(`update public.purchase_order_lines set ${set} = $1 where order_id = $2`, [
+            value,
+            orderA,
+          ]),
+        ),
+      ).rejects.toThrow(/permission denied/)
+    }
     await expect(auth.query('select * from public.purchase_orders')).rejects.toThrow(
       /permission denied/,
     )
@@ -1667,10 +1689,25 @@ describe('the API role cannot cross companies', () => {
         'delete from public.progress_statement_lines where statement_id = $1',
         [b.statement],
       )
+      const q = await c.query(
+        'update public.progress_statement_lines set quantity = 1 where statement_id = $1',
+        [b.statement],
+      )
       const d = await c.query('delete from public.progress_statements where id = $1', [b.statement])
-      return u.rowCount! + l.rowCount! + d.rowCount!
+      return u.rowCount! + l.rowCount! + q.rowCount! + d.rowCount!
     })
     expect(changed).toBe(0)
+    // Lines are updated in place, only the values: never moved to another statement or company.
+    for (const [set, value] of [
+      ['statement_id', b.statement],
+      ['company_id', companyB.id],
+    ]) {
+      await expect(
+        as(alice.id, companyA.id, (c) =>
+          c.query(`update public.progress_statement_lines set ${set} = $1`, [value]),
+        ),
+      ).rejects.toThrow(/permission denied/)
+    }
     await expect(auth.query('select * from public.progress_statements')).rejects.toThrow(
       /permission denied/,
     )

@@ -10675,9 +10675,11 @@ components:
             colonne del database, quasi sempre uguali ai campi del contratto (name, status,
             client_id…); gli importi hanno il suffisso _cents (amount_cents). Fanno eccezione
             permissions per un ruolo (permessi cambiati), team per un cantiere (dipendenti
-            aggiunti o tolti dalla squadra), lines per un preventivo (righe), items per un
-            prezzario (voci) e structure per un computo (capitoli, voci e misure). Vuoto per
-            create e delete.
+            aggiunti o tolti dalla squadra), lines per un preventivo, un ordine al fornitore
+            o un SAL (righe), items per un prezzario (voci), structure per un computo
+            (capitoli, voci e misure), labor e vehicles per un rapportino (ore dei dipendenti
+            e dei mezzi) e dependencies per un'attività del cronoprogramma (attività da cui
+            dipende). Vuoto per create e delete.
           items:
             type: string
         user:

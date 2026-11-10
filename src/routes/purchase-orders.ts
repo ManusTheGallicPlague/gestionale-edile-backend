@@ -342,15 +342,29 @@ async function insertOrder(client: PoolClient, input: Omit<OrderInput, 'lines'>)
   return rows[0]?.id ?? ''
 }
 
+/**
+ * Brings the lines to the input, by position: lines past the end are deleted, the others inserted
+ * or updated only when something changed, so that saving the same lines leaves no entry in the
+ * change log.
+ */
 async function writeLines(client: PoolClient, id: string, lines: LineInput[]) {
-  await client.query('delete from public.purchase_order_lines where order_id = $1', [id])
+  await client.query(
+    'delete from public.purchase_order_lines where order_id = $1 and position >= $2',
+    [id, lines.length],
+  )
   if (lines.length === 0) return
   await client.query(
-    `insert into public.purchase_order_lines
+    `insert into public.purchase_order_lines as t
        (company_id, order_id, position, description, unit, quantity, unit_price_cents)
      select app.current_company_id(), $1, x.position, x.description, x.unit, x.quantity, x.price
      from unnest($2::int[], $3::text[], $4::text[], $5::numeric[], $6::bigint[])
-       as x(position, description, unit, quantity, price)`,
+       as x(position, description, unit, quantity, price)
+     on conflict (order_id, position) do update
+       set description = excluded.description, unit = excluded.unit,
+         quantity = excluded.quantity, unit_price_cents = excluded.unit_price_cents
+       where (t.description, t.unit, t.quantity, t.unit_price_cents)
+         is distinct from (excluded.description, excluded.unit, excluded.quantity,
+           excluded.unit_price_cents)`,
     [
       id,
       lines.map((_, i) => i),

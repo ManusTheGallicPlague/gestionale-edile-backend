@@ -447,16 +447,29 @@ async function checkReferences(client: PoolClient, input: ReportInput) {
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
 }
 
+/**
+ * Brings the hours to the input: rows of people or vehicles no longer there are deleted, the
+ * others inserted or updated only when something changed, so that saving the same hours leaves
+ * no entry in the change log.
+ */
 async function writeHours(client: PoolClient, id: string, input: ReportInput) {
-  await client.query('delete from public.daily_report_labor where report_id = $1', [id])
-  await client.query('delete from public.daily_report_vehicles where report_id = $1', [id])
-  const insert = async (table: string, column: string, rows: HoursInput[]) => {
+  const write = async (table: string, column: string, rows: HoursInput[]) => {
+    await client.query(
+      `delete from public.${table} where report_id = $1 and not (${column} = any($2::uuid[]))`,
+      [id, rows.map((r) => r.id)],
+    )
     if (rows.length === 0) return
     await client.query(
-      `insert into public.${table} (company_id, report_id, ${column}, hours, description, position)
+      `insert into public.${table} as t (company_id, report_id, ${column}, hours, description,
+         position)
        select app.current_company_id(), $1, x.id, x.hours, x.description, x.position
        from unnest($2::uuid[], $3::numeric[], $4::text[], $5::int[])
-         as x(id, hours, description, position)`,
+         as x(id, hours, description, position)
+       on conflict (report_id, ${column}) do update
+         set hours = excluded.hours, description = excluded.description,
+           position = excluded.position
+         where (t.hours, t.description, t.position)
+           is distinct from (excluded.hours, excluded.description, excluded.position)`,
       [
         id,
         rows.map((r) => r.id),
@@ -466,8 +479,8 @@ async function writeHours(client: PoolClient, id: string, input: ReportInput) {
       ],
     )
   }
-  await insert('daily_report_labor', 'employee_id', input.labor)
-  await insert('daily_report_vehicles', 'vehicle_id', input.vehicles)
+  await write('daily_report_labor', 'employee_id', input.labor)
+  await write('daily_report_vehicles', 'vehicle_id', input.vehicles)
 }
 
 function duplicateDay(error: unknown): never {

@@ -363,28 +363,46 @@ async function fullStatement(client: PoolClient, row: StatementRow) {
   return { ...summaryToContract(row), lines: rows.map(lineToContract) }
 }
 
-/** Replaces the lines, copying the current unit price of each item. */
+/**
+ * Brings the lines to the input, copying the current unit price of each item: lines of items no
+ * longer there are deleted, the others inserted or updated only when something changed, so that
+ * saving the same lines leaves no entry in the change log.
+ */
 async function writeLines(
   client: PoolClient,
   estimateId: string,
   statementId: string,
   lines: StatementInput['lines'],
 ) {
-  await client.query('delete from public.progress_statement_lines where statement_id = $1', [
-    statementId,
-  ])
+  const itemIds = lines.map((l) => l.item_id)
+  if (lines.length > 0) {
+    const { rows } = await client.query<{ n: number }>(
+      `select count(*)::int as n from public.estimate_items
+       where estimate_id = $1 and id = any($2::uuid[])`,
+      [estimateId, itemIds],
+    )
+    if ((rows[0]?.n ?? 0) !== lines.length) {
+      throw new ValidationFailed({ lines: ['Una o più voci non sono di questo computo.'] })
+    }
+  }
+  await client.query(
+    `delete from public.progress_statement_lines
+     where statement_id = $1 and not (item_id = any($2::uuid[]))`,
+    [statementId, itemIds],
+  )
   if (lines.length === 0) return
-  const { rowCount } = await client.query(
-    `insert into public.progress_statement_lines (company_id, estimate_id, statement_id, item_id,
-       quantity, unit_price_cents)
+  await client.query(
+    `insert into public.progress_statement_lines as t (company_id, estimate_id, statement_id,
+       item_id, quantity, unit_price_cents)
      select app.current_company_id(), $1, $2, i.id, l.quantity, i.unit_price_cents
      from unnest($3::uuid[], $4::numeric[]) as l (item_id, quantity)
-     join public.estimate_items i on i.id = l.item_id and i.estimate_id = $1`,
-    [estimateId, statementId, lines.map((l) => l.item_id), lines.map((l) => l.quantity)],
+     join public.estimate_items i on i.id = l.item_id and i.estimate_id = $1
+     on conflict (statement_id, item_id) do update
+       set quantity = excluded.quantity, unit_price_cents = excluded.unit_price_cents
+       where (t.quantity, t.unit_price_cents)
+         is distinct from (excluded.quantity, excluded.unit_price_cents)`,
+    [estimateId, statementId, itemIds, lines.map((l) => l.quantity)],
   )
-  if (rowCount !== lines.length) {
-    throw new ValidationFailed({ lines: ['Una o più voci non sono di questo computo.'] })
-  }
 }
 
 const notDraft = () => new ApiError(409, messages.statementNotDraft, 'statement_not_draft')
