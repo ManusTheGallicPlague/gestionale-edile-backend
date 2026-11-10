@@ -1196,7 +1196,12 @@ describe('the API role cannot cross companies', () => {
         'update public.daily_report_labor set travel = true where company_id = $1',
         [companyB.id],
       )
-      return u.rowCount! + d.rowCount! + l.rowCount! + t.rowCount!
+      // Nor its hours lost to bad weather.
+      const w = await c.query(
+        'update public.daily_report_labor set weather_hours = 1 where company_id = $1',
+        [companyB.id],
+      )
+      return u.rowCount! + d.rowCount! + l.rowCount! + t.rowCount! + w.rowCount!
     })
     expect(changed).toBe(0)
     // Approving from company A did not reach the trigger that fixes the costs of company B.

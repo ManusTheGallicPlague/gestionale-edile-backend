@@ -23,6 +23,7 @@ export interface ReportPdfData {
     hours: string
     overtime_hours: string
     travel: boolean
+    weather_hours: string
     description: string | null
   }[]
   vehicles: { name: string; plate: string | null; hours: string; description: string | null }[]
@@ -30,11 +31,12 @@ export interface ReportPdfData {
 
 const isZero = (hours: string) => /^0+(\.0+)?$/.test(hours)
 
-/** Name of the person, with overtime and travel in brackets when there are any. */
+/** Name of the person, with overtime, travel and bad weather in brackets when there are any. */
 function personLabel(l: ReportPdfData['labor'][number]): string {
   const notes: string[] = []
   if (!isZero(l.overtime_hours)) notes.push(`straordinario ${italianQuantity(l.overtime_hours)}`)
   if (l.travel) notes.push('trasferta')
+  if (!isZero(l.weather_hours)) notes.push(`maltempo ${italianQuantity(l.weather_hours)}`)
   const name = `${l.last_name} ${l.first_name}`
   return notes.length > 0 ? `${name} (${notes.join(', ')})` : name
 }

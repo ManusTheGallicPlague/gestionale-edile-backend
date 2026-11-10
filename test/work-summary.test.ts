@@ -791,10 +791,10 @@ describe('ore mensili dei dipendenti per cantiere in CSV', () => {
       'attachment; filename="ore-cantieri-2026-11.csv"',
     )
     expect(lines(res.body)).toEqual([
-      'Cognome;Nome;Codice fiscale;Cantiere;Codice cantiere;Indirizzo cantiere;Giorni;Ore;Di cui straordinario;Giorni di trasferta;Di cui festive',
-      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5;0;0;0',
-      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4;0;0;0',
-      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;2;12,25;1,25;0;0',
+      'Cognome;Nome;Codice fiscale;Cantiere;Codice cantiere;Indirizzo cantiere;Giorni;Ore;Di cui straordinario;Giorni di trasferta;Di cui festive;Ore perse per maltempo',
+      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5;0;0;0;0',
+      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4;0;0;0;0',
+      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;2;12,25;1,25;0;0;0',
     ])
 
     const approved = await s.browser.call(
@@ -802,13 +802,13 @@ describe('ore mensili dei dipendenti per cantiere in CSV', () => {
       url(s.slug, 'month=2026-11&filter[status]=approved'),
     )
     expect(lines(approved.body).slice(1)).toEqual([
-      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5;0;0;0',
-      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4;0;0;0',
-      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;1;8;0;0;0',
+      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5;0;0;0;0',
+      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4;0;0;0;0',
+      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;1;8;0;0;0;0',
     ])
     const condo = await s.browser.call('GET', url(s.slug, `month=2026-11&filter[site]=${s.condo}`))
     expect(lines(condo.body).slice(1)).toEqual([
-      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4;0;0;0',
+      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4;0;0;0;0',
     ])
 
     for (const [query, field] of [

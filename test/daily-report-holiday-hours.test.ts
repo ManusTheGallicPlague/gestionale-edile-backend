@@ -87,27 +87,27 @@ describe('holiday hours in the monthly timesheets', () => {
     const monthly = await s.browser.call('GET', `${s.base}/monthly-hours?month=2026-12`)
     expect(monthly.statusCode).toBe(200)
     const lines = csvLines(monthly.body)
-    expect(lines[0]?.split(';').slice(-2)).toEqual(['Giorni di trasferta', 'Di cui festive'])
-    expect(lines[1]?.split(';').slice(-4)).toEqual(['31,5', '0', '0', '15,5'])
+    expect(lines[0]?.split(';').slice(-3, -1)).toEqual(['Giorni di trasferta', 'Di cui festive'])
+    expect(lines[1]?.split(';').slice(-5, -1)).toEqual(['31,5', '0', '0', '15,5'])
 
     // Only one site.
     const villa = await s.browser.call(
       'GET',
       `${s.base}/monthly-hours?month=2026-12&filter[site]=${s.villa}`,
     )
-    expect(csvLines(villa.body)[1]?.split(';').slice(-4)).toEqual(['23', '0', '0', '7'])
+    expect(csvLines(villa.body)[1]?.split(';').slice(-5, -1)).toEqual(['23', '0', '0', '7'])
 
     // By site.
     const bySite = await s.browser.call('GET', `${s.base}/monthly-site-hours?month=2026-12`)
     expect(bySite.statusCode).toBe(200)
     expect(csvLines(bySite.body).slice(1)).toEqual([
-      'Verdi;Luca;;Condominio;;;2;8,5;0;0;8,5',
-      'Verdi;Luca;;Villetta;;;4;23;0;0;7',
+      'Verdi;Luca;;Condominio;;;2;8,5;0;0;8,5;0',
+      'Verdi;Luca;;Villetta;;;4;23;0;0;7;0',
     ])
 
     // January: New Year's day.
     const january = await s.browser.call('GET', `${s.base}/monthly-hours?month=2027-01`)
-    expect(csvLines(january.body)[1]?.split(';').slice(-4)).toEqual(['5', '0', '0', '5'])
+    expect(csvLines(january.body)[1]?.split(';').slice(-5, -1)).toEqual(['5', '0', '0', '5'])
   })
 
   it('uses the patron saint day of its own company only', async () => {
@@ -122,8 +122,8 @@ describe('holiday hours in the monthly timesheets', () => {
     const ours = await s.browser.call('GET', `${s.base}/monthly-hours?month=2026-12`)
     const lines = csvLines(ours.body)
     expect(lines).toHaveLength(2)
-    expect(lines[1]?.split(';').slice(-4)).toEqual(['11', '0', '0', '0'])
+    expect(lines[1]?.split(';').slice(-5, -1)).toEqual(['11', '0', '0', '0'])
     const their = await theirs.browser.call('GET', `${theirs.base}/monthly-hours?month=2026-12`)
-    expect(csvLines(their.body)[1]?.split(';').slice(-4)).toEqual(['11', '0', '0', '8'])
+    expect(csvLines(their.body)[1]?.split(';').slice(-5, -1)).toEqual(['11', '0', '0', '8'])
   })
 })

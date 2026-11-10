@@ -566,7 +566,7 @@ describe('absences in the monthly timesheet', () => {
     }
     const days = Array.from({ length: 30 }, (_, i) => i + 1)
     const row = (last: string, first: string, cells: Record<number, string>, total: string) =>
-      [last, first, '', ...days.map((d) => cells[d] ?? ''), total, '0', '0', '0'].join(';')
+      [last, first, '', ...days.map((d) => cells[d] ?? ''), total, '0', '0', '0', '0'].join(';')
     expect(await read()).toEqual([
       row('Assente', 'Anna', { 1: 'FE', 2: 'FE', 10: 'IN', 11: 'AL' }, '0'),
       row('Operaio', 'Mario', { 3: '6 PE 2', 30: 'MA' }, '6'),

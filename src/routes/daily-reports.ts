@@ -39,6 +39,8 @@ interface HoursInput {
   overtime_hours: string
   /** Only for people: worked away from the usual area that day (trasferta). */
   travel: boolean
+  /** Only for people: hours of the day lost to bad weather, not worked, '0' if not given. */
+  weather_hours: string
   description: string | null
 }
 
@@ -84,6 +86,8 @@ interface LaborRow {
   overtime_hours: string
   /** Only for people: worked away from the usual area that day (trasferta). */
   travel: boolean
+  /** Only for people: hours of the day lost to bad weather, not worked, '0' if not given. */
+  weather_hours: string
   description: string | null
 }
 
@@ -221,7 +225,14 @@ export function parseReportInput(body: unknown): ReportInput {
       const path = `${field}.${index}`
       if (typeof item !== 'object' || item === null || Array.isArray(item)) {
         add(path, 'Ogni riga deve essere un oggetto.')
-        return { id: '', hours: '', overtime_hours: '0', travel: false, description: null }
+        return {
+          id: '',
+          hours: '',
+          overtime_hours: '0',
+          travel: false,
+          weather_hours: '0',
+          description: null,
+        }
       }
       const entry = item as Record<string, unknown>
       const id = text(entry, idField, `${path}.${idField}`, 36) ?? ''
@@ -262,8 +273,28 @@ export function parseReportInput(body: unknown): ReportInput {
         if (typeof entry.travel !== 'boolean') add(`${path}.travel`, 'Deve essere vero o falso.')
         else travel = entry.travel
       }
+      // Hours lost to bad weather are optional as well, only for people and not worked.
+      let weather_hours = '0'
+      if (field === 'labor' && entry.weather_hours !== undefined && entry.weather_hours !== null) {
+        const weather = text(entry, 'weather_hours', `${path}.weather_hours`, 5) ?? '0'
+        if (!errors[`${path}.weather_hours`]) {
+          if (!HOURS.test(weather) || Number(weather) > 24) {
+            add(
+              `${path}.weather_hours`,
+              'Ore perse per maltempo non valide: da 0 a 24, con il punto (es. 4).',
+            )
+          } else if (!errors[`${path}.hours`] && Number(weather) + Number(hours) > 24) {
+            add(
+              `${path}.weather_hours`,
+              'Ore lavorate e ore perse per maltempo insieme non possono superare 24.',
+            )
+          } else {
+            weather_hours = weather
+          }
+        }
+      }
       const description = text(entry, 'description', `${path}.description`, 500)
-      return { id: id.toLowerCase(), hours, overtime_hours, travel, description }
+      return { id: id.toLowerCase(), hours, overtime_hours, travel, weather_hours, description }
     })
   }
   const labor = rows('labor', 'employee_id', 'Scegli il dipendente.')
@@ -432,7 +463,8 @@ async function readOne(client: PoolClient, id: string): Promise<FullReport | und
   if (!row) return undefined
   const labor = await client.query<LaborRow>(
     `select l.employee_id, e.first_name, e.last_name, l.hours::text as hours,
-       l.overtime_hours::text as overtime_hours, l.travel, l.description
+       l.overtime_hours::text as overtime_hours, l.travel, l.weather_hours::text as weather_hours,
+       l.description
      from public.daily_report_labor l join public.employees e on e.id = l.employee_id
      where l.report_id = $1 order by l.position`,
     [id],
@@ -501,22 +533,28 @@ async function writeHours(client: PoolClient, id: string, input: ReportInput) {
     )
     if (rows.length === 0) return
     // Vehicles have no overtime and no travel: the columns are there only for people.
-    const extra = overtime ? ', overtime_hours, travel' : ''
+    const extra = overtime ? ', overtime_hours, travel, weather_hours' : ''
     await client.query(
       `insert into public.${table} as t (company_id, report_id, ${column}, hours, description,
          position${extra})
        select app.current_company_id(), $1, x.id, x.hours, x.description, x.position
-         ${overtime ? ', x.overtime, x.travel' : ''}
-       from unnest($2::uuid[], $3::numeric[], $4::text[], $5::int[], $6::numeric[], $7::bool[])
-         as x(id, hours, description, position, overtime, travel)
+         ${overtime ? ', x.overtime, x.travel, x.weather' : ''}
+       from unnest($2::uuid[], $3::numeric[], $4::text[], $5::int[], $6::numeric[], $7::bool[],
+         $8::numeric[])
+         as x(id, hours, description, position, overtime, travel, weather)
        on conflict (report_id, ${column}) do update
          set hours = excluded.hours, description = excluded.description,
            position = excluded.position${
-             overtime ? ', overtime_hours = excluded.overtime_hours, travel = excluded.travel' : ''
+             overtime
+               ? ', overtime_hours = excluded.overtime_hours, travel = excluded.travel,' +
+                 ' weather_hours = excluded.weather_hours'
+               : ''
            }
-         where (t.hours, t.description, t.position${overtime ? ', t.overtime_hours, t.travel' : ''})
+         where (t.hours, t.description, t.position${
+           overtime ? ', t.overtime_hours, t.travel, t.weather_hours' : ''
+         })
            is distinct from (excluded.hours, excluded.description, excluded.position${
-             overtime ? ', excluded.overtime_hours, excluded.travel' : ''
+             overtime ? ', excluded.overtime_hours, excluded.travel, excluded.weather_hours' : ''
            })`,
       [
         id,
@@ -526,6 +564,7 @@ async function writeHours(client: PoolClient, id: string, input: ReportInput) {
         rows.map((_, i) => i),
         rows.map((r) => r.overtime_hours),
         rows.map((r) => r.travel),
+        rows.map((r) => r.weather_hours),
       ],
     )
   }
@@ -695,6 +734,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
           overtime: string
           travel_days: number
           holiday: string
+          weather: string
         }>(
           `select e.id, e.last_name, e.first_name, e.tax_code,
              extract(day from r.report_date)::int as day,
@@ -705,7 +745,9 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
              (sum(case when bool_or(l.travel) then 1 else 0 end) over (partition by e.id))::int
                as travel_days,
              (sum(case when ${HOLIDAY} then sum(l.hours) else 0 end) over (partition by e.id))
-               ::numeric(8, 2)::text as holiday
+               ::numeric(8, 2)::text as holiday,
+             (sum(sum(l.weather_hours)) over (partition by e.id))::numeric(8, 2)::text
+               as weather
            from public.daily_report_labor l
            join public.daily_reports r on r.id = l.report_id
            join public.employees e on e.id = l.employee_id
@@ -725,6 +767,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             overtime: string
             travel_days: number
             holiday: string
+            weather: string
           }
         >()
         for (const r of rows) {
@@ -737,6 +780,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
               overtime: r.overtime,
               travel_days: r.travel_days,
               holiday: r.holiday,
+              weather: r.weather,
             }
             employees.set(r.id, entry)
           }
@@ -775,6 +819,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
                 overtime: '0',
                 travel_days: 0,
                 holiday: '0',
+                weather: '0',
               }
               employees.set(a.id, entry)
             }
@@ -801,6 +846,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             'Di cui straordinario',
             'Giorni di trasferta',
             'Di cui festive',
+            'Ore perse per maltempo',
           ],
           order.rows.flatMap((o) => {
             const e = employees.get(o.id)
@@ -813,6 +859,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
                     italianQuantity(e.overtime),
                     String(e.travel_days),
                     italianQuantity(e.holiday),
+                    italianQuantity(e.weather),
                   ],
                 ]
               : []
@@ -864,6 +911,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
           overtime: string
           travel_days: number
           holiday: string
+          weather: string
         }>(
           `select e.last_name, e.first_name, e.tax_code,
              s.name as site_name, s.code as site_code, s.address as site_address,
@@ -871,7 +919,8 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
              sum(l.hours)::numeric(8, 2)::text as hours,
              sum(l.overtime_hours)::numeric(8, 2)::text as overtime,
              count(distinct r.report_date) filter (where l.travel)::int as travel_days,
-             coalesce(sum(l.hours) filter (where ${HOLIDAY}), 0)::numeric(8, 2)::text as holiday
+             coalesce(sum(l.hours) filter (where ${HOLIDAY}), 0)::numeric(8, 2)::text as holiday,
+             sum(l.weather_hours)::numeric(8, 2)::text as weather
            from public.daily_report_labor l
            join public.daily_reports r on r.id = l.report_id
            join public.employees e on e.id = l.employee_id
@@ -894,6 +943,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             'Di cui straordinario',
             'Giorni di trasferta',
             'Di cui festive',
+            'Ore perse per maltempo',
           ],
           rows.map((r) => [
             r.last_name,
@@ -907,6 +957,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             italianQuantity(r.overtime),
             String(r.travel_days),
             italianQuantity(r.holiday),
+            italianQuantity(r.weather),
           ]),
         )
       })

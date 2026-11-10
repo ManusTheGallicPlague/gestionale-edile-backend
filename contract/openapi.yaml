@@ -2455,7 +2455,9 @@ paths:
         non ce ne sono), poi «Giorni di trasferta»: i giorni del mese con almeno una riga con
         travel (un giorno su due cantieri conta una volta), poi «Di cui festive»: le ore lavorate
         di domenica, nei festivi nazionali (Pasquetta compresa) e nel santo patrono dei dati
-        dell'azienda (0 se non ce ne sono). Il file si chiama ore-2026-11.csv.
+        dell'azienda (0 se non ce ne sono), poi «Ore perse per maltempo»: la somma di
+        weather_hours del mese (0 se non ce ne sono), per la cassa integrazione per intemperie.
+        Il file si chiama ore-2026-11.csv.
       parameters:
         - name: month
           in: query
@@ -2504,7 +2506,8 @@ paths:
         ore e ore (con la virgola decimale, 7,5), poi «Di cui straordinario» (somma di
         overtime_hours, 0 se non ce ne sono), «Giorni di trasferta» (giorni con travel su quel
         cantiere) e «Di cui festive» (ore di domenica, dei festivi nazionali e del santo patrono
-        dei dati dell'azienda). Si possono tenere solo i rapportini di un
+        dei dati dell'azienda), poi «Ore perse per maltempo» (somma di weather_hours su quel
+        cantiere). Si possono tenere solo i rapportini di un
         cantiere o di uno stato (per esempio solo gli approvati). Il file si chiama
         ore-cantieri-2026-11.csv.
       parameters:
@@ -12258,14 +12261,30 @@ components:
         Ore di straordinario comprese nelle ore, con due decimali ('0.00' se non ce ne sono).
       pattern: '^\d{1,4}\.\d{2}$'
       examples: ['1.50', '0.00']
+    WeatherHoursInput:
+      type: [string, 'null']
+      description: |
+        Ore della giornata normale che il dipendente non ha lavorato per maltempo (pioggia, neve,
+        gelo), per la cassa integrazione per intemperie: non sono comprese in hours (mandato a
+        casa dopo 3 ore per la pioggia: hours 3, weather_hours 5), e hours più weather_hours non
+        supera 24. Da 0 a 24, con il punto. Facoltativo, null o assente vale 0. Non hanno costi.
+      pattern: '^\d{1,2}(\.\d{1,2})?$'
+      examples: ['5', '0']
+    WeatherHours:
+      type: string
+      description: |
+        Ore perse per maltempo, non comprese nelle ore, con due decimali ('0.00' se non ce ne
+        sono).
+      pattern: '^\d{1,4}\.\d{2}$'
+      examples: ['5.00', '0.00']
     DailyReportInput:
       type: object
       description: |
         I campi facoltativi si inviano comunque, con null se vuoti. labor e vehicles sono gli
         elenchi completi (anche vuoti), al massimo 100 righe ciascuno, senza doppioni; gli
         errori delle righe usano il percorso con l'indice (labor.0.hours). Fa eccezione
-        overtime_hours delle righe dei dipendenti: se manca (o è null) vale 0; e travel: se
-        manca (o è null) vale false.
+        overtime_hours delle righe dei dipendenti: se manca (o è null) vale 0; travel: se
+        manca (o è null) vale false; weather_hours: se manca (o è null) vale 0.
       required: [site_id, date, weather, work_done, notes, labor, vehicles]
       properties:
         site_id: { $ref: '#/components/schemas/Id' }
@@ -12297,6 +12316,7 @@ components:
                   Il dipendente quel giorno ha lavorato in trasferta, fuori dalla zona abituale:
                   il consulente del lavoro paga l'indennità secondo il contratto (il gestionale
                   segna solo il giorno). Facoltativo, null o assente vale false.
+              weather_hours: { $ref: '#/components/schemas/WeatherHoursInput' }
               description:
                 type: [string, 'null']
                 maxLength: 500
@@ -12392,7 +12412,16 @@ components:
               items:
                 type: object
                 required:
-                  [employee_id, first_name, last_name, hours, overtime_hours, travel, description]
+                  [
+                    employee_id,
+                    first_name,
+                    last_name,
+                    hours,
+                    overtime_hours,
+                    travel,
+                    weather_hours,
+                    description,
+                  ]
                 properties:
                   employee_id: { $ref: '#/components/schemas/Id' }
                   first_name: { type: string }
@@ -12402,6 +12431,7 @@ components:
                   travel:
                     type: boolean
                     description: Giorno in trasferta.
+                  weather_hours: { $ref: '#/components/schemas/WeatherHours' }
                   description: { type: [string, 'null'] }
             vehicles:
               type: array
