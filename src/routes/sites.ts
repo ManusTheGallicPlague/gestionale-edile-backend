@@ -311,7 +311,9 @@ function readList(query: Record<string, unknown>) {
   const complianceValue = single('filter[subcontractor_compliance]')
   const subcontractorCompliance = COMPLIANCE.find((c) => c === complianceValue)
   if (complianceValue !== undefined && !subcontractorCompliance) {
-    errors['filter[subcontractor_compliance]'] = ['Vale expired, expiring oppure no_valid_durc.']
+    errors['filter[subcontractor_compliance]'] = [
+      'Vale expired, expiring, no_valid_durc oppure no_valid_credit_license.',
+    ]
   }
   const teamDocumentsValue = single('filter[team_documents]')
   const teamDocuments = DOCUMENT_FILTERS.find((d) => d === teamDocumentsValue)

@@ -396,12 +396,13 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
           ],
         )
         if (!s.subcontractor) continue
-        // Compliance documents relative to today: one expired, one expiring, one valid.
+        // Compliance documents relative to today: one expired, one expiring, one valid, and the
+        // credit-based licence without expiry.
         await client.query(
           `insert into public.supplier_documents (company_id, supplier_id, kind, issued_on, expires_on)
            select $1, $2, d.kind, current_date + d.issued, current_date + d.expires
-           from (values ('durc', -100, 20), ('insurance', -400, -5), ('chamber_extract', -30, 150))
-             as d (kind, issued, expires)`,
+           from (values ('durc', -100, 20), ('insurance', -400, -5), ('chamber_extract', -30, 150),
+                        ('credit_license', -500, null)) as d (kind, issued, expires)`,
           [companyId, inserted[0]?.id],
         )
         // The DURC comes with its (tiny, made-up) PDF.

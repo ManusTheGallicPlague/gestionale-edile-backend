@@ -165,6 +165,43 @@ describe('list', () => {
     expect(await names('?filter[archived]=true')).toEqual([])
   })
 
+  it('filters subcontractors without a valid credit-based licence', async () => {
+    const { browser, base, company } = await signedIn()
+    const ids: Record<string, string> = {}
+    for (const name of ['Con patente', 'Senza scadenza', 'Rinnovata', 'Scaduta', 'Nessuna']) {
+      const res = await browser.call('POST', base, {
+        body: supplierBody({ name, subcontractor: true, categories: ['subcontracting'] }),
+      })
+      ids[name] = res.json<{ id: string }>().id
+    }
+    const today = "(now() at time zone 'Europe/Rome')::date"
+    const doc = (name: string, kind: string, offset: number | null) =>
+      ctx.owner.query(
+        `insert into public.supplier_documents (company_id, supplier_id, kind, expires_on)
+         values ($1, $2, $3, case when $4::int is null then null else ${today} + $4::int end)`,
+        [company.id, ids[name], kind, offset],
+      )
+    await doc('Con patente', 'credit_license', 0)
+    await doc('Senza scadenza', 'credit_license', null)
+    await doc('Rinnovata', 'credit_license', -10)
+    await doc('Rinnovata', 'credit_license', 300)
+    await doc('Scaduta', 'credit_license', -1)
+    // A DURC is not a licence.
+    await doc('Nessuna', 'durc', 100)
+    // Another company's supplier without a licence stays out.
+    const other = await signedIn()
+    await other.browser.call('POST', other.base, {
+      body: supplierBody({ name: 'Altra', subcontractor: true }),
+    })
+    const query = '?filter[compliance]=no_valid_credit_license&filter[subcontractor]=true'
+    const res = await browser.call('GET', `${base}${query}`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json<Listed>().data.map((s) => s.name)).toEqual(['Nessuna', 'Scaduta'])
+    const csv = await browser.call('GET', `${base}/export${query}`)
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body.trim().split('\r\n')).toHaveLength(3)
+  })
+
   it('filters by compliance documents, looking at the latest expiry of each kind', async () => {
     const { browser, base, company } = await signedIn()
     const ids: Record<string, string> = {}

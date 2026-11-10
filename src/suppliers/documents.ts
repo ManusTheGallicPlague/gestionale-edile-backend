@@ -1,6 +1,12 @@
 import type { FieldErrors } from '../http/errors.js'
 
-export const DOCUMENT_KINDS = ['durc', 'chamber_extract', 'insurance', 'other'] as const
+export const DOCUMENT_KINDS = [
+  'durc',
+  'chamber_extract',
+  'insurance',
+  'credit_license',
+  'other',
+] as const
 export type DocumentKind = (typeof DOCUMENT_KINDS)[number]
 
 export interface DocumentInput<K extends string = DocumentKind> {

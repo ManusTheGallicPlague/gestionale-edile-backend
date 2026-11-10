@@ -83,7 +83,12 @@ function duplicateErrors(error: { constraint?: string | undefined }): FieldError
   return null
 }
 
-export const COMPLIANCE = ['expired', 'expiring', 'no_valid_durc'] as const
+export const COMPLIANCE = [
+  'expired',
+  'expiring',
+  'no_valid_durc',
+  'no_valid_credit_license',
+] as const
 
 const TODAY = "(now() at time zone 'Europe/Rome')::date"
 
@@ -101,6 +106,9 @@ export const COMPLIANCE_SQL: Record<(typeof COMPLIANCE)[number], string> = {
     and exists (select 1 from (${LATEST_EXPIRIES}) l where l.expires_on <= ${TODAY} + 30)`,
   no_valid_durc: `not exists (select 1 from public.supplier_documents d
     where d.supplier_id = suppliers.id and d.kind = 'durc'
+      and (d.expires_on is null or d.expires_on >= ${TODAY}))`,
+  no_valid_credit_license: `not exists (select 1 from public.supplier_documents d
+    where d.supplier_id = suppliers.id and d.kind = 'credit_license'
       and (d.expires_on is null or d.expires_on >= ${TODAY}))`,
 }
 
@@ -154,7 +162,9 @@ function readList(query: Record<string, unknown>) {
   const compliance =
     complianceValue === undefined ? undefined : COMPLIANCE.find((c) => c === complianceValue)
   if (complianceValue !== undefined && !compliance) {
-    errors['filter[compliance]'] = ['Vale expired, expiring oppure no_valid_durc.']
+    errors['filter[compliance]'] = [
+      'Vale expired, expiring, no_valid_durc oppure no_valid_credit_license.',
+    ]
   }
 
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)

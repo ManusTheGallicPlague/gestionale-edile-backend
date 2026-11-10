@@ -177,6 +177,11 @@ describe('subcontractors of a site', () => {
       ['durc', 80],
       ['insurance', 200],
     ])
+    await ctx.owner.query(
+      `insert into public.supplier_documents (company_id, supplier_id, kind)
+       values ($1, $2, 'credit_license')`,
+      [company.id, ok],
+    )
     await documents(company.id, late, [
       ['durc', -1],
       ['insurance', 10],
@@ -202,6 +207,15 @@ describe('subcontractors of a site', () => {
     expect(flags(ok)).toEqual([false, false, false])
     expect(flags(late)).toEqual([true, false, true])
     expect(flags(soon)).toEqual([false, true, false])
+    // Only the one with a credit-based licence (no expiry) has it valid.
+    const licence = (id: string) =>
+      body.data.find((x) => x.supplier_id === id)?.no_valid_credit_license
+    expect([licence(archived), licence(ok), licence(late), licence(soon)]).toEqual([
+      true,
+      false,
+      true,
+      true,
+    ])
     expect(body.data[1]?.vat_number).toMatch(/^IT\d+$/)
     expect(res.body).not.toContain('1234')
   })
@@ -457,6 +471,22 @@ describe('active sites with irregular subcontractors in the dashboard', () => {
       `/api/companies/${company.slug}/sites?sort=name&filter[status]=active&filter[subcontractor_compliance]=no_valid_durc`,
     )
     expect(listed.json<{ data: { name: string }[] }>().data.map((s) => s.name)).toEqual([
+      'Due scaduti',
+      'Senza DURC',
+    ])
+    // The credit-based licence works the same way: only «Ok» has one.
+    await ctx.owner.query(
+      `insert into public.supplier_documents (company_id, supplier_id, kind)
+       select company_id, id, 'credit_license' from public.suppliers
+       where company_id = $1 and name = 'Ok'`,
+      [company.id],
+    )
+    const noLicence = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/sites?sort=name&filter[status]=active&filter[subcontractor_compliance]=no_valid_credit_license`,
+    )
+    expect(noLicence.statusCode).toBe(200)
+    expect(noLicence.json<{ data: { name: string }[] }>().data.map((s) => s.name)).toEqual([
       'Due scaduti',
       'Senza DURC',
     ])

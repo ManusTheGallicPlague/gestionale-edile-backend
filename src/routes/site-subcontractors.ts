@@ -23,6 +23,7 @@ interface SubcontractorRow {
   documents_expired: boolean
   documents_expiring: boolean
   no_valid_durc: boolean
+  no_valid_credit_license: boolean
 }
 
 /**
@@ -79,7 +80,8 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
           `select id, name, vat_number, archived_at,
              ${COMPLIANCE_SQL.expired} as documents_expired,
              ${COMPLIANCE_SQL.expiring} as documents_expiring,
-             ${COMPLIANCE_SQL.no_valid_durc} as no_valid_durc
+             ${COMPLIANCE_SQL.no_valid_durc} as no_valid_durc,
+             ${COMPLIANCE_SQL.no_valid_credit_license} as no_valid_credit_license
            from public.suppliers
            where ${onSite('$1')}
            order by lower(name), id`,
@@ -94,6 +96,7 @@ export function siteSubcontractorRoutes(app: FastifyInstance, db: Db): void {
             documents_expired: r.documents_expired,
             documents_expiring: r.documents_expiring,
             no_valid_durc: r.no_valid_durc,
+            no_valid_credit_license: r.no_valid_credit_license,
           })),
         }
       })

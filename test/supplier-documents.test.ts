@@ -114,6 +114,23 @@ describe('documents in the deadline calendar', () => {
     expect(await deadlinesOf(browser, company.slug)).toEqual([])
   })
 
+  it('the credit-based licence is a kind of its own, with its title in the deadline', async () => {
+    const { browser, base, company, supplier } = await scene()
+    const created = await browser.call('POST', base, {
+      body: documentBody({ kind: 'credit_license', issued_on: null, notes: 'Codice ABC123' }),
+    })
+    expect(created.statusCode).toBe(201)
+    expect(created.json()).toMatchObject({ kind: 'credit_license', description: null })
+    const [deadline] = await deadlinesOf(browser, company.slug)
+    expect(deadline).toMatchObject({
+      title: 'Patente a crediti – Sub',
+      kind: 'other',
+      supplier: { id: supplier },
+    })
+    const list = await browser.call('GET', base)
+    expect(list.json<{ data: Doc[] }>().data.map((d) => d.kind)).toEqual(['credit_license'])
+  })
+
   it('deleting the document deletes its deadline', async () => {
     const { browser, base, company } = await scene()
     const created = await browser.call('POST', base, {

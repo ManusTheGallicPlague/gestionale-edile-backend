@@ -828,13 +828,16 @@ paths:
                 default: false
               compliance:
                 type: string
-                enum: [expired, expiring, no_valid_durc]
+                enum: [expired, expiring, no_valid_durc, no_valid_credit_license]
                 description: |
-                  Regolarità dai documenti del fornitore (DURC, visura, assicurazione, altro),
+                  Regolarità dai documenti del fornitore (DURC, visura, assicurazione, patente, altro),
                   guardando per ogni tipo solo la scadenza più lontana: un DURC vecchio scaduto
                   non conta se ce n'è uno nuovo. expired: almeno un tipo scaduto. expiring:
                   nessuno scaduto, almeno uno che scade entro 30 giorni da oggi, oggi compreso.
                   no_valid_durc: nessun DURC valido oggi (mai caricato o scaduto), di solito con
+                  filter[subcontractor]=true.
+                  no_valid_credit_license: nessuna patente a crediti valida oggi (mai caricata o
+                  scaduta; senza data di scadenza è valida), di solito con
                   filter[subcontractor]=true.
       responses:
         '200':
@@ -1042,13 +1045,16 @@ paths:
                 default: false
               compliance:
                 type: string
-                enum: [expired, expiring, no_valid_durc]
+                enum: [expired, expiring, no_valid_durc, no_valid_credit_license]
                 description: |
-                  Regolarità dai documenti del fornitore (DURC, visura, assicurazione, altro),
+                  Regolarità dai documenti del fornitore (DURC, visura, assicurazione, patente, altro),
                   guardando per ogni tipo solo la scadenza più lontana: un DURC vecchio scaduto
                   non conta se ce n'è uno nuovo. expired: almeno un tipo scaduto. expiring:
                   nessuno scaduto, almeno uno che scade entro 30 giorni da oggi, oggi compreso.
                   no_valid_durc: nessun DURC valido oggi (mai caricato o scaduto), di solito con
+                  filter[subcontractor]=true.
+                  no_valid_credit_license: nessuna patente a crediti valida oggi (mai caricata o
+                  scaduta; senza data di scadenza è valida), di solito con
                   filter[subcontractor]=true.
       responses:
         '200':
@@ -1865,7 +1871,7 @@ paths:
                   cantieri attivi che il rapportino di oggi ce l'hanno.
               subcontractor_compliance:
                 type: string
-                enum: [expired, expiring, no_valid_durc]
+                enum: [expired, expiring, no_valid_durc, no_valid_credit_license]
                 description: |
                   Cantieri con almeno un subappaltatore (con un costo o un ordine sul cantiere,
                   anche archiviato) nella condizione indicata, come filter[compliance] dei
@@ -1951,7 +1957,7 @@ paths:
                   cantieri attivi che il rapportino di oggi ce l'hanno.
               subcontractor_compliance:
                 type: string
-                enum: [expired, expiring, no_valid_durc]
+                enum: [expired, expiring, no_valid_durc, no_valid_credit_license]
                 description: |
                   Cantieri con almeno un subappaltatore (con un costo o un ordine sul cantiere,
                   anche archiviato) nella condizione indicata, come filter[compliance] dei
@@ -2146,7 +2152,8 @@ paths:
         `subcontractor`) che hanno sul cantiere un costo o un ordine, anche archiviati, in ordine
         di nome, gli stessi del CSV dei loro documenti. Per ognuno la regolarità con le stesse
         condizioni di filter[compliance] dei fornitori: `documents_expired`, `documents_expiring`
-        (entro 30 giorni, senza nulla di scaduto) e `no_valid_durc`. Nessun importo. Senza
+        (entro 30 giorni, senza nulla di scaduto), `no_valid_durc` e `no_valid_credit_license`.
+        Nessun importo. Senza
         paginazione: sono pochi per cantiere.
       responses:
         '200':
@@ -10922,8 +10929,10 @@ components:
       type: string
       description: |
         durc: DURC. chamber_extract: visura camerale. insurance: polizza assicurativa (RCT/RCO).
+        credit_license: patente a crediti per i cantieri (codice della patente nella
+        descrizione o nelle note; la data di scadenza solo se c'è).
         other: altro documento (descrizione obbligatoria).
-      enum: [durc, chamber_extract, insurance, other]
+      enum: [durc, chamber_extract, insurance, credit_license, other]
     Date:
       type: string
       format: date
@@ -11975,7 +11984,7 @@ components:
     SiteSubcontractor:
       type: object
       required: [supplier_id, name, vat_number, archived, documents_expired,
-        documents_expiring, no_valid_durc]
+        documents_expiring, no_valid_durc, no_valid_credit_license]
       properties:
         supplier_id: { $ref: '#/components/schemas/Id' }
         name: { type: string }
@@ -11994,6 +12003,10 @@ components:
         no_valid_durc:
           type: boolean
           description: Nessun DURC valido oggi (filter[compliance]=no_valid_durc).
+        no_valid_credit_license:
+          type: boolean
+          description: |
+            Nessuna patente a crediti valida oggi (filter[compliance]=no_valid_credit_license).
     SiteSubcontractorList:
       type: object
       required: [data]

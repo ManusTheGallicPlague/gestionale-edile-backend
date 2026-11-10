@@ -92,6 +92,7 @@ export const KIND_LABEL = {
   durc: 'DURC',
   chamber_extract: 'Visura camerale',
   insurance: 'Assicurazione',
+  credit_license: 'Patente a crediti',
   other: 'Documento',
 } as const
 
@@ -109,7 +110,8 @@ async function syncDeadline(client: PoolClient, documentId: string): Promise<voi
     `insert into public.deadlines (company_id, title, due_on, kind, supplier_id, supplier_document_id)
      select sd.company_id,
        left(coalesce(sd.description, case sd.kind
-         when 'durc' then $2 when 'chamber_extract' then $3 when 'insurance' then $4 else $5 end)
+         when 'durc' then $2 when 'chamber_extract' then $3 when 'insurance' then $4
+         when 'credit_license' then $6 else $5 end)
          || ' – ' || s.name, 200),
        sd.expires_on,
        case when sd.kind in ('durc', 'insurance') then sd.kind else 'other' end,
@@ -129,6 +131,7 @@ async function syncDeadline(client: PoolClient, documentId: string): Promise<voi
       KIND_LABEL.chamber_extract,
       KIND_LABEL.insurance,
       KIND_LABEL.other,
+      KIND_LABEL.credit_license,
     ],
   )
 }
