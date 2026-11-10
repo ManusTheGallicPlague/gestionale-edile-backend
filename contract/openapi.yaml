@@ -4174,8 +4174,9 @@ paths:
         una riga «Totale dipendenti», poi i mezzi e una riga «Totale mezzi». Colonne Tipo
         (Dipendente o Mezzo), Nome (cognome e nome del dipendente, nome del mezzo), Targa, Ore,
         Giorni, poi Costo solo con costs.view (vuoto senza costo orario), poi Primo giorno e
-        Ultimo giorno, e in fondo Ore perse per maltempo, Di cui straordinario e Giorni di
-        trasferta (vuote per i mezzi; nella riga «Totale dipendenti» i totali di labor). Ore e
+        Ultimo giorno, e in fondo Ore perse per maltempo, Di cui straordinario, Giorni di
+        trasferta e Di cui festive (vuote per i mezzi; nella riga «Totale dipendenti» i totali di
+        labor). Ore e
         importi con la virgola decimale (12,50), date come 30/11/2026. Il file si chiama
         ore-cantiere.csv.
       parameters:
@@ -15115,7 +15116,7 @@ components:
       properties:
         labor:
           type: object
-          required: [hours, overtime_hours, travel_days, weather_hours, cost, rows]
+          required: [hours, overtime_hours, travel_days, weather_hours, holiday_hours, cost, rows]
           properties:
             hours: { $ref: '#/components/schemas/WorkHours' }
             overtime_hours:
@@ -15130,6 +15131,9 @@ components:
             weather_hours:
               description: Ore perse per maltempo sul cantiere, somma delle righe.
               allOf: [{ $ref: '#/components/schemas/WorkHours' }]
+            holiday_hours:
+              description: Di cui festive sul cantiere, somma delle righe.
+              allOf: [{ $ref: '#/components/schemas/WorkHours' }]
             cost: { $ref: '#/components/schemas/NullableWorkCost' }
             rows:
               type: array
@@ -15142,6 +15146,7 @@ components:
                   - overtime_hours
                   - travel_days
                   - weather_hours
+                  - holiday_hours
                   - cost
                   - first_date
                   - last_date
@@ -15166,6 +15171,11 @@ components:
                     description: |
                       Ore perse per maltempo sul cantiere (non comprese nelle ore), anche dalle
                       giornate perse tutte.
+                    allOf: [{ $ref: '#/components/schemas/WorkHours' }]
+                  holiday_hours:
+                    description: |
+                      Di cui festive: ore lavorate sul cantiere di domenica, nei festivi nazionali
+                      (Pasquetta compresa) e nel santo patrono dei dati dell'azienda.
                     allOf: [{ $ref: '#/components/schemas/WorkHours' }]
                   cost: { $ref: '#/components/schemas/NullableWorkCost' }
                   first_date: { $ref: '#/components/schemas/Date' }

@@ -246,12 +246,12 @@ describe('straordinario e trasferte nei totali e nel CSV delle ore del cantiere'
     const csv = await s.browser.call('GET', `${url}/export`)
     expect(csv.statusCode).toBe(200)
     const lines = csv.body.replace('﻿', '').trim().split('\r\n')
-    expect(lines.map((l) => l.split(';').slice(-3))).toEqual([
-      ['Ore perse per maltempo', 'Di cui straordinario', 'Giorni di trasferta'],
-      ['0,00', '1,00', '1'],
-      ['0,00', '0,50', '1'],
-      ['0,00', '1,50', '2'],
-      ['', '', ''],
+    expect(lines.map((l) => l.split(';').slice(-4))).toEqual([
+      ['Ore perse per maltempo', 'Di cui straordinario', 'Giorni di trasferta', 'Di cui festive'],
+      ['0,00', '1,00', '1', '0,00'],
+      ['0,00', '0,50', '1', '0,00'],
+      ['0,00', '1,50', '2', '0,00'],
+      ['', '', '', ''],
     ])
     expect(lines[3]?.startsWith('Totale dipendenti;')).toBe(true)
 
@@ -384,6 +384,54 @@ describe('ore festive nelle voci delle buste paga del dipendente', () => {
       ['Villetta', '7,00'],
       ['Condominio', '13,00'],
       ['Totale', '20,00'],
+    ])
+  })
+
+  it('le conta per dipendente e in totale nel riepilogo ore del cantiere', async () => {
+    const s = await scene()
+    await patron(s.company.id, '11-11')
+    const other = await scene()
+    await patron(other.company.id, '11-12')
+    await s.row(s.villa, s.verdi, '2026-11-07', 'approved', { hours: '8' }) // Saturday
+    await s.row(s.villa, s.verdi, '2026-11-08', 'approved', { hours: '4' }) // Sunday
+    await s.row(s.villa, s.bassi, '2026-11-11', 'approved', { hours: '3' }) // patron
+    await s.row(s.villa, s.bassi, '2026-11-12', 'submitted', { hours: '7' }) // other's patron
+    await s.row(s.villa, s.verdi, '2027-03-29', 'approved', { hours: '6' }) // Easter Monday
+    // A Sunday lost to the rain: lost hours, nothing festive.
+    await s.row(s.villa, s.bassi, '2026-11-15', 'draft', { hours: '0', weather: '8' })
+    await s.row(s.condo, s.verdi, '2026-11-01', 'approved', { hours: '9' }) // another site
+
+    const url = `/api/companies/${s.company.slug}/sites/${s.villa}/work-summary`
+    interface Labor {
+      holiday_hours: string
+      rows: { employee: { id: string }; hours: string; holiday_hours: string }[]
+    }
+    const read = async (query = '') => {
+      const res = await s.browser.call('GET', `${url}${query}`)
+      expect(res.statusCode).toBe(200)
+      return res.json<{ labor: Labor }>().labor
+    }
+    const all = await read()
+    expect(all.holiday_hours).toBe('13.00')
+    expect(all.rows.map((r) => [r.employee.id, r.hours, r.holiday_hours])).toEqual([
+      [s.verdi, '18.00', '10.00'],
+      [s.bassi, '10.00', '3.00'],
+    ])
+    expect((await read('?filter[to]=2026-12-31')).holiday_hours).toBe('7.00')
+    expect((await read('?filter[status]=submitted')).holiday_hours).toBe('0.00')
+    expect((await read('?filter[from]=2025-01-01&filter[to]=2025-12-31')).holiday_hours).toBe(
+      '0.00',
+    )
+
+    const csv = await s.browser.call('GET', `${url}/export`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csv.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(lines.map((l) => [l.split(';')[0], l.split(';').at(-1)])).toEqual([
+      ['Tipo', 'Di cui festive'],
+      ['Dipendente', '10,00'],
+      ['Dipendente', '3,00'],
+      ['Totale dipendenti', '13,00'],
+      ['Totale mezzi', ''],
     ])
   })
 })

@@ -183,6 +183,17 @@ async function readSiteSummary(
     where.push(`r.status = $${values.length}`)
   }
   const cost = (c: string | null) => (!canSeeCosts || c === null ? null : centsToAmount(c))
+  // National holidays and the patron saint day of the years of the reports; Sundays in SQL.
+  const years = await client.query<{ first: number | null; last: number | null }>(
+    `select extract(year from min(r.report_date))::int as first,
+       extract(year from max(r.report_date))::int as last
+     from public.daily_reports r where ${where.join(' and ')}`,
+    values,
+  )
+  const first = years.rows[0]?.first
+  const last = years.rows[0]?.last
+  const holidays =
+    first == null || last == null ? [] : holidaysOfYears(first, last, await patronSaintDay(client))
   const part = async <T extends ResourceRow>(
     hours: Source['hours'],
     column: Source['column'],
@@ -190,6 +201,7 @@ async function readSiteSummary(
     fields: string,
     order: string,
     include: string,
+    extra: unknown[] = [],
   ) => {
     // Rows without worked hours (a day lost to bad weather) count in no day, cost or date,
     // except the dates of who has nothing else.
@@ -208,7 +220,7 @@ async function readSiteSummary(
        where ${[...where, include].join(' and ')}
        group by x.id
        order by sum(h.hours) desc, ${order}, x.id`,
-      values,
+      [...values, ...extra],
     )
     // Hours have two decimals: sum them as hundredths, like cents.
     let hundredths = 0n
@@ -226,6 +238,7 @@ async function readSiteSummary(
       overtime_hours: string
       travel_days: number
       weather_hours: string
+      holiday_hours: string
     }
   >(
     'daily_report_labor',
@@ -234,14 +247,20 @@ async function readSiteSummary(
     `x.first_name, x.last_name,
      sum(h.overtime_hours)::numeric(10, 2)::text as overtime_hours,
      count(distinct r.report_date) filter (where h.travel and h.hours > 0)::int as travel_days,
-     sum(h.weather_hours)::numeric(10, 2)::text as weather_hours`,
+     sum(h.weather_hours)::numeric(10, 2)::text as weather_hours,
+     coalesce(sum(h.hours) filter (where extract(isodow from r.report_date) = 7
+       or r.report_date = any($${values.length + 1}::date[])), 0)::numeric(10, 2)::text
+       as holiday_hours`,
     'lower(x.last_name), lower(x.first_name)',
     '(h.hours > 0 or h.weather_hours > 0)',
+    [holidays],
   )
   let weatherHundredths = 0n
   let overtimeHundredths = 0n
   let travelDays = 0
+  let holidayHundredths = 0n
   for (const r of labor.rows) {
+    holidayHundredths += BigInt(r.holiday_hours.replace('.', ''))
     weatherHundredths += BigInt(r.weather_hours.replace('.', ''))
     overtimeHundredths += BigInt(r.overtime_hours.replace('.', ''))
     travelDays += r.travel_days
@@ -267,6 +286,7 @@ async function readSiteSummary(
       overtime_hours: centsToAmount(overtimeHundredths.toString()),
       travel_days: travelDays,
       weather_hours: centsToAmount(weatherHundredths.toString()),
+      holiday_hours: centsToAmount(holidayHundredths.toString()),
       cost: labor.cost,
       rows: labor.rows.map((r) => ({
         employee: { id: r.id, first_name: r.first_name, last_name: r.last_name },
@@ -274,6 +294,7 @@ async function readSiteSummary(
         overtime_hours: r.overtime_hours,
         travel_days: r.travel_days,
         weather_hours: r.weather_hours,
+        holiday_hours: r.holiday_hours,
       })),
     },
     vehicles: {
@@ -697,6 +718,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           weather_hours?: string
           overtime_hours?: string
           travel_days?: number
+          holiday_hours?: string
         },
       ) => [
         kind,
@@ -710,6 +732,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
         r.weather_hours === undefined ? null : decimal(r.weather_hours),
         r.overtime_hours === undefined ? null : decimal(r.overtime_hours),
         r.travel_days,
+        r.holiday_hours === undefined ? null : decimal(r.holiday_hours),
       ]
       const csv = toCsv(
         [
@@ -724,6 +747,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           'Ore perse per maltempo',
           'Di cui straordinario',
           'Giorni di trasferta',
+          'Di cui festive',
         ],
         [
           ...summary.labor.rows.map((r) =>

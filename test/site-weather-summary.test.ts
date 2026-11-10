@@ -90,6 +90,7 @@ describe('hours lost to bad weather in the hours of a site', () => {
         overtime_hours: '0.00',
         travel_days: 0,
         weather_hours: '18.00',
+        holiday_hours: '0.00',
         cost: '168.00',
         rows: [
           {
@@ -99,6 +100,7 @@ describe('hours lost to bad weather in the hours of a site', () => {
             overtime_hours: '0.00',
             travel_days: 0,
             weather_hours: '10.00',
+            holiday_hours: '0.00',
             cost: '168.00',
             first_date: '2026-11-05',
             last_date: '2026-11-05',
@@ -110,6 +112,7 @@ describe('hours lost to bad weather in the hours of a site', () => {
             overtime_hours: '0.00',
             travel_days: 0,
             weather_hours: '8.00',
+            holiday_hours: '0.00',
             cost: null,
             first_date: '2026-11-06',
             last_date: '2026-11-06',
@@ -145,6 +148,7 @@ describe('hours lost to bad weather in the hours of a site', () => {
         days: 0,
         travel_days: 0,
         weather_hours: '8.00',
+        holiday_hours: '0.00',
         cost: '0.00',
         first_date: '2026-11-06',
       }),
@@ -162,12 +166,12 @@ describe('hours lost to bad weather in the hours of a site', () => {
     const res = await s.browser.call('GET', `${s.api}/sites/${s.site}/work-summary/export`)
     expect(res.statusCode).toBe(200)
     expect(csvLines(res.body)).toEqual([
-      'Tipo;Nome;Targa;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Ore perse per maltempo;Di cui straordinario;Giorni di trasferta',
-      'Dipendente;Verdi Luca;;6,00;1;168,00;05/11/2026;05/11/2026;10,00;0,00;0',
-      'Dipendente;Bassi Anna;;0,00;0;;06/11/2026;06/11/2026;8,00;0,00;0',
-      'Totale dipendenti;;;6,00;;168,00;;;18,00;0,00;0',
-      'Mezzo;Escavatore;;4,00;1;160,00;05/11/2026;05/11/2026;;;',
-      'Totale mezzi;;;4,00;;160,00;;;;;',
+      'Tipo;Nome;Targa;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Ore perse per maltempo;Di cui straordinario;Giorni di trasferta;Di cui festive',
+      'Dipendente;Verdi Luca;;6,00;1;168,00;05/11/2026;05/11/2026;10,00;0,00;0;0,00',
+      'Dipendente;Bassi Anna;;0,00;0;;06/11/2026;06/11/2026;8,00;0,00;0;0,00',
+      'Totale dipendenti;;;6,00;;168,00;;;18,00;0,00;0;0,00',
+      'Mezzo;Escavatore;;4,00;1;160,00;05/11/2026;05/11/2026;;;;',
+      'Totale mezzi;;;4,00;;160,00;;;;;;',
     ])
   })
 
