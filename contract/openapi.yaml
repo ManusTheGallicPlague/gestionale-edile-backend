@@ -2821,7 +2821,8 @@ paths:
       description: |
         Permessi: costs.view e sites.view (senza uno dei due, 403). Un elemento per cantiere,
         anche senza costi (a zero). Il totale segue la regola di getSiteCostSummary: manodopera
-        e mezzi dai rapportini approvati al costo orario attuale, più i costi inseriti a mano;
+        e mezzi dai rapportini approvati al costo orario fissato all'approvazione, più i costi
+        inseriti a mano;
         il materiale del magazzino e gli ordini ai fornitori restano fuori. Importi senza IVA.
         budget_remaining è il budget meno il totale, null senza budget; nell'ordinamento per
         residuo i cantieri senza budget vanno in fondo in entrambe le direzioni.
@@ -3944,8 +3945,9 @@ paths:
       summary: Riepilogo dei costi di un cantiere, confrontato con il budget
       description: |
         Permesso: costs.view. Senza permesso risponde 404, non 403. Manodopera e mezzi vengono
-        dai rapportini approvati, alle ore per il costo orario attuale di dipendenti e mezzi
-        (senza costo orario valgono zero e si contano in missing_hourly_costs); poi i costi
+        dai rapportini approvati, alle ore per il costo orario di dipendenti e mezzi fissato
+        all'approvazione del rapportino (quello attuale se allora mancava; senza costo orario
+        valgono zero e si contano in missing_hourly_costs); poi i costi
         inseriti a mano per categoria. Importi senza IVA. Con invoices.view anche revenue: il
         fatturato del cantiere (imponibile delle fatture emesse collegate) e il margine
         rispetto ai costi; senza quel permesso revenue è null. Con anche estimates.view, in
@@ -3981,7 +3983,7 @@ paths:
       description: |
         Permesso: costs.view. Senza permesso risponde 404, non 403, come getSiteCostSummary. Stessa
         regola del riepilogo: manodopera e mezzi dai rapportini approvati al costo orario
-        attuale, più i costi inseriti a mano, divisi per mese della data del rapportino o del
+        fissato all'approvazione, più i costi inseriti a mano, divisi per mese della data del rapportino o del
         costo. Un mese per riga, dal primo all'ultimo mese
         con un costo, compresi quelli in mezzo senza costi (a zero); nessuna riga se il
         cantiere non ha costi. cumulative è il totale dall'inizio fino a quel mese compreso,
@@ -4118,7 +4120,7 @@ paths:
         Permessi: sites.view (senza, 404 come per la scheda) e reports.view (senza, 403). Per
         la scheda squadra del cantiere: ore dai rapportini, giorni con ore, primo e ultimo
         giorno per dipendente e per mezzo, da chi ha più ore. I costi, alle ore per il costo
-        orario attuale, ci sono solo con costs.view; senza quel permesso, o senza costo orario,
+        orario fissato all'approvazione (attuale per i rapportini non approvati), ci sono solo con costs.view; senza quel permesso, o senza costo orario,
         sono null. Senza filtri conta tutti i rapportini del cantiere.
       parameters:
         - name: filter
@@ -5843,8 +5845,10 @@ paths:
       description: |
         Permessi: employees.view (senza, 404 come per la scheda) e reports.view (senza, 403). Per la
         scheda del dipendente: ore dai rapportini, giorni con ore e costo per cantiere, dal cantiere con
-        più ore. Il costo usa il costo orario attuale, come il riepilogo dei costi del cantiere;
-        è null se il costo orario manca. Senza filtri conta tutti i rapportini.
+        più ore. Il costo usa il costo orario fissato
+        all'approvazione del rapportino (attuale per i rapportini non approvati), come il
+        riepilogo dei costi del cantiere; è null se nessuna riga ha un costo orario. Senza
+        filtri conta tutti i rapportini.
         Con le ore anche le assenze dello stesso periodo (`absences`), per tipo: i giorni di
         calendario delle assenze di tutto il giorno, contati solo dentro filter[from] e
         filter[to], e le ore dei permessi. filter[status] vale solo per i rapportini.
@@ -6612,8 +6616,10 @@ paths:
       description: |
         Permessi: vehicles.view (senza, 404 come per la scheda) e reports.view (senza, 403). Per la
         scheda del mezzo: ore dai rapportini, giorni con ore e costo per cantiere, dal cantiere con
-        più ore. Il costo usa il costo orario attuale, come il riepilogo dei costi del cantiere;
-        è null se il costo orario manca. Senza filtri conta tutti i rapportini.
+        più ore. Il costo usa il costo orario fissato
+        all'approvazione del rapportino (attuale per i rapportini non approvati), come il
+        riepilogo dei costi del cantiere; è null se nessuna riga ha un costo orario. Senza
+        filtri conta tutti i rapportini.
         maintenance: numero e spesa delle manutenzioni del mezzo nello stesso periodo (filter[status]
         non conta).
         fuel: numero di rifornimenti, litri e spesa del carburante nello stesso periodo
@@ -14848,7 +14854,9 @@ components:
             - $ref: '#/components/schemas/Date'
             - type: 'null'
         hourly_cost:
-          description: Costo orario aziendale, per il costo della manodopera nei cantieri.
+          description: |
+            Costo orario aziendale, per il costo della manodopera nei cantieri. Cambiarlo non
+            cambia i rapportini già approvati, che tengono quello del giorno dell'approvazione.
           oneOf:
             - $ref: '#/components/schemas/Amount'
             - type: 'null'
@@ -14910,7 +14918,9 @@ components:
           type: integer
           description: Giorni con ore, contando una volta un giorno su più cantieri.
         cost:
-          description: Ore per costo orario attuale, o null se il costo orario manca.
+          description: |
+            Ore per costo orario fissato all'approvazione (attuale per i rapportini non
+            approvati), o null se nessuna riga ha un costo orario.
           oneOf:
             - $ref: '#/components/schemas/Amount'
             - type: 'null'
@@ -15061,7 +15071,8 @@ components:
                   last_date: { $ref: '#/components/schemas/Date' }
     NullableWorkCost:
       description: |
-        Ore per costo orario attuale. Null senza costs.view; nei totali le ore senza costo
+        Ore per costo orario fissato all'approvazione (attuale per i rapportini non approvati).
+        Null senza costs.view; nei totali le ore senza costo
         orario valgono zero, nelle righe il costo è null se il costo orario manca.
       oneOf:
         - $ref: '#/components/schemas/Amount'
@@ -15091,7 +15102,9 @@ components:
           description: Marca e modello.
           maxLength: 200
         hourly_cost:
-          description: Costo orario del mezzo, per i costi dei cantieri.
+          description: |
+            Costo orario del mezzo, per i costi dei cantieri. Cambiarlo non cambia i rapportini
+            già approvati, che tengono quello del giorno dell'approvazione.
           oneOf:
             - $ref: '#/components/schemas/Amount'
             - type: 'null'

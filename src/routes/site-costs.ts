@@ -23,17 +23,18 @@ export const COST_CATEGORIES = ['materials', 'rentals', 'subcontract', 'other'] 
 type Category = (typeof COST_CATEGORIES)[number]
 
 /**
- * Every cost of a site, one row each: labour and vehicles of approved daily reports at
- * today's hourly cost (as in the site cost summary), plus the costs entered by hand.
+ * Every cost of a site, one row each: labour and vehicles of approved daily reports at the
+ * hourly cost fixed on approval, or today's when it was missing then (as in the site cost
+ * summary), plus the costs entered by hand.
  */
 export const COST_LINES = `
-  select r.site_id, r.report_date as day, round(l.hours * coalesce(e.hourly_cost_cents, 0)) as cents,
+  select r.site_id, r.report_date as day, round(l.hours * coalesce(l.hourly_cost_cents, e.hourly_cost_cents, 0)) as cents,
     'labor' as kind
   from public.daily_report_labor l
   join public.daily_reports r on r.id = l.report_id and r.status = 'approved'
   join public.employees e on e.id = l.employee_id
   union all
-  select r.site_id, r.report_date, round(v.hours * coalesce(m.hourly_cost_cents, 0)), 'vehicles'
+  select r.site_id, r.report_date, round(v.hours * coalesce(v.hourly_cost_cents, m.hourly_cost_cents, 0)), 'vehicles'
   from public.daily_report_vehicles v
   join public.daily_reports r on r.id = v.report_id and r.status = 'approved'
   join public.vehicles m on m.id = v.vehicle_id
@@ -497,16 +498,16 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
         const { rows } = await client.query<SummaryRow>(
           `with labor as (
              select coalesce(sum(l.hours), 0) as hours,
-               coalesce(sum(round(l.hours * coalesce(e.hourly_cost_cents, 0))), 0) as cents,
-               count(*) filter (where e.hourly_cost_cents is null) as missing
+               coalesce(sum(round(l.hours * coalesce(l.hourly_cost_cents, e.hourly_cost_cents, 0))), 0) as cents,
+               count(*) filter (where coalesce(l.hourly_cost_cents, e.hourly_cost_cents) is null) as missing
              from public.daily_report_labor l
              join public.daily_reports r on r.id = l.report_id and r.status = 'approved'
              join public.employees e on e.id = l.employee_id
              where r.site_id = $1
            ), machines as (
              select coalesce(sum(v.hours), 0) as hours,
-               coalesce(sum(round(v.hours * coalesce(m.hourly_cost_cents, 0))), 0) as cents,
-               count(*) filter (where m.hourly_cost_cents is null) as missing
+               coalesce(sum(round(v.hours * coalesce(v.hourly_cost_cents, m.hourly_cost_cents, 0))), 0) as cents,
+               count(*) filter (where coalesce(v.hourly_cost_cents, m.hourly_cost_cents) is null) as missing
              from public.daily_report_vehicles v
              join public.daily_reports r on r.id = v.report_id and r.status = 'approved'
              join public.vehicles m on m.id = v.vehicle_id

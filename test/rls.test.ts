@@ -1168,7 +1168,19 @@ describe('the API role cannot cross companies', () => {
           c.query(`update public.${table} set company_id = $1`, [companyB.id]),
         ),
       ).rejects.toThrow(/permission denied/)
+      // The hourly cost fixed on approval is written only by the trigger, never by the API.
+      await expect(
+        as(alice.id, companyA.id, (c) =>
+          c.query(`update public.${table} set hourly_cost_cents = 0`),
+        ),
+      ).rejects.toThrow(/permission denied/)
     }
+    await owner.query('update public.employees set hourly_cost_cents = 2000 where id = $1', [
+      b.employee,
+    ])
+    await owner.query('update public.vehicles set hourly_cost_cents = 1000 where id = $1', [
+      b.vehicle,
+    ])
     const changed = await as(alice.id, companyA.id, async (c) => {
       const u = await c.query("update public.daily_reports set status = 'approved' where id = $1", [
         reportB.rows[0]?.id,
@@ -1182,6 +1194,14 @@ describe('the API role cannot cross companies', () => {
       return u.rowCount! + d.rowCount! + l.rowCount!
     })
     expect(changed).toBe(0)
+    // Approving from company A did not reach the trigger that fixes the costs of company B.
+    const fixed = await owner.query(
+      `select 1 from public.daily_report_labor where report_id = $1 and hourly_cost_cents is not null
+       union all
+       select 1 from public.daily_report_vehicles where report_id = $1 and hourly_cost_cents is not null`,
+      [reportB.rows[0]?.id],
+    )
+    expect(fixed.rowCount).toBe(0)
     await expect(auth.query('select * from public.daily_reports')).rejects.toThrow(
       /permission denied/,
     )

@@ -100,7 +100,9 @@ async function readSummary(
   }
   const cents = resource.cents
   values.push(cents)
-  const rate = `$${values.length}::bigint`
+  // The hourly cost fixed when the report was approved, today's for the others.
+  const current = `$${values.length}::bigint`
+  const rate = `coalesce(h.hourly_cost_cents, ${current})`
   const from = `from public.${source.hours} h
      join public.daily_reports r on r.id = h.report_id`
   const sites = await client.query<SiteRow>(
@@ -120,13 +122,14 @@ async function readSummary(
   const total = await client.query<{ hours: string; days: number; cents: string | null }>(
     `select coalesce(sum(h.hours), 0)::numeric(10, 2)::text as hours,
        count(distinct r.report_date)::int as days,
-       coalesce(sum(round(h.hours * ${rate})), 0)::bigint::text as cents
+       coalesce(sum(round(h.hours * ${rate})), case when ${current} is null then null else 0 end)
+         ::bigint::text as cents
      ${from}
      where ${where.join(' and ')}`,
     values,
   )
   const sum = total.rows[0] ?? { hours: '0.00', days: 0, cents: null }
-  const cost = (c: string | null) => (cents === null || c === null ? null : centsToAmount(c))
+  const cost = (c: string | null) => (c === null ? null : centsToAmount(c))
   return {
     hours: sum.hours,
     days: sum.days,
@@ -189,7 +192,7 @@ async function readSiteSummary(
       `select x.id, ${fields},
          sum(h.hours)::numeric(10, 2)::text as hours,
          count(distinct r.report_date)::int as days,
-         sum(round(h.hours * x.hourly_cost_cents))::bigint::text as cents,
+         sum(round(h.hours * coalesce(h.hourly_cost_cents, x.hourly_cost_cents)))::bigint::text as cents,
          min(r.report_date)::text as first_date,
          max(r.report_date)::text as last_date
        from public.${hours} h
