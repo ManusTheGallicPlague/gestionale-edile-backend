@@ -396,6 +396,53 @@ describe('invoices', () => {
     ).rejects.toThrow(/invoices_retention_release_check/)
   })
 
+  it('lists and exports only the releases of the retention, with their totals', async () => {
+    const s = await scene()
+    const theirs = await scene()
+    const post = async (sc: Scene, body: object) => {
+      const res = await sc.browser.call('POST', sc.base, { body })
+      expect(res.statusCode).toBe(201)
+    }
+    const release = { retention_release: true, vat_amount: '0', paid_on: null }
+    await post(s, issued(s, { ...release, number: 'SV-1', taxable_amount: '0.10' }))
+    await post(s, issued(s, { ...release, number: 'SV-2', taxable_amount: '0.20' }))
+    await post(s, issued(s, { number: 'F-1', taxable_amount: '7' }))
+    await post(s, received(s, { number: 'R-1' }))
+    // Another company's release with the same number stays out.
+    await post(theirs, issued(theirs, { ...release, number: 'SV-1', taxable_amount: '5' }))
+    const list = async (filter: string) => {
+      const res = await s.browser.call('GET', `${s.base}?${filter}&sort=date`)
+      expect(res.statusCode).toBe(200)
+      return res.json<{
+        data: { number: string }[]
+        meta: { total: number }
+        total_amount: string
+        outstanding_amount: string
+      }>()
+    }
+    const on = await list('filter[retention_release]=true')
+    expect(on.data.map((i) => i.number).sort()).toEqual(['SV-1', 'SV-2'])
+    expect(on).toMatchObject({ total_amount: '0.30', outstanding_amount: '0.30' })
+    const off = await list('filter[retention_release]=false')
+    expect(off.data.map((i) => i.number).sort()).toEqual(['F-1', 'R-1'])
+    const both = await list('filter[retention_release]=true&filter[direction]=received')
+    expect(both.data).toEqual([])
+    expect(both.total_amount).toBe('0.00')
+    const csv = await s.browser.call('GET', `${s.base}/export?filter[retention_release]=true`)
+    expect(csv.statusCode).toBe(200)
+    const rows = csv.body.trim().split('\r\n')
+    expect(rows).toHaveLength(3)
+    expect(rows.slice(1).every((r) => r.includes(';Sì;'))).toBe(true)
+    for (const bad of [
+      'filter[retention_release]=yes',
+      'filter[retention_release]=1',
+      'filter[retention_release]=true&filter[retention_release]=false',
+    ]) {
+      expect((await s.browser.call('GET', `${s.base}?${bad}`)).statusCode).toBe(422)
+      expect((await s.browser.call('GET', `${s.base}/export?${bad}`)).statusCode).toBe(422)
+    }
+  })
+
   it('a number is used once per year (per supplier for received invoices)', async () => {
     const s = await scene()
     expect((await s.browser.call('POST', s.base, { body: issued(s) })).statusCode).toBe(201)

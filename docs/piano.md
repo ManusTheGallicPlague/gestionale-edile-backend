@@ -677,6 +677,12 @@ Aggiunta il 10/11/2026: il registro delle fatture conosce solo fatture (TD01), m
 - [x] Rimborsi: pagamenti registrati su una nota di credito (rimborso ricevuto o fatto), con il segno meno nel pagato e nella prima nota
   (fatto il 10/11/2026, migrazione 0085: `refund` e `refund_due_amount` sulla nota; vedi «Decisioni prese»)
 
+### 101. Fatture di svincolo della ritenuta nell'elenco
+Aggiunta il 10/11/2026, riprendendo un rinvio delle «Decisioni prese» del 07/11 («per ora niente filtro nell'elenco»): l'ufficio vuole vedere quali fatture hanno svincolato la ritenuta di garanzia, quelle dietro `retention_released` del riepilogo del cantiere.
+
+- [x] `filter[retention_release]` (`true`/`false`) nell'elenco e nel CSV delle fatture, come `filter[split_payment]`
+  (fatto il 10/11/2026)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -944,11 +950,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 10/11/2026: una fattura con note di rimborso deve restare pagata almeno per il loro totale: eliminare il suo pagamento risponde 409 `has_documents`, una modifica che la rende non pagata 422. Una nota di rimborso non scende sotto i rimborsi registrati.
 - 10/11/2026: quanto resta da rimborsare sta solo sulla nota (`refund_due_amount`), non nei saldi dei clienti e fornitori, nella dashboard né nella previsione di cassa, che restano su quanto resta da incassare e pagare delle fatture (`Amount` non negativi): scelta semplice, da rivedere se l'ufficio chiede i rimborsi in sospeso nei saldi.
 - 10/11/2026: una nota di credito si elimina anche con rimborsi registrati, che spariscono con lei, come i pagamenti di una fattura eliminata.
+- 10/11/2026: `filter[retention_release]` nelle fatture è un sì/no come `filter[split_payment]` (422 su altri valori o ripetuto), senza vincolo sulla direzione: con `filter[direction]=received` e `true` l'elenco è vuoto, non un errore. Niente svincolo nei dati di sviluppo, come deciso il 07/11.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-10 03:21 UTC: main verde all'inizio (994 test); main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 101, ripresa da un rinvio delle «Decisioni prese»: `filter[retention_release]` nell'elenco e nel CSV delle fatture (test con 0.10 + 0.20 di svincoli = 0.30 di totale e residuo, solo le altre con `false`, elenco vuoto con le ricevute, CSV con la colonna «Svincolo ritenuta» a Sì, svincolo omonimo di un'altra azienda escluso, 422 su valore non valido e ripetuto anche nel CSV). Nessuna tabella e nessun permesso nuovi. Niente a metà; piano tutto spuntato. 995 test.
 - 2026-11-10 02:21 UTC: main verde all'inizio (988 test); main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Fatto l'ultimo pezzo della sezione 100, i rimborsi (migrazione 0085, `refund`): nota su fattura pagata come nota di rimborso, rimborsi registrati sulla nota col segno meno in pagato, prima nota e CSV, fattura che deve restare pagata (409 sull'eliminazione del pagamento, 422 sulla modifica), nota non sotto i rimborsi; test su 0.10 + 0.20 rimborsati, rimborso ricevuto da un fornitore, nota scritta prima del pagamento senza rimborsi, ritenuta che limita il rimborso, nota di un'altra azienda; corretto in corsa `syncPaid` che trattava la nota come fattura (lo prende il test sulla modifica della nota). Seed con il rimborso del nolo ponteggio. Niente a metà; piano tutto spuntato. 994 test.
 - 2026-11-10 01:40 UTC: stesso giro, secondo push: `filter[document_type]` e `filter[credited_invoice]` nell'elenco e nel CSV delle fatture (test con 0.10 + 0.20 di note = -0.30, sole fatture 2440.00, note di una fattura, colonne Documento e Fattura stornata nel CSV, fattura di un'altra azienda con elenco vuoto, 422 su valore non valido, `constructor`, ripetuto e id non valido anche nel CSV). Resta il pezzo dei rimborsi. 988 test.
 - 2026-11-10 01:21 UTC: main verde all'inizio (982 test); main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Fatto il primo pezzo della sezione 100, registrazione delle note di credito (migrazione 0084: `document_type`, `credited_invoice_id`): segno meno in totali e CSV delle fatture, saldi ed estratti conto, riepilogo IVA, dashboard, ricavi di cantiere e cliente, fatturato degli ordini; la nota abbassa il residuo e la scadenza della fattura stornata; 409 su pagamenti della nota ed eliminazione della fattura con note. Test su 0.10 + 0.20 + 975.70 pagati dopo una nota da 244.00, IVA del mese negativa con la sola nota, fattura coperta dalla nota con scadenza chiusa e riaperta, 422 su ogni campo vietato, su nota di un'altra azienda, su note oltre imponibile, IVA o residuo; caso avversario in `test/rls.test.ts`; seed con uno sconto sulla fattura del primo SAL. Resta il pezzo dei rimborsi. 987 test.

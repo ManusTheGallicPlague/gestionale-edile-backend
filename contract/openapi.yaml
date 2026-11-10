@@ -8300,8 +8300,9 @@ paths:
             sales_split_payment_vat di getVatSummary), filter[purchase_order]=<id> (le fatture
             ricevute di un ordine al fornitore), filter[direction]=received con
             filter[has_purchase_order]=false (le fatture ricevute senza ordine),
-            filter[document_type]=credit_note (solo le note di credito) e
-            filter[credited_invoice]=<id> (le note di credito di una fattura).
+            filter[document_type]=credit_note (solo le note di credito),
+            filter[credited_invoice]=<id> (le note di credito di una fattura) e
+            filter[retention_release]=true (le fatture di svincolo della ritenuta).
           style: deepObject
           explode: true
           schema:
@@ -8326,6 +8327,11 @@ paths:
                 type: boolean
               split_payment:
                 description: true per le sole fatture in scissione dei pagamenti, false per le altre.
+                type: boolean
+              retention_release:
+                description: |
+                  true per le sole fatture di svincolo della ritenuta di garanzia (quelle dietro
+                  retention_released del riepilogo dei costi del cantiere), false per le altre.
                 type: boolean
               purchase_order:
                 description: Le sole fatture ricevute che addebitano questo ordine al fornitore.
@@ -8424,6 +8430,11 @@ paths:
                 type: boolean
               split_payment:
                 description: true per le sole fatture in scissione dei pagamenti, false per le altre.
+                type: boolean
+              retention_release:
+                description: |
+                  true per le sole fatture di svincolo della ritenuta di garanzia (quelle dietro
+                  retention_released del riepilogo dei costi del cantiere), false per le altre.
                 type: boolean
               purchase_order:
                 description: Le sole fatture ricevute che addebitano questo ordine al fornitore.

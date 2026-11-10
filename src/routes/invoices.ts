@@ -958,11 +958,13 @@ function readList(query: Record<string, unknown>) {
   }
   const reverseCharge = flag('filter[reverse_charge]')
   const splitPayment = flag('filter[split_payment]')
+  const retentionRelease = flag('filter[retention_release]')
   const hasPurchaseOrder = flag('filter[has_purchase_order]')
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     reverseCharge,
     splitPayment,
+    retentionRelease,
     hasPurchaseOrder,
     page,
     perPage,
@@ -1004,6 +1006,9 @@ function listFilter(list: ReturnType<typeof readList>) {
     add((p) => `(coalesce(i.vat_nature, '') like 'N6.%') = ${p}`, list.reverseCharge)
   }
   if (list.splitPayment !== undefined) add((p) => `i.split_payment = ${p}`, list.splitPayment)
+  if (list.retentionRelease !== undefined) {
+    add((p) => `i.retention_release = ${p}`, list.retentionRelease)
+  }
   if (list.hasPurchaseOrder !== undefined) {
     add((p) => `(i.purchase_order_id is not null) = ${p}`, list.hasPurchaseOrder)
   }
