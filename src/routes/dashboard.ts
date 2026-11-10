@@ -5,7 +5,7 @@ import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
 import { requireSession } from '../http/request-context.js'
-import { REMAINING_CENTS } from './invoices.js'
+import { REMAINING_CENTS, SETTLED, SIGNED_TAXABLE } from './invoices.js'
 import { currentVat } from './vat-summary.js'
 import { statementTotals } from './progress-statements.js'
 import { FOLLOW_UPS as ORDER_FOLLOW_UPS } from './purchase-orders.js'
@@ -217,7 +217,7 @@ async function invoiceTotals(client: PoolClient, today: string) {
          as without_order,
        coalesce(sum(${REMAINING_CENTS}) filter (where i.direction = 'received'
          and i.purchase_order_id is null), 0)::text as without_order_amount
-     from public.invoices i where i.paid_on is null`,
+     from public.invoices i where not ${SETTLED}`,
     [today],
   )
   const r = rows[0]
@@ -295,7 +295,7 @@ async function purchaseOrderTotals(client: PoolClient, seesInvoices: boolean) {
        count(*) filter (where ${uninvoiced})::int as uninvoiced,
        coalesce(sum(${orderTotal}) filter (where ${uninvoiced}), 0)::bigint::text
          as uninvoiced_total,
-       count(*) filter (where (select coalesce(sum(i.taxable_cents), 0) from public.invoices i
+       count(*) filter (where (select coalesce(sum(${SIGNED_TAXABLE}), 0) from public.invoices i
          where i.purchase_order_id = o.id) > coalesce(${orderTotal}, 0))::int as over_invoiced
      from public.purchase_orders o`,
   )

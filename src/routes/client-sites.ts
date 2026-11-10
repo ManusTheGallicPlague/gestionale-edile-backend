@@ -7,7 +7,7 @@ import { UUID } from '../deadlines/input.js'
 import { forbidden, notFound } from '../http/errors.js'
 import { centsToAmount } from '../money.js'
 import { requireSession } from '../http/request-context.js'
-import { DUE_CENTS, PAID_CENTS, REMAINING_CENTS } from './invoices.js'
+import { COLLECTED_CENTS, REMAINING_CENTS, SIGNED_TAXABLE } from './invoices.js'
 import { SITES_ORDER, type SupplierSiteRow } from './site-subcontractors.js'
 import { STATUS_LABELS } from './sites.js'
 
@@ -47,9 +47,8 @@ export function clientSiteRoutes(app: FastifyInstance, db: Db): void {
            )::text end as quoted
          from public.sites s
          cross join lateral (
-           select coalesce(sum(i.taxable_cents), 0) as invoiced,
-             coalesce(sum(case when i.paid_on is not null then ${DUE_CENTS}
-               else ${PAID_CENTS} end), 0) as collected,
+           select coalesce(sum(${SIGNED_TAXABLE}), 0) as invoiced,
+             coalesce(sum(${COLLECTED_CENTS}), 0) as collected,
              coalesce(sum(${REMAINING_CENTS}), 0) as to_collect
            from public.invoices i
            where i.site_id = s.id and i.client_id = $1 and i.direction = 'issued'

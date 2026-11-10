@@ -21,6 +21,7 @@ import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 import { orderPdf } from '../purchases/pdf.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
+import { SIGNED_TAXABLE } from './invoices.js'
 
 export const ORDER_STATUSES = ['draft', 'sent', 'received'] as const
 type Status = (typeof ORDER_STATUSES)[number]
@@ -101,7 +102,7 @@ const SELECT = `select o.id, o.number_year, o.number_seq, o.status, o.supplier_i
     p.name as supplier_name, o.site_id, s.name as site_name, s.code as site_code,
     o.order_date::text as order_date, o.delivery_date::text as delivery_date, o.notes,
     t.line_count, t.total_cents,
-    (select coalesce(sum(i.taxable_cents), 0)::text from public.invoices i
+    (select coalesce(sum(${SIGNED_TAXABLE}), 0)::text from public.invoices i
       where i.purchase_order_id = o.id) as invoiced_cents,
     o.sent_at, o.received_at, o.version, o.created_at, o.updated_at
   from public.purchase_orders o
@@ -496,7 +497,7 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.overInvoiced !== undefined) {
     // The same amounts as invoiced_amount and the order total.
     add(
-      (p) => `((select coalesce(sum(i.taxable_cents), 0) from public.invoices i
+      (p) => `((select coalesce(sum(${SIGNED_TAXABLE}), 0) from public.invoices i
           where i.purchase_order_id = o.id)
         > (select coalesce(sum(round(l.quantity * l.unit_price_cents)), 0)
           from public.purchase_order_lines l where l.order_id = o.id)) = ${p}`,

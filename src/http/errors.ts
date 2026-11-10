@@ -95,6 +95,9 @@ export const messages = {
   invoiceStale:
     'La fattura è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   invoiceMissingIfMatch: 'Manca la versione della fattura: ricarica la pagina e riprova.',
+  invoiceHasCreditNotes: 'La fattura ha note di credito: elimina prima le note, poi la fattura.',
+  creditNoteNoPayments:
+    'Su una nota di credito non si registrano pagamenti: abbassa quanto resta da pagare della sua fattura.',
   employeeStale:
     'Il dipendente è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   employeeHasDocuments:

@@ -7,6 +7,7 @@ import { centsToAmount } from '../money.js'
 import { toCsv, type Cell } from '../csv.js'
 import { ValidationFailed, forbidden } from '../http/errors.js'
 import { requireSession } from '../http/request-context.js'
+import { SIGNED_TAXABLE, SIGNED_VAT } from './invoices.js'
 
 type Period = 'month' | 'quarter'
 
@@ -77,16 +78,16 @@ export async function readSummary(client: PoolClient, q: Query) {
            then to_char(p.from_d, 'YYYY') || '-Q' || to_char(p.from_d, 'Q')
            else to_char(p.from_d, 'YYYY-MM') end as period,
          p.from_d::text as "from", p.to_d::text as "to",
-         coalesce(sum(i.taxable_cents) filter (where i.direction = 'issued'), 0)::text
+         coalesce(sum(${SIGNED_TAXABLE}) filter (where i.direction = 'issued'), 0)::text
            as sales_taxable,
-         coalesce(sum(i.vat_cents) filter (where i.direction = 'issued'), 0)::text as sales_vat,
-         coalesce(sum(i.vat_cents) filter (where i.direction = 'issued' and i.split_payment), 0)
+         coalesce(sum(${SIGNED_VAT}) filter (where i.direction = 'issued'), 0)::text as sales_vat,
+         coalesce(sum(${SIGNED_VAT}) filter (where i.direction = 'issued' and i.split_payment), 0)
            ::text as sales_split_payment_vat,
-         coalesce(sum(i.taxable_cents) filter (where i.direction = 'received'), 0)::text
+         coalesce(sum(${SIGNED_TAXABLE}) filter (where i.direction = 'received'), 0)::text
            as purchases_taxable,
-         coalesce(sum(i.vat_cents) filter (where i.direction = 'received'), 0)::text
+         coalesce(sum(${SIGNED_VAT}) filter (where i.direction = 'received'), 0)::text
            as purchases_vat,
-         coalesce(sum(i.taxable_cents) filter (
+         coalesce(sum(${SIGNED_TAXABLE}) filter (
            where i.direction = 'received' and i.vat_nature like 'N6.%'), 0)::text
            as reverse_charge_taxable
        from y cross join periods p

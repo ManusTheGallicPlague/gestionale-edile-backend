@@ -9,7 +9,7 @@ import { ValidationFailed, forbidden, notFound, type FieldErrors } from '../http
 import { requireSession } from '../http/request-context.js'
 import type { Permission } from '../permissions.js'
 import { accountPdf } from '../accounts/pdf.js'
-import { DUE_CENTS, PAID_CENTS, REMAINING_CENTS } from './invoices.js'
+import { DUE_CENTS, REMAINING_CENTS, SETTLED, SIGNED_TOTAL } from './invoices.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
 
@@ -96,7 +96,7 @@ const balancesSql = (subject: Subject) =>
      select i.${subject.column} as subject_id, (${REMAINING_CENTS}) as remaining,
        i.due_date, i.due_date < ${TODAY} as late
      from public.invoices i
-     where i.direction = $1 and i.paid_on is null and i.${subject.column} is not null
+     where i.direction = $1 and not ${SETTLED} and i.${subject.column} is not null
    ), balances as (
      select o.subject_id, count(*)::int as open_invoice_count,
        sum(o.remaining) as outstanding,
@@ -182,12 +182,12 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
         return withIdentity(db.app, { userId: session.user.id }, async (client) => {
           const id = await enterSubject(client, subject, request.params)
           const { rows } = await client.query<AccountRow>(
-            `select count(*)::int as invoice_count,
-               (count(*) filter (where i.paid_on is null))::int as open_invoice_count,
-               coalesce(sum(i.taxable_cents + i.vat_cents), 0)::text as total,
+            `select (count(*) filter (where i.document_type = 'invoice'))::int as invoice_count,
+               (count(*) filter (where not ${SETTLED}))::int as open_invoice_count,
+               coalesce(sum(${SIGNED_TOTAL}), 0)::text as total,
                coalesce(sum(${DUE_CENTS}), 0)::text as amount_due,
                coalesce(sum(${REMAINING_CENTS}), 0)::text as outstanding,
-               coalesce(sum(${REMAINING_CENTS}) filter (where i.paid_on is null
+               coalesce(sum(${REMAINING_CENTS}) filter (where not ${SETTLED}
                  and i.due_date < ${TODAY}), 0)::text as overdue
              from public.invoices i
              where i.${subject.column} = $1 and i.direction = $2`,
@@ -329,8 +329,7 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
              coalesce(i.due_date < ${TODAY}, false) as overdue,
              (${DUE_CENTS})::text as due_cents, (${REMAINING_CENTS})::text as remaining_cents
            from public.invoices i
-           where i.${subject.column} = $1 and i.direction = $2 and i.paid_on is null
-             and ${DUE_CENTS} - ${PAID_CENTS} > 0
+           where i.${subject.column} = $1 and i.direction = $2 and ${REMAINING_CENTS} > 0
            order by i.due_date asc nulls last, i.invoice_date asc, i.number asc`,
             [id, subject.direction],
           )

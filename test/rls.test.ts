@@ -1390,6 +1390,17 @@ describe('the API role cannot cross companies', () => {
     await expect(insert(companyA.id, clientB)).rejects.toThrow(/foreign key/)
     await expect(insert(companyA.id, clientA, { site: siteB })).rejects.toThrow(/foreign key/)
     await expect(insert(companyA.id, null, { supplier: supplierB })).rejects.toThrow(/foreign key/)
+    // A credit note of the first company cannot credit the other company's invoice.
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+             taxable_cents, vat_cents, document_type, credited_invoice_id)
+           values ($1, 'issued', 'NC-1', '2026-11-03', $2, 10, 2, 'credit_note', $3)`,
+          [companyA.id, clientA, invoiceB],
+        ),
+      ),
+    ).rejects.toThrow(/foreign key/)
     // A deadline of the first company cannot point to the other company's invoice.
     await expect(
       as(alice.id, companyA.id, (c) =>

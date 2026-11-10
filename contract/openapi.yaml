@@ -8497,7 +8497,9 @@ paths:
     delete:
       operationId: deleteInvoice
       summary: Eliminazione di una fattura
-      description: 'Permesso: invoices.delete. Elimina anche la sua scadenza nello scadenziario.'
+      description: |
+        Permesso: invoices.delete. Elimina anche la sua scadenza nello scadenziario. Una fattura
+        con note di credito non si elimina (409, code has_documents): prima si eliminano le note.
       security:
         - session: []
           csrf: []
@@ -8509,6 +8511,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: La fattura ha note di credito (code has_documents).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
@@ -8649,6 +8656,8 @@ paths:
         (422 sotto amount). Quando la somma arriva ad amount_due la fattura risulta pagata:
         paid_on prende la data dell'ultimo pagamento e la scadenza nello scadenziario si chiude;
         finché non ci arriva, paid_on è null e la scadenza resta aperta con l'importo residuo.
+        Le note di credito della fattura abbassano quanto si può pagare. Su una nota di credito
+        risponde 409 con code credit_note.
       security:
         - session: []
           csrf: []
@@ -8670,6 +8679,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Su una nota di credito non si registrano pagamenti (code credit_note).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
@@ -12452,6 +12466,26 @@ components:
             cantiere, a fine lavori: il suo imponibile conta in retention_released del
             riepilogo del cantiere. Solo per le emesse, con un cantiere e senza SAL collegato.
             Facoltativo: se manca, alla creazione vale false e alla modifica resta com'è.
+        document_type:
+          description: |
+            Facoltativo: se manca, alla creazione vale invoice e alla modifica resta com'è.
+            Non si cambia dopo la creazione (422).
+          allOf:
+            - $ref: '#/components/schemas/InvoiceDocumentType'
+        credited_invoice_id:
+          description: |
+            Solo per le note di credito, e per loro obbligatoria: la fattura che la nota storna,
+            della stessa direzione, dello stesso cliente o fornitore, dello stesso cantiere e
+            dello stesso ordine (422 sotto credited_invoice_id, site_id o purchase_order_id).
+            Le note di una fattura non superano quanto resta da pagare (amount_due meno i
+            pagamenti), né il suo imponibile né la sua IVA (422 sotto taxable_amount o
+            vat_amount): i rimborsi di fatture già pagate non si registrano ancora. Una nota
+            non ha due_date, paid_on, SAL, ritenuta, scissione dei pagamenti né svincolo (422
+            sotto il campo). Facoltativo: se manca, alla creazione vale null e alla modifica
+            resta com'è.
+          oneOf:
+            - $ref: '#/components/schemas/Id'
+            - type: 'null'
         due_date:
           description: Scadenza di pagamento; alimenta lo scadenziario.
           oneOf:
@@ -12492,11 +12526,32 @@ components:
               purchase_order_id,
               purchase_order,
               retention_release,
+              document_type,
+              credited_invoice_id,
+              credited_invoice,
+              credited_amount,
               created_at,
               updated_at,
             ]
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            credited_invoice:
+              description: |
+                La fattura stornata da questa nota di credito, con il suo numero; null sulle
+                fatture. Calcolato, si ignora nel corpo.
+              oneOf:
+                - type: object
+                  required: [id, number]
+                  properties:
+                    id: { $ref: '#/components/schemas/Id' }
+                    number: { type: string }
+                - type: 'null'
+            credited_amount:
+              description: |
+                Somma dei totali delle note di credito che stornano questa fattura; 0.00 sulle
+                note. Calcolato, si ignora nel corpo.
+              allOf:
+                - $ref: '#/components/schemas/Amount'
             file:
               description: Il PDF della fattura (o la sua scansione), o null.
               oneOf:
@@ -12538,18 +12593,20 @@ components:
             amount_due:
               description: |
                 Netto a pagare (o da incassare): totale meno la ritenuta d'acconto e, con la
-                scissione dei pagamenti, meno l'IVA. È l'importo della scadenza nello
-                scadenziario.
+                scissione dei pagamenti, meno l'IVA. Su una nota di credito è il suo totale col
+                segno meno. Senza note di credito è l'importo della scadenza nello scadenziario.
               allOf:
-                - $ref: '#/components/schemas/Amount'
+                - $ref: '#/components/schemas/SignedAmount'
             paid_amount:
               description: Somma degli incassi o pagamenti registrati (listInvoicePayments).
               allOf:
                 - $ref: '#/components/schemas/Amount'
             remaining_amount:
               description: |
-                Quanto resta da incassare o pagare: amount_due meno paid_amount; 0.00 quando la
-                fattura è pagata.
+                Quanto resta da incassare o pagare: amount_due meno paid_amount e meno
+                credited_amount; 0.00 quando la fattura è pagata e sempre sulle note di credito,
+                che contano sulla fattura stornata. Una fattura coperta da pagamenti e note
+                risulta pagata (payment_status paid); una nota di credito è sempre paid.
               allOf:
                 - $ref: '#/components/schemas/Amount'
             payment_status: { $ref: '#/components/schemas/InvoicePaymentStatus' }
@@ -12564,6 +12621,13 @@ components:
             updated_at:
               type: string
               format: date-time
+    InvoiceDocumentType:
+      type: string
+      description: |
+        invoice: fattura (TD01). credit_note: nota di credito (TD04), con importi positivi che
+        contano col segno meno in tutti i totali (elenchi, saldi, IVA, ricavi, fatturato degli
+        ordini).
+      enum: [invoice, credit_note]
     InvoicePaymentMethod:
       type: string
       description: |
@@ -12647,9 +12711,11 @@ components:
           items: { $ref: '#/components/schemas/Invoice' }
         meta: { $ref: '#/components/schemas/ListMeta' }
         total_amount:
-          description: Somma dei totali delle fatture filtrate.
+          description: |
+            Somma dei totali dei documenti filtrati, con le note di credito col segno meno
+            (negativa se nel filtro le note superano le fatture).
           allOf:
-            - $ref: '#/components/schemas/Amount'
+            - $ref: '#/components/schemas/SignedAmount'
         outstanding_amount:
           description: |
             Somma di quanto resta da pagare o incassare (remaining_amount) delle fatture
@@ -13570,7 +13636,9 @@ components:
             - $ref: '#/components/schemas/CashFlowAmounts'
     VatSummaryAmounts:
       type: object
-      description: Imponibile e IVA delle fatture emesse e ricevute, e il saldo IVA.
+      description: |
+        Imponibile e IVA delle fatture emesse e ricevute, e il saldo IVA. Le note di credito
+        contano col segno meno: in un periodo con più note che fatture gli importi sono negativi.
       required:
         - sales_taxable
         - sales_vat
@@ -13580,18 +13648,18 @@ components:
         - reverse_charge_taxable
         - balance
       properties:
-        sales_taxable: { $ref: '#/components/schemas/Amount' }
-        sales_vat: { $ref: '#/components/schemas/Amount' }
+        sales_taxable: { $ref: '#/components/schemas/SignedAmount' }
+        sales_vat: { $ref: '#/components/schemas/SignedAmount' }
         sales_split_payment_vat:
           description: Parte di sales_vat in scissione dei pagamenti.
           allOf:
-            - $ref: '#/components/schemas/Amount'
-        purchases_taxable: { $ref: '#/components/schemas/Amount' }
-        purchases_vat: { $ref: '#/components/schemas/Amount' }
+            - $ref: '#/components/schemas/SignedAmount'
+        purchases_taxable: { $ref: '#/components/schemas/SignedAmount' }
+        purchases_vat: { $ref: '#/components/schemas/SignedAmount' }
         reverse_charge_taxable:
           description: Imponibile delle fatture ricevute con natura N6.x, parte di purchases_taxable.
           allOf:
-            - $ref: '#/components/schemas/Amount'
+            - $ref: '#/components/schemas/SignedAmount'
         balance:
           description: IVA a debito se positivo, a credito se negativo.
           allOf:

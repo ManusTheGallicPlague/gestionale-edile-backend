@@ -345,11 +345,11 @@ describe('received invoice of a purchase order', () => {
     const csv = await s.browser.call('GET', `${s.base}/export?sort=date`)
     expect(csv.statusCode).toBe(200)
     const rows = csv.body.replace('\uFEFF', '').trim().split('\r\n')
-    expect(rows[0]?.endsWith(';Note;Ordine')).toBe(true)
+    expect(rows[0]?.endsWith(';Note;Ordine;Documento;Fattura stornata')).toBe(true)
     const byNumber = (n: string) => rows.find((r) => r.split(';')[1] === n) ?? ''
-    expect(byNumber('A/1').endsWith(';2026/001')).toBe(true)
-    expect(byNumber('A/2').endsWith(';2026/1234')).toBe(true)
-    expect(byNumber('A/3').endsWith(';')).toBe(true)
+    expect(byNumber('A/1').endsWith(';2026/001;Fattura;')).toBe(true)
+    expect(byNumber('A/2').endsWith(';2026/1234;Fattura;')).toBe(true)
+    expect(byNumber('A/3').endsWith(';;Fattura;')).toBe(true)
   })
   it('filters the orders invoiced over their total, only for who sees invoices', async () => {
     const s = await scene([...ALL, 'purchases.view'])

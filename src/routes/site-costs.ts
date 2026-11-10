@@ -7,7 +7,7 @@ import { enterCompany } from '../company.js'
 import { amountToCents, centsToAmount } from '../money.js'
 import { UUID } from '../deadlines/input.js'
 import { isIsoDate } from '../suppliers/documents.js'
-import { DUE_CENTS, PAID_CENTS, REMAINING_CENTS } from './invoices.js'
+import { COLLECTED_CENTS, REMAINING_CENTS, SIGNED_TAXABLE } from './invoices.js'
 import {
   ApiError,
   ValidationFailed,
@@ -520,11 +520,10 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
                coalesce(sum(amount_cents) filter (where category = 'other'), 0) as other
              from public.site_costs where site_id = $1
            ), revenue as (
-             select coalesce(sum(i.taxable_cents), 0) as cents,
-               coalesce(sum(case when i.paid_on is not null then ${DUE_CENTS}
-                 else ${PAID_CENTS} end), 0) as collected,
+             select coalesce(sum(${SIGNED_TAXABLE}), 0) as cents,
+               coalesce(sum(${COLLECTED_CENTS}), 0) as collected,
                coalesce(sum(${REMAINING_CENTS}), 0) as to_collect,
-               coalesce(sum(i.taxable_cents) filter (where i.retention_release), 0) as released
+               coalesce(sum(${SIGNED_TAXABLE}) filter (where i.retention_release), 0) as released
              from public.invoices i where i.site_id = $1 and i.direction = 'issued'
            ), certified as (
              select coalesce(sum(a.cents), 0) as cents,
@@ -558,7 +557,7 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
                (count(*) filter (where o.status = 'received'))::int as received,
                coalesce(sum(t.cents), 0) as cents,
                coalesce(sum(t.cents) filter (where o.status = 'received'), 0) as received_cents,
-               coalesce(sum((select sum(i.taxable_cents) from public.invoices i
+               coalesce(sum((select sum(${SIGNED_TAXABLE}) from public.invoices i
                  where i.purchase_order_id = o.id)), 0) as invoiced
              from public.purchase_orders o
              cross join lateral (
@@ -762,8 +761,8 @@ async function readMonthlyCosts(client: PoolClient, site: string, revenue: boole
     `with lines as (
        select day, cents, kind from (${COST_LINES}) x where x.site_id = $1
        union all
-       select invoice_date, taxable_cents, 'invoiced' from public.invoices
-       where $2 and site_id = $1 and direction = 'issued'
+       select i.invoice_date, ${SIGNED_TAXABLE}, 'invoiced' from public.invoices i
+       where $2 and i.site_id = $1 and i.direction = 'issued'
      ), months as (
        select generate_series(date_trunc('month', min(day)), date_trunc('month', max(day)),
          interval '1 month')::date as month

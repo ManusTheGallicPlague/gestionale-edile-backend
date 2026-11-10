@@ -883,6 +883,16 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            and i.direction = 'issued'`,
         [companyId],
       )
+      // A credit note: a 5,000 euro discount granted on the first SAL invoice, after a delay.
+      await client.query(
+        `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
+           site_id, description, taxable_cents, vat_cents, document_type, credited_invoice_id)
+         select $1, 'issued', 'NC-1/' || i.number_year, i.invoice_date + 15, i.client_id,
+           i.site_id, 'Sconto per ritardo nella consegna', 500000, 110000, 'credit_note', i.id
+         from public.invoices i where i.company_id = $1 and i.number like '1/%'
+           and i.direction = 'issued'`,
+        [companyId],
+      )
       await client.query(
         `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, client_id,
            supplier_id, status, done_at, invoice_id)
@@ -891,7 +901,10 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            i.taxable_cents + i.vat_cents - i.withholding_cents
              - case when i.split_payment then i.vat_cents else 0 end
              - case when i.paid_on is null then (select coalesce(sum(ip.amount_cents), 0)
-                 from public.invoice_payments ip where ip.invoice_id = i.id) else 0 end,
+                 from public.invoice_payments ip where ip.invoice_id = i.id) else 0 end
+             - case when i.paid_on is null then (select coalesce(sum(n.taxable_cents
+                 + n.vat_cents), 0) from public.invoices n where n.credited_invoice_id = i.id)
+               else 0 end,
            i.client_id, i.supplier_id,
            case when i.paid_on is null then 'open' else 'done' end,
            case when i.paid_on is not null then now() end, i.id

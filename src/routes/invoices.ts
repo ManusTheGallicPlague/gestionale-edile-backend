@@ -31,6 +31,8 @@ export const DIRECTIONS = ['issued', 'received'] as const
 type Direction = (typeof DIRECTIONS)[number]
 const PAYMENT_STATUSES = ['open', 'overdue', 'paid'] as const
 type PaymentStatus = (typeof PAYMENT_STATUSES)[number]
+const DOCUMENT_TYPES = ['invoice', 'credit_note'] as const
+type DocumentType = (typeof DOCUMENT_TYPES)[number]
 
 /** Taxable and VAT stay below 10^13 cents each, so the total fits the database check. */
 const MAX_CENTS = 10n ** 13n
@@ -57,6 +59,10 @@ interface InvoiceInput {
   split_payment: boolean | undefined
   /** undefined when absent: false on creation, unchanged on update. */
   retention_release: boolean | undefined
+  /** undefined when absent: invoice on creation, unchanged on update. */
+  document_type: DocumentType | undefined
+  /** undefined when absent: null on creation, unchanged on update. */
+  credited_invoice_id: string | null | undefined
   due_date: string | null
   paid_on: string | null
   notes: string | null
@@ -88,6 +94,10 @@ interface InvoiceRow {
   due_cents: string
   paid_cents: string
   remaining_cents: string
+  document_type: DocumentType
+  credited_invoice_id: string | null
+  credited_invoice_number: string | null
+  credited_cents: string
   due_date: string | null
   paid_on: string | null
   payment_status: PaymentStatus
@@ -107,21 +117,54 @@ const STATUS_LABELS: Record<PaymentStatus, string> = {
   paid: 'Pagata',
 }
 
-/** Amount due: the total less the withholding and, with split payment, less the VAT. */
-export const DUE_CENTS = `i.taxable_cents + i.vat_cents - i.withholding_cents
-    - case when i.split_payment then i.vat_cents else 0 end`
+/** -1 for a credit note, which counts with the minus sign wherever invoices are summed. */
+export const SIGN = `(case when i.document_type = 'credit_note' then -1 else 1 end)`
+
+/** Taxable amount, VAT and total with the sign of the document (minus on credit notes). */
+export const SIGNED_TAXABLE = `(${SIGN} * i.taxable_cents)`
+export const SIGNED_VAT = `(${SIGN} * i.vat_cents)`
+export const SIGNED_TOTAL = `(${SIGN} * (i.taxable_cents + i.vat_cents))`
+
+/**
+ * Amount due: the total less the withholding and, with split payment, less the VAT. On a
+ * credit note (no withholding, no split payment) it is minus its total.
+ */
+export const DUE_CENTS = `(${SIGN} * (i.taxable_cents + i.vat_cents - i.withholding_cents
+    - case when i.split_payment then i.vat_cents else 0 end))`
 
 /** Sum of the payments registered on the invoice (instalments, advances). */
 export const PAID_CENTS = `(select coalesce(sum(ip.amount_cents), 0) from public.invoice_payments ip
     where ip.invoice_id = i.id)`
 
-/** What is left to pay: the amount due less the payments; zero once the invoice is paid. */
-export const REMAINING_CENTS = `case when i.paid_on is not null then 0
-    else ${DUE_CENTS} - ${PAID_CENTS} end`
+/** Sum of the credit notes that credit the invoice: they lower what is left to pay. */
+export const CREDITED_CENTS = `(select coalesce(sum(n.taxable_cents + n.vat_cents), 0)
+    from public.invoices n where n.credited_invoice_id = i.id)`
+
+/**
+ * What is left to pay: the amount due less the payments and the credit notes; zero once the
+ * invoice is paid, and always zero on a credit note (it is counted on its invoice).
+ */
+export const REMAINING_CENTS = `case when i.paid_on is not null or i.document_type = 'credit_note'
+    then 0 else ${DUE_CENTS} - ${PAID_CENTS} - ${CREDITED_CENTS} end`
+
+/**
+ * What was collected (or paid): the payments, or the amount due less the credit notes when the
+ * invoice is marked paid without payments; zero on a credit note.
+ */
+export const COLLECTED_CENTS = `case when i.document_type = 'credit_note' then 0
+    when i.paid_on is not null then greatest(${PAID_CENTS}, ${DUE_CENTS} - ${CREDITED_CENTS})
+    else ${PAID_CENTS} end`
 
 // "Today" is the Italian one, not the server's.
+/**
+ * Settled: marked paid, a credit note (nothing to pay of its own), or an invoice whose credit
+ * notes cover what the payments left.
+ */
+export const SETTLED = `(i.paid_on is not null or i.document_type = 'credit_note'
+    or (${CREDITED_CENTS} > 0 and ${DUE_CENTS} - ${PAID_CENTS} - ${CREDITED_CENTS} <= 0))`
+
 const PAYMENT_STATUS = `case
-    when i.paid_on is not null then 'paid'
+    when ${SETTLED} then 'paid'
     when i.due_date < (now() at time zone 'Europe/Rome')::date then 'overdue'
     else 'open'
   end`
@@ -137,6 +180,8 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
     i.withholding_cents::text as withholding_cents, i.split_payment, i.retention_release,
     (${DUE_CENTS})::text as due_cents, ${PAID_CENTS}::text as paid_cents,
     (${REMAINING_CENTS})::text as remaining_cents,
+    i.document_type, i.credited_invoice_id, ci.number as credited_invoice_number,
+    ${CREDITED_CENTS}::text as credited_cents,
     i.due_date::text as due_date, i.paid_on::text as paid_on,
     ${PAYMENT_STATUS} as payment_status, d.id as deadline_id,
     (select ${ATTACHMENT_JSON} from public.invoice_files f where f.invoice_id = i.id) as file,
@@ -146,7 +191,8 @@ const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invo
   left join public.suppliers p on p.id = i.supplier_id
   left join public.sites s on s.id = i.site_id
   left join public.purchase_orders o on o.id = i.purchase_order_id
-  left join public.deadlines d on d.invoice_id = i.id`
+  left join public.deadlines d on d.invoice_id = i.id
+  left join public.invoices ci on ci.id = i.credited_invoice_id`
 
 const SORTS = {
   date: 'i.invoice_date asc, i.created_at asc, i.id asc',
@@ -185,6 +231,12 @@ function toContract(row: InvoiceRow) {
     amount_due: centsToAmount(row.due_cents),
     paid_amount: centsToAmount(row.paid_cents),
     remaining_amount: centsToAmount(row.remaining_cents),
+    document_type: row.document_type,
+    credited_invoice_id: row.credited_invoice_id,
+    credited_invoice: row.credited_invoice_id
+      ? { id: row.credited_invoice_id, number: row.credited_invoice_number ?? '' }
+      : null,
+    credited_amount: centsToAmount(row.credited_cents),
     due_date: row.due_date,
     paid_on: row.paid_on,
     payment_status: row.payment_status,
@@ -323,6 +375,15 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
     if (typeof raw.retention_release !== 'boolean') add('retention_release', 'Indica vero o falso.')
     else retention_release = raw.retention_release
   }
+  let document_type: DocumentType | undefined
+  if ('document_type' in raw && raw.document_type !== undefined) {
+    document_type = DOCUMENT_TYPES.find((t) => t === raw.document_type)
+    if (!document_type) add('document_type', 'Indica se è una fattura o una nota di credito.')
+  }
+  let credited_invoice_id: string | null | undefined
+  if ('credited_invoice_id' in raw && raw.credited_invoice_id !== undefined) {
+    credited_invoice_id = id('credited_invoice_id', 'Fattura non trovata.')
+  }
   const due_date = date('due_date')
   if (
     due_date !== null &&
@@ -361,6 +422,8 @@ function parseInvoiceInput(body: unknown): InvoiceInput {
     withholding_cents,
     split_payment,
     retention_release,
+    document_type,
+    credited_invoice_id,
     due_date,
     paid_on,
     notes,
@@ -434,6 +497,160 @@ async function checkReferences(client: PoolClient, input: InvoiceInput) {
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
 }
 
+const CREDITED_FKEY = 'invoices_credited_invoice_fkey'
+
+/**
+ * A credit note credits an invoice of the same direction, subject, site and order, without a
+ * due date, payments, SAL, withholding, split payment or retention release, and within what is
+ * left to pay on it (refunds come later). An invoice with credit notes keeps direction,
+ * subject, site and order, and its amount due stays above the payments and the notes.
+ * Locks the credited invoice, so two notes written together cannot both fit.
+ */
+async function checkCreditNote(client: PoolClient, input: InvoiceInput, selfId: string | null) {
+  const errors: FieldErrors = {}
+  if (input.document_type !== 'credit_note') {
+    if (input.credited_invoice_id) {
+      errors.credited_invoice_id = ['Solo una nota di credito storna una fattura.']
+    }
+    if (selfId) {
+      // Locks the invoice: a credit note written meanwhile waits for this change.
+      await client.query('select 1 from public.invoices where id = $1 for update', [selfId])
+      const { rows } = await client.query<{
+        notes: number
+        taxable: string
+        vat: string
+        credited: string
+        paid: string
+        same: boolean
+      }>(
+        `select count(n.id)::int as notes, coalesce(sum(n.taxable_cents), 0)::text as taxable,
+           coalesce(sum(n.vat_cents), 0)::text as vat,
+           coalesce(sum(n.taxable_cents + n.vat_cents), 0)::text as credited,
+           ${PAID_CENTS}::text as paid,
+           bool_and(n.direction = $2 and n.client_id is not distinct from $3
+             and n.supplier_id is not distinct from $4 and n.site_id is not distinct from $5
+             and n.purchase_order_id is not distinct from $6) as same
+         from public.invoices i left join public.invoices n on n.credited_invoice_id = i.id
+         where i.id = $1 group by i.id`,
+        [
+          selfId,
+          input.direction,
+          input.client_id,
+          input.supplier_id,
+          input.site_id,
+          input.purchase_order_id ?? null,
+        ],
+      )
+      const row = rows[0]
+      if (row && row.notes > 0) {
+        if (!row.same) {
+          errors._ = [
+            'La fattura ha note di credito: direzione, cliente o fornitore, cantiere e ordine non si cambiano.',
+          ]
+        }
+        const due =
+          BigInt(input.taxable_cents) +
+          BigInt(input.vat_cents) -
+          BigInt(input.withholding_cents ?? '0') -
+          (input.split_payment ? BigInt(input.vat_cents) : 0n)
+        if (
+          BigInt(input.taxable_cents) < BigInt(row.taxable) ||
+          BigInt(input.vat_cents) < BigInt(row.vat) ||
+          due - BigInt(row.paid) < BigInt(row.credited)
+        ) {
+          errors.taxable_amount = [
+            `Le note di credito (${centsToAmount(row.credited)}) superano quanto resta da pagare.`,
+          ]
+        }
+      }
+    }
+    if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+    return
+  }
+  const note = 'Non si indica su una nota di credito.'
+  if (input.due_date) errors.due_date = [note]
+  if (input.paid_on) errors.paid_on = [note]
+  if (input.progress_statement_id) errors.progress_statement_id = [note]
+  if (input.withholding_cents && input.withholding_cents !== '0') {
+    errors.withholding_amount = [note]
+  }
+  if (input.split_payment) errors.split_payment = [note]
+  if (input.retention_release) errors.retention_release = [note]
+  if (!input.credited_invoice_id) {
+    errors.credited_invoice_id = ['Scegli la fattura che la nota di credito storna.']
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  const { rows } = await client.query<{
+    document_type: DocumentType
+    direction: Direction
+    client_id: string | null
+    supplier_id: string | null
+    site_id: string | null
+    purchase_order_id: string | null
+    taxable: string
+    vat: string
+    room: string
+  }>(
+    `select i.document_type, i.direction, i.client_id, i.supplier_id, i.site_id,
+       i.purchase_order_id,
+       (i.taxable_cents - coalesce(o.taxable, 0))::text as taxable,
+       (i.vat_cents - coalesce(o.vat, 0))::text as vat,
+       (case when i.paid_on is not null then 0
+         else ${DUE_CENTS} - ${PAID_CENTS} - coalesce(o.total, 0) end)::text as room
+     from public.invoices i
+     left join lateral (select sum(n.taxable_cents) as taxable, sum(n.vat_cents) as vat,
+         sum(n.taxable_cents + n.vat_cents) as total
+       from public.invoices n
+       where n.credited_invoice_id = i.id and n.id is distinct from $2::uuid) o on true
+     where i.id = $1
+     for update of i`,
+    [input.credited_invoice_id, selfId],
+  )
+  const invoice = rows[0]
+  const field = 'credited_invoice_id'
+  if (!invoice) errors[field] = ['Fattura non trovata.']
+  else if (invoice.document_type !== 'invoice') {
+    errors[field] = ['Si storna una fattura, non una nota di credito.']
+  } else if (
+    invoice.direction !== input.direction ||
+    invoice.client_id !== input.client_id ||
+    invoice.supplier_id !== input.supplier_id
+  ) {
+    errors[field] = ['La fattura stornata è di un altro cliente o fornitore.']
+  } else if (invoice.site_id !== input.site_id) {
+    errors.site_id = ['La nota di credito va sul cantiere della fattura stornata.']
+  } else if (invoice.purchase_order_id !== (input.purchase_order_id ?? null)) {
+    errors.purchase_order_id = ["La nota di credito va sull'ordine della fattura stornata."]
+  } else {
+    const total = BigInt(input.taxable_cents) + BigInt(input.vat_cents)
+    if (total > BigInt(invoice.room)) {
+      errors.taxable_amount = [
+        `La nota di credito supera quanto resta da pagare della fattura (${centsToAmount(invoice.room)}).`,
+      ]
+    } else if (BigInt(input.taxable_cents) > BigInt(invoice.taxable)) {
+      errors.taxable_amount = [
+        `Supera l'imponibile ancora da stornare (${centsToAmount(invoice.taxable)}).`,
+      ]
+    } else if (BigInt(input.vat_cents) > BigInt(invoice.vat)) {
+      errors.vat_amount = [`Supera l'IVA ancora da stornare (${centsToAmount(invoice.vat)}).`]
+    }
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+}
+
+/**
+ * A credit note written or deleted: its invoice takes a new version (what is left to pay has
+ * changed), and its paid state and deadline follow.
+ */
+async function syncCredited(client: PoolClient, invoiceId: string): Promise<void> {
+  await client.query(
+    'update public.invoices set version = version + 1, updated_at = now() where id = $1',
+    [invoiceId],
+  )
+  await syncPaid(client, invoiceId)
+  await syncDeadline(client, invoiceId)
+}
+
 function writeFailed(error: unknown): never {
   if (isUniqueViolation(error) && error.constraint === 'invoices_progress_statement_idx') {
     throw new ValidationFailed({
@@ -444,6 +661,9 @@ function writeFailed(error: unknown): never {
     throw new ValidationFailed({
       number: ['Questo numero è già stato registrato per lo stesso anno.'],
     })
+  }
+  if (isForeignKeyViolation(error) && error.constraint === CREDITED_FKEY) {
+    throw new ValidationFailed({ credited_invoice_id: ['Fattura non trovata.'] })
   }
   // A client, supplier or site deleted between the check and the write.
   if (isForeignKeyViolation(error)) {
@@ -467,9 +687,9 @@ async function syncDeadline(client: PoolClient, invoiceId: string): Promise<void
        supplier_id, status, done_at, invoice_id)
      select i.company_id, left('Fattura ' || i.number || ' – ' || coalesce(c.name, p.name), 200),
        i.due_date, case i.direction when 'issued' then 'invoice_out' else 'invoice_in' end,
-       case when i.paid_on is null then ${REMAINING_CENTS} else ${DUE_CENTS} end, i.client_id, i.supplier_id,
-       case when i.paid_on is null then 'open' else 'done' end,
-       case when i.paid_on is not null then now() end, i.id
+       case when i.paid_on is null then ${REMAINING_CENTS} else ${DUE_CENTS} end, i.client_id,
+       i.supplier_id, case when ${SETTLED} then 'done' else 'open' end,
+       case when ${SETTLED} then now() end, i.id
      from public.invoices i
      left join public.clients c on c.id = i.client_id
      left join public.suppliers p on p.id = i.supplier_id
@@ -494,7 +714,7 @@ async function syncPaid(client: PoolClient, invoiceId: string): Promise<void> {
   const { rows } = await client.query<{ paid: string | null; due: string; last: string | null }>(
     `select (select sum(amount_cents) from public.invoice_payments where invoice_id = i.id)::text
          as paid,
-       (${DUE_CENTS})::text as due,
+       (${DUE_CENTS} - ${CREDITED_CENTS})::text as due,
        (select max(payment_date) from public.invoice_payments where invoice_id = i.id)::text
          as last
      from public.invoices i where i.id = $1`,
@@ -936,9 +1156,9 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       )
       const count = await client.query<{ total: number; amount: string; outstanding: string }>(
         `select count(*)::int as total,
-           coalesce(sum(i.taxable_cents + i.vat_cents), 0)::text as amount,
+           coalesce(sum(${SIGNED_TOTAL}), 0)::text as amount,
            coalesce(sum(${REMAINING_CENTS})
-             filter (where i.paid_on is null), 0)::text as outstanding
+             filter (where not ${SETTLED}), 0)::text as outstanding
          from public.invoices i where ${where.join(' and ')}`,
         values.slice(0, filters),
       )
@@ -990,6 +1210,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             'Stato',
             'Note',
             'Ordine',
+            'Documento',
+            'Fattura stornata',
           ],
           rows.map((r) => [
             r.direction === 'issued' ? 'Emessa' : 'Ricevuta',
@@ -1013,6 +1235,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             STATUS_LABELS[r.payment_status],
             r.notes,
             r.purchase_order_number,
+            r.document_type === 'credit_note' ? 'Nota di credito' : 'Fattura',
+            r.credited_invoice_number,
           ]),
         )
       })
@@ -1043,16 +1267,19 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('invoices.create')) throw forbidden()
       const input = parseInvoiceInput(request.body)
+      input.document_type ??= 'invoice'
+      input.credited_invoice_id ??= null
       checkRetentionRelease(input)
       await checkReferences(client, input)
+      await checkCreditNote(client, input, null)
       const { rows } = await client
         .query<{ id: string }>(
           `insert into public.invoices (company_id, direction, number, invoice_date, client_id,
              supplier_id, site_id, description, taxable_cents, vat_cents, due_date, paid_on, notes,
              vat_nature, progress_statement_id, withholding_cents, split_payment, retention_release,
-             purchase_order_id)
+             purchase_order_id, document_type, credited_invoice_id)
            values (app.current_company_id(), $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,
-             $13, $14, $15, $16, $17, $18)
+             $13, $14, $15, $16, $17, $18, $19, $20)
            returning id`,
           [
             input.direction,
@@ -1073,11 +1300,14 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.split_payment ?? false,
             input.retention_release ?? false,
             input.purchase_order_id ?? null,
+            input.document_type,
+            input.credited_invoice_id,
           ],
         )
         .catch(writeFailed)
       const id = rows[0]?.id ?? ''
       await syncDeadline(client, id)
+      if (input.credited_invoice_id) await syncCredited(client, input.credited_invoice_id)
       return readOne(client, id)
     })
     if (!row) throw new Error('insert returned no row')
@@ -1129,8 +1359,17 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       if (input.retention_release === undefined) {
         input.retention_release = current.retention_release
       }
+      // Absent: the type and the credited invoice stay. The type never changes.
+      if (input.document_type === undefined) input.document_type = current.document_type
+      else if (input.document_type !== current.document_type) {
+        throw new ValidationFailed({ document_type: ['Il tipo di documento non si cambia.'] })
+      }
+      if (input.credited_invoice_id === undefined) {
+        input.credited_invoice_id = current.credited_invoice_id
+      }
       checkRetentionRelease(input)
       await checkReferences(client, input)
+      await checkCreditNote(client, input, id)
       const { rowCount } = await client
         .query(
           `update public.invoices
@@ -1140,7 +1379,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
                vat_nature = case when $9::bigint <> 0 then null
                                  when $16::boolean then $15::text else vat_nature end,
                progress_statement_id = $17, withholding_cents = $18, split_payment = $19,
-               retention_release = $20, purchase_order_id = $21, version = version + 1, updated_at = now()
+               retention_release = $20, purchase_order_id = $21, credited_invoice_id = $22,
+               version = version + 1, updated_at = now()
            where id = $13 and version = $14`,
           [
             input.direction,
@@ -1164,12 +1404,16 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             input.split_payment,
             input.retention_release,
             input.purchase_order_id,
+            input.credited_invoice_id,
           ],
         )
         .catch(writeFailed)
       if (!rowCount) return missingOrStale(client, id)
       await syncPaid(client, id)
       await syncDeadline(client, id)
+      for (const credited of new Set([current.credited_invoice_id, input.credited_invoice_id])) {
+        if (credited) await syncCredited(client, credited)
+      }
       return readOne(client, id)
     })
     if (!row) throw notFound()
@@ -1185,11 +1429,20 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const id = request.params.invoice ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const { rowCount } = await client.query(
-        'delete from public.invoices where id = $1 and version = $2',
-        [id, version],
-      )
-      if (!rowCount) await missingOrStale(client, id)
+      const { rows } = await client
+        .query<{ credited_invoice_id: string | null }>(
+          `delete from public.invoices where id = $1 and version = $2
+           returning credited_invoice_id`,
+          [id, version],
+        )
+        .catch((error: unknown) => {
+          if (isForeignKeyViolation(error) && error.constraint === CREDITED_FKEY) {
+            throw new ApiError(409, messages.invoiceHasCreditNotes, 'has_documents')
+          }
+          throw error
+        })
+      if (!rows[0]) await missingOrStale(client, id)
+      else if (rows[0].credited_invoice_id) await syncCredited(client, rows[0].credited_invoice_id)
     })
     return reply.code(204).send()
   })
@@ -1299,7 +1552,11 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       await bumpVersion(client, id, version)
       const current = await readOne(client, id)
       if (!current) throw notFound()
-      const room = BigInt(current.due_cents) - BigInt(current.paid_cents)
+      if (current.document_type === 'credit_note') {
+        throw new ApiError(409, messages.creditNoteNoPayments, 'credit_note')
+      }
+      const room =
+        BigInt(current.due_cents) - BigInt(current.paid_cents) - BigInt(current.credited_cents)
       if (current.paid_on !== null && current.paid_cents === '0') {
         throw new ValidationFailed({ amount: ['La fattura è già segnata come pagata.'] })
       }
