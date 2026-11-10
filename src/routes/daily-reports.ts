@@ -73,6 +73,7 @@ interface ReportRow {
   labor_hours: string
   overtime_hours: string
   weather_hours: string
+  travel_count: number
   vehicle_hours: string
   version: number
   created_at: Date
@@ -118,6 +119,8 @@ const SELECT = `select r.id, r.site_id, s.name as site_name, s.code as site_code
       where l.report_id = r.id), 0)::numeric(6, 2)::text as overtime_hours,
     coalesce((select sum(l.weather_hours) from public.daily_report_labor l
       where l.report_id = r.id), 0)::numeric(6, 2)::text as weather_hours,
+    (select count(*) from public.daily_report_labor l
+      where l.report_id = r.id and l.travel)::int as travel_count,
     coalesce((select sum(v.hours) from public.daily_report_vehicles v where v.report_id = r.id),
       0)::numeric(6, 2)::text as vehicle_hours,
     r.version, r.created_at, r.updated_at
@@ -146,6 +149,7 @@ function summary(row: ReportRow) {
     total_labor_hours: row.labor_hours,
     total_overtime_hours: row.overtime_hours,
     total_weather_hours: row.weather_hours,
+    travel_count: row.travel_count,
     total_vehicle_hours: row.vehicle_hours,
     created_by: row.created_by ? { id: row.created_by, name: row.created_by_name ?? '' } : null,
     submitted_at: row.submitted_at?.toISOString() ?? null,
@@ -698,6 +702,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             'Approvato da',
             'Ore straordinario',
             'Ore perse per maltempo',
+            'Dipendenti in trasferta',
           ],
           rows.map((r) => [
             italianDate(r.report_date),
@@ -713,6 +718,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             r.approved_by_name,
             r.overtime_hours.replace('.', ','),
             r.weather_hours.replace('.', ','),
+            r.travel_count,
           ]),
         )
       })

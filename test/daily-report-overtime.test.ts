@@ -101,7 +101,7 @@ describe('overtime in daily reports', () => {
 
     // The CSV of the reports has it near the end, before the hours lost to bad weather.
     const csv = await s.browser.call('GET', `${s.base}/export`)
-    expect(csv.body.trim().split('\r\n')[1]).toMatch(/;2,00;0,00$/)
+    expect(csv.body.trim().split('\r\n')[1]).toMatch(/;2,00;0,00;0$/)
 
     // The list has the total too.
     const list = await s.browser.call('GET', s.base)

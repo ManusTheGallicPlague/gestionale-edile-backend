@@ -2393,8 +2393,8 @@ paths:
         Permesso: reports.view. Stessi filtri e ordinamento dell'elenco, senza paginazione, nello
         stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con la
         virgola decimale (1234,50). In fondo le colonne «Ore straordinario»
-        (total_overtime_hours) e «Ore perse per maltempo» (total_weather_hours). Il file si chiama
-        rapportini.csv.
+        (total_overtime_hours), «Ore perse per maltempo» (total_weather_hours) e «Dipendenti in
+        trasferta» (travel_count). Il file si chiama rapportini.csv.
       parameters:
         - name: sort
           in: query
@@ -12377,6 +12377,7 @@ components:
         - total_labor_hours
         - total_overtime_hours
         - total_weather_hours
+        - travel_count
         - total_vehicle_hours
         - created_by
         - submitted_at
@@ -12410,6 +12411,12 @@ components:
           description: |
             Somma delle ore perse per maltempo dei dipendenti, fuori da total_labor_hours: un
             giorno di pioggia si riconosce dall'elenco senza aprire il rapportino.
+        travel_count:
+          type: integer
+          minimum: 0
+          description: |
+            Quanti dipendenti del rapportino sono in trasferta (travel) quel giorno: le trasferte
+            si vedono dall'elenco senza aprire il rapportino.
         total_vehicle_hours: { $ref: '#/components/schemas/Hours' }
         created_by:
           description: Chi ha scritto il rapportino; null per i dati caricati fuori dall'API.

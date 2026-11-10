@@ -99,8 +99,8 @@ describe('a whole day lost to bad weather', () => {
       expect.objectContaining({ total_labor_hours: '0.00', total_weather_hours: '16.00' }),
     ])
     const csv = await s.browser.call('GET', `${s.base}/export`)
-    expect(csvLines(csv.body)[0]?.split(';').at(-1)).toBe('Ore perse per maltempo')
-    expect(csvLines(csv.body)[1]?.split(';').slice(-2)).toEqual(['0,00', '16,00'])
+    expect(csvLines(csv.body)[0]?.split(';').at(-2)).toBe('Ore perse per maltempo')
+    expect(csvLines(csv.body)[1]?.split(';').slice(-3)).toEqual(['0,00', '16,00', '0'])
   })
 
   it('still rejects a row with neither worked nor lost hours, and zero hours of vehicles', async () => {

@@ -210,4 +210,43 @@ describe('travel in daily reports', () => {
       },
     ])
   })
+
+  it('counts the people on travel in the list and in the CSV of the reports', async () => {
+    const s = await scene()
+    const travel = await s.browser.call('POST', s.base, {
+      body: body(s, [
+        { employee_id: s.verdi, hours: '8', travel: true, description: null },
+        { employee_id: s.bassi, hours: '8', travel: true, description: null },
+      ]),
+    })
+    expect(travel.statusCode).toBe(201)
+    expect(travel.json<{ travel_count: number }>().travel_count).toBe(2)
+    const home = await s.browser.call('POST', s.base, {
+      body: body(
+        s,
+        [
+          { employee_id: s.verdi, hours: '8', travel: true, description: null },
+          { employee_id: s.bassi, hours: '8', description: null },
+        ],
+        '2026-11-06',
+      ),
+    })
+    expect(home.statusCode).toBe(201)
+    const list = await s.browser.call('GET', `${s.base}?sort=date`)
+    expect(list.statusCode).toBe(200)
+    expect(
+      list.json<{ data: { travel_count: number }[] }>().data.map((r) => r.travel_count),
+    ).toEqual([2, 1])
+    const csv = await s.browser.call('GET', `${s.base}/export?sort=date`)
+    expect(csv.statusCode).toBe(200)
+    const lines = csvLines(csv.body)
+    expect(lines[0]?.split(';').at(-1)).toBe('Dipendenti in trasferta')
+    expect(lines.slice(1).map((l) => l.split(';').at(-1))).toEqual(['2', '1'])
+
+    // Another company sees none of it.
+    const theirs = await scene()
+    const other = await theirs.browser.call('GET', theirs.base)
+    expect(other.json<{ data: unknown[] }>().data).toEqual([])
+    expect((await theirs.browser.call('GET', `${s.base}/export`)).statusCode).toBe(404)
+  })
 })
