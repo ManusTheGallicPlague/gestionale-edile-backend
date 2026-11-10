@@ -329,21 +329,30 @@ async function warehouseCounts(client: PoolClient) {
  * conditions as filter[compliance] in the supplier list.
  */
 async function subcontractorCounts(client: PoolClient, sites: boolean) {
-  const { rows } = await client.query<{ expired: number; expiring: number; no_valid_durc: number }>(
+  type Counts = {
+    expired: number
+    expiring: number
+    no_valid_durc: number
+    no_valid_credit_license: number
+  }
+  const { rows } = await client.query<Counts>(
     `select count(*) filter (where ${COMPLIANCE_SQL.expired})::int as expired,
        count(*) filter (where ${COMPLIANCE_SQL.expiring})::int as expiring,
-       count(*) filter (where ${COMPLIANCE_SQL.no_valid_durc})::int as no_valid_durc
+       count(*) filter (where ${COMPLIANCE_SQL.no_valid_durc})::int as no_valid_durc,
+       count(*) filter (where ${COMPLIANCE_SQL.no_valid_credit_license})::int
+         as no_valid_credit_license
      from public.suppliers
      where subcontractor and archived_at is null`,
   )
   // Active sites with a subcontractor on them (archived ones too) to check, as
   // filter[subcontractor_compliance] with filter[status]=active in listSites.
   const onActiveSites = async () => {
-    const irregular = (state: 'expired' | 'no_valid_durc') =>
+    const irregular = (state: 'expired' | 'no_valid_durc' | 'no_valid_credit_license') =>
       `count(*) filter (where exists (select 1 from public.suppliers
          where ${onSite('s.id')} and ${COMPLIANCE_SQL[state]}))::int`
-    const result = await client.query<{ expired: number; no_valid_durc: number }>(
-      `select ${irregular('expired')} as expired, ${irregular('no_valid_durc')} as no_valid_durc
+    const result = await client.query<Omit<Counts, 'expiring'>>(
+      `select ${irregular('expired')} as expired, ${irregular('no_valid_durc')} as no_valid_durc,
+         ${irregular('no_valid_credit_license')} as no_valid_credit_license
        from public.sites s where s.status = 'active'`,
     )
     return result.rows[0]
@@ -353,8 +362,10 @@ async function subcontractorCounts(client: PoolClient, sites: boolean) {
     expired: rows[0]?.expired ?? 0,
     expiring: rows[0]?.expiring ?? 0,
     no_valid_durc: rows[0]?.no_valid_durc ?? 0,
+    no_valid_credit_license: rows[0]?.no_valid_credit_license ?? 0,
     active_sites_expired: sites ? (active?.expired ?? 0) : null,
     active_sites_no_valid_durc: sites ? (active?.no_valid_durc ?? 0) : null,
+    active_sites_no_valid_credit_license: sites ? (active?.no_valid_credit_license ?? 0) : null,
   }
 }
 

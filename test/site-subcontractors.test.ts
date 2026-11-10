@@ -490,6 +490,12 @@ describe('active sites with irregular subcontractors in the dashboard', () => {
       'Due scaduti',
       'Senza DURC',
     ])
+    // The dashboard counts the same sites, and the subcontractors without one (Ok has it).
+    const after = await browser.call('GET', dashboard)
+    expect(after.json<{ subcontractors: unknown }>().subcontractors).toMatchObject({
+      no_valid_credit_license: 4,
+      active_sites_no_valid_credit_license: 2,
+    })
 
     // Another company does not see these sites.
     const theirs = await scene()
@@ -500,6 +506,8 @@ describe('active sites with irregular subcontractors in the dashboard', () => {
     expect(other.json<{ subcontractors: unknown }>().subcontractors).toMatchObject({
       active_sites_expired: 0,
       active_sites_no_valid_durc: 0,
+      no_valid_credit_license: 0,
+      active_sites_no_valid_credit_license: 0,
     })
   })
 })
