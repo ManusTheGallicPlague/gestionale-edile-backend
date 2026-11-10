@@ -688,6 +688,8 @@ Aggiunta il 10/11/2026, riprendendo un rinvio delle «Decisioni prese» del 06/1
 
 - [x] `invoice_payment` e `supplier_document` in `AuditEntity`, con i trigger del registro su `invoice_payments` e `supplier_documents`
   (fatto il 10/11/2026, migrazione 0086)
+- [x] `warehouse_movement` in `AuditEntity`, con il trigger del registro su `warehouse_movements`: il movimento sa chi l'ha inserito, ma non chi l'ha eliminato
+  (fatto il 10/11/2026, migrazione 0087)
 
 ## Decisioni prese
 
@@ -958,11 +960,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 10/11/2026: una nota di credito si elimina anche con rimborsi registrati, che spariscono con lei, come i pagamenti di una fattura eliminata.
 - 10/11/2026: `filter[retention_release]` nelle fatture è un sì/no come `filter[split_payment]` (422 su altri valori o ripetuto), senza vincolo sulla direzione: con `filter[direction]=received` e `true` l'elenco è vuoto, non un errore. Niente svincolo nei dati di sviluppo, come deciso il 07/11.
 - 10/11/2026: i pagamenti delle fatture (anche i rimborsi) e i documenti dei fornitori hanno righe proprie nel registro (`invoice_payment`, `supplier_document`), come i documenti dei dipendenti; il file allegato al documento no, come per gli altri file. I pagamenti eliminati insieme alla fattura lasciano anche loro la riga di eliminazione.
+- 10/11/2026: anche i movimenti di magazzino hanno righe proprie nel registro (`warehouse_movement`), compresi quelli creati da inventario, resi e ordini: una riga per movimento, senza raggrupparli per operazione.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-10 03:45 UTC: stesso giro, terzo push: sezione 102, movimenti di magazzino nel registro delle modifiche (migrazione 0087, `warehouse_movement` in `AuditEntity` e nel CSV; test con carico da 0.1 creato ed eliminato con l'autore, movimento di un'altra azienda escluso, riga «Movimento di magazzino» nel CSV). Nessuna tabella e nessun permesso nuovi. Niente a metà; piano tutto spuntato. 997 test.
 - 2026-11-10 03:40 UTC: stesso giro, secondo push: sezione 102, pagamenti delle fatture e documenti dei fornitori nel registro delle modifiche (migrazione 0086, `invoice_payment` e `supplier_document` in `AuditEntity` e nel CSV; test con due pagamenti da 0.10 e 0.20 e l'eliminazione del secondo, DURC creato, rinnovato con il solo `expires_on` ed eliminato, documento di un'altra azienda escluso, riga «Documento del fornitore» nel CSV). Nessuna tabella e nessun permesso nuovi. Niente a metà; piano tutto spuntato. 996 test.
 - 2026-11-10 03:21 UTC: main verde all'inizio (994 test); main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 101, ripresa da un rinvio delle «Decisioni prese»: `filter[retention_release]` nell'elenco e nel CSV delle fatture (test con 0.10 + 0.20 di svincoli = 0.30 di totale e residuo, solo le altre con `false`, elenco vuoto con le ricevute, CSV con la colonna «Svincolo ritenuta» a Sì, svincolo omonimo di un'altra azienda escluso, 422 su valore non valido e ripetuto anche nel CSV). Nessuna tabella e nessun permesso nuovi. Niente a metà; piano tutto spuntato. 995 test.
 - 2026-11-10 02:21 UTC: main verde all'inizio (988 test); main locale era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Fatto l'ultimo pezzo della sezione 100, i rimborsi (migrazione 0085, `refund`): nota su fattura pagata come nota di rimborso, rimborsi registrati sulla nota col segno meno in pagato, prima nota e CSV, fattura che deve restare pagata (409 sull'eliminazione del pagamento, 422 sulla modifica), nota non sotto i rimborsi; test su 0.10 + 0.20 rimborsati, rimborso ricevuto da un fornitore, nota scritta prima del pagamento senza rimborsi, ritenuta che limita il rimborso, nota di un'altra azienda; corretto in corsa `syncPaid` che trattava la nota come fattura (lo prende il test sulla modifica della nota). Seed con il rimborso del nolo ponteggio. Niente a metà; piano tutto spuntato. 994 test.

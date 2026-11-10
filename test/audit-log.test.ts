@@ -703,6 +703,59 @@ describe('audit log', () => {
     expect(csv.body).toContain(`Documento del fornitore;${docId};Modifica`)
   })
 
+  it('records who entered and who deleted a warehouse movement', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'warehouse.view',
+      'warehouse.create',
+      'warehouse.delete',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const item = await ctx.owner.query<{ id: string }>(
+      "insert into public.warehouse_items (company_id, code, name, unit) values ($1, 'CEM', 'Cemento', 'kg') returning id",
+      [company.id],
+    )
+    const base = `/api/companies/${company.slug}`
+    const moved = await browser.call('POST', `${base}/warehouse/movements`, {
+      body: {
+        item_id: item.rows[0]?.id,
+        date: '2026-11-10',
+        kind: 'in',
+        quantity: '0.1',
+        site_id: null,
+        notes: null,
+      },
+    })
+    expect(moved.statusCode).toBe(201)
+    const id = moved.json<{ id: string }>().id
+    const deleted = await browser.call('DELETE', `${base}/warehouse/movements/${id}`)
+    expect(deleted.statusCode).toBe(204)
+    // Another company's movement: not in this log.
+    const other = await fx.company()
+    const theirs = await ctx.owner.query<{ id: string }>(
+      "insert into public.warehouse_items (company_id, code, name, unit) values ($1, 'CEM', 'Cemento', 'kg') returning id",
+      [other.id],
+    )
+    await ctx.owner.query(
+      `insert into public.warehouse_movements (company_id, item_id, movement_date, kind, quantity)
+       values ($1, $2, '2026-11-10', 'in', 1)`,
+      [other.id, theirs.rows[0]?.id],
+    )
+    const author = { id: user.id, name: 'Utente di prova' }
+    const res = await browser.call('GET', `${base}/audit-log?filter[entity]=warehouse_movement`)
+    expect(res.statusCode).toBe(200)
+    expect(res.json<{ data: Entry[] }>().data.map((e) => [e.entity_id, e.action, e.user])).toEqual([
+      [id, 'delete', author],
+      [id, 'create', author],
+    ])
+    const csv = await browser.call(
+      'GET',
+      `${base}/audit-log/export?filter[entity]=warehouse_movement&filter[action]=delete`,
+    )
+    expect(csv.body).toContain(`Movimento di magazzino;${id};Eliminazione`)
+  })
+
   it('filters by day on Italian time and exports the log in CSV', async () => {
     const { company, user } = await fx.companyWithUser([
       'audit.view',

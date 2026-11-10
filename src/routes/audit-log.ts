@@ -35,6 +35,7 @@ const ENTITIES = [
   'employee_document',
   'invoice_payment',
   'supplier_document',
+  'warehouse_movement',
 ] as const
 
 /** Italian name of each kind of record, for the CSV. */
@@ -63,6 +64,7 @@ const ENTITY_LABELS: Record<(typeof ENTITIES)[number], string> = {
   employee_document: 'Documento del dipendente',
   invoice_payment: 'Pagamento di una fattura',
   supplier_document: 'Documento del fornitore',
+  warehouse_movement: 'Movimento di magazzino',
 }
 
 const ACTION_LABELS: Record<string, string> = {

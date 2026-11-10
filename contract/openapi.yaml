@@ -10616,6 +10616,7 @@ components:
         employee_document: documento di un dipendente (idoneità, attestati dei corsi...).
         invoice_payment: pagamento, incasso o rimborso registrato su una fattura.
         supplier_document: documento di un fornitore (DURC, visura...).
+        warehouse_movement: carico o scarico di magazzino (anche inventario e resi).
       enum:
         [
           client,
@@ -10642,6 +10643,7 @@ components:
           employee_document,
           invoice_payment,
           supplier_document,
+          warehouse_movement,
         ]
     AuditEntry:
       type: object
