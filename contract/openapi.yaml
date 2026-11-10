@@ -8663,8 +8663,11 @@ paths:
         (422 sotto amount). Quando la somma arriva ad amount_due la fattura risulta pagata:
         paid_on prende la data dell'ultimo pagamento e la scadenza nello scadenziario si chiude;
         finché non ci arriva, paid_on è null e la scadenza resta aperta con l'importo residuo.
-        Le note di credito della fattura abbassano quanto si può pagare. Su una nota di credito
-        risponde 409 con code credit_note.
+        Le note di credito della fattura abbassano quanto si può pagare. Su una nota di
+        rimborso (refund true) registra un rimborso, fatto al cliente o ricevuto dal fornitore,
+        entro refund_due_amount (422 sotto amount): conta col segno meno in paid_amount e nella
+        prima nota. Su una nota di credito che non è di rimborso risponde 409 con code
+        credit_note.
       security:
         - session: []
           csrf: []
@@ -8687,7 +8690,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: Su una nota di credito non si registrano pagamenti (code credit_note).
+          description: |
+            Sulla nota di credito, che non è di rimborso, non si registrano pagamenti (code
+            credit_note).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -8710,6 +8715,9 @@ paths:
         Permesso: invoices.update. If-Match con la versione della fattura: la risposta è la
         fattura con la versione nuova, con paid_on ricalcolato dai pagamenti rimasti (null se
         non ne resta nessuno). Un pagamento si elimina e si registra di nuovo: non si modifica.
+        Su una nota di rimborso elimina un rimborso. Una fattura con note di rimborso deve
+        restare pagata almeno per il loro totale: altrimenti risponde 409 con code
+        has_documents.
       security:
         - session: []
           csrf: []
@@ -8726,6 +8734,13 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: |
+            La fattura ha note di rimborso e non resterebbe pagata per il loro totale (code
+            has_documents).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
@@ -8744,7 +8759,8 @@ paths:
         numero della fattura e nelle note del pagamento, senza distinguere maiuscole e
         minuscole). collected e paid sono le somme di incassi e pagamenti che
         rispettano i filtri, non solo della pagina. Le fatture segnate pagate senza pagamenti
-        registrati non compaiono.
+        registrati non compaiono. I rimborsi registrati sulle note di credito compaiono col
+        segno meno, tra gli incassi (emesse) o i pagamenti (ricevute).
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -8786,6 +8802,8 @@ paths:
         Permesso: invoices.view. Stessi filtri e ordinamento di listPayments, senza
         paginazione, nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026,
         importi con la virgola decimale (1234,50). Il file si chiama incassi-e-pagamenti.csv.
+        Nella colonna Tipo: Incasso, Pagamento, Rimborso fatto (a un cliente) o Rimborso
+        ricevuto (da un fornitore), con l'importo dei rimborsi col segno meno.
       parameters:
         - name: filter
           in: query
@@ -12486,7 +12504,10 @@ components:
             dello stesso ordine (422 sotto credited_invoice_id, site_id o purchase_order_id).
             Le note di una fattura non superano quanto resta da pagare (amount_due meno i
             pagamenti), né il suo imponibile né la sua IVA (422 sotto taxable_amount o
-            vat_amount): i rimborsi di fatture già pagate non si registrano ancora. Una nota
+            vat_amount). Su una fattura già pagata la nota è di rimborso (refund) e sta entro
+            quanto è stato pagato, meno le altre note di rimborso; non scende sotto i rimborsi
+            già registrati su di lei, e una fattura con note di rimborso deve restare pagata
+            almeno per il loro totale (422). Una nota
             non ha due_date, paid_on, SAL, ritenuta, scissione dei pagamenti né svincolo (422
             sotto il campo). Facoltativo: se manca, alla creazione vale null e alla modifica
             resta com'è.
@@ -12537,6 +12558,8 @@ components:
               credited_invoice_id,
               credited_invoice,
               credited_amount,
+              refund,
+              refund_due_amount,
               created_at,
               updated_at,
             ]
@@ -12555,8 +12578,23 @@ components:
                 - type: 'null'
             credited_amount:
               description: |
-                Somma dei totali delle note di credito che stornano questa fattura; 0.00 sulle
-                note. Calcolato, si ignora nel corpo.
+                Somma dei totali delle note di credito che stornano questa fattura, comprese le
+                note di rimborso; 0.00 sulle note. Calcolato, si ignora nel corpo.
+              allOf:
+                - $ref: '#/components/schemas/Amount'
+            refund:
+              description: |
+                Solo sulle note di credito: true se la nota è stata scritta su una fattura già
+                pagata (nota di rimborso). Non abbassa quanto resta da pagare della fattura: i
+                soldi tornano indietro con i rimborsi registrati sulla nota
+                (createInvoicePayment), che contano col segno meno nel pagato e nella prima
+                nota. Si decide quando la nota viene scritta e non cambia. Sempre false sulle
+                fatture. Calcolato, si ignora nel corpo.
+              type: boolean
+            refund_due_amount:
+              description: |
+                Su una nota di rimborso, quanto resta da rimborsare: il suo totale meno i
+                rimborsi registrati; 0.00 altrimenti. Calcolato, si ignora nel corpo.
               allOf:
                 - $ref: '#/components/schemas/Amount'
             file:
@@ -12605,15 +12643,18 @@ components:
               allOf:
                 - $ref: '#/components/schemas/SignedAmount'
             paid_amount:
-              description: Somma degli incassi o pagamenti registrati (listInvoicePayments).
+              description: |
+                Somma degli incassi o pagamenti registrati (listInvoicePayments). Su una nota di
+                rimborso è la somma dei rimborsi col segno meno.
               allOf:
-                - $ref: '#/components/schemas/Amount'
+                - $ref: '#/components/schemas/SignedAmount'
             remaining_amount:
               description: |
                 Quanto resta da incassare o pagare: amount_due meno paid_amount e meno
                 credited_amount; 0.00 quando la fattura è pagata e sempre sulle note di credito,
                 che contano sulla fattura stornata. Una fattura coperta da pagamenti e note
-                risulta pagata (payment_status paid); una nota di credito è sempre paid.
+                risulta pagata (payment_status paid); una nota di credito è sempre paid. Quanto
+                resta da rimborsare su una nota di rimborso è in refund_due_amount.
               allOf:
                 - $ref: '#/components/schemas/Amount'
             payment_status: { $ref: '#/components/schemas/InvoicePaymentStatus' }
@@ -12659,15 +12700,27 @@ components:
           type: [string, 'null']
           maxLength: 500
     InvoicePayment:
-      allOf:
-        - $ref: '#/components/schemas/InvoicePaymentInput'
-        - type: object
-          required: [id, created_at]
-          properties:
-            id: { $ref: '#/components/schemas/Id' }
-            created_at:
-              type: string
-              format: date-time
+      type: object
+      required: [id, date, amount, method, notes, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        date: { $ref: '#/components/schemas/Date' }
+        amount:
+          description: |
+            Importo incassato o pagato. Un rimborso registrato su una nota di credito ha il
+            segno meno.
+          allOf:
+            - $ref: '#/components/schemas/SignedAmount'
+        method:
+          oneOf:
+            - $ref: '#/components/schemas/InvoicePaymentMethod'
+            - type: 'null'
+        notes:
+          type: [string, 'null']
+          maxLength: 500
+        created_at:
+          type: string
+          format: date-time
     PaymentList:
       type: object
       required: [data, meta, collected, paid]
@@ -12702,13 +12755,17 @@ components:
                           - type: 'null'
         meta: { $ref: '#/components/schemas/ListMeta' }
         collected:
-          description: Somma degli incassi (fatture emesse) filtrati.
+          description: |
+            Somma degli incassi (fatture emesse) filtrati, meno i rimborsi fatti ai clienti
+            sulle note di credito; può essere negativa.
           allOf:
-            - $ref: '#/components/schemas/Amount'
+            - $ref: '#/components/schemas/SignedAmount'
         paid:
-          description: Somma dei pagamenti (fatture ricevute) filtrati.
+          description: |
+            Somma dei pagamenti (fatture ricevute) filtrati, meno i rimborsi ricevuti dai
+            fornitori sulle note di credito; può essere negativa.
           allOf:
-            - $ref: '#/components/schemas/Amount'
+            - $ref: '#/components/schemas/SignedAmount'
     InvoiceList:
       type: object
       required: [data, meta, total_amount, outstanding_amount]

@@ -893,6 +893,26 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            and i.direction = 'issued'`,
         [companyId],
       )
+      // A refund note: the scaffolding came down a week early on the paid rental invoice, and
+      // the supplier gave the 366 euro back by transfer.
+      await client.query(
+        `with n as (
+           insert into public.invoices (company_id, direction, number, invoice_date,
+             supplier_id, site_id, description, taxable_cents, vat_cents, document_type,
+             credited_invoice_id, refund)
+           select $1, 'received', 'NC-4/' || i.number_year, i.paid_on + 5, i.supplier_id,
+             i.site_id, 'Nolo ponteggio, settimana non goduta', 30000, 6600, 'credit_note',
+             i.id, true
+           from public.invoices i where i.company_id = $1 and i.number like 'F-097/%'
+             and i.paid_on is not null
+           returning id, invoice_date
+         )
+         insert into public.invoice_payments
+           (company_id, invoice_id, payment_date, amount_cents, method, notes)
+         select $1, n.id, n.invoice_date + 3, 36600, 'bank_transfer', 'Rimborso del nolo'
+         from n`,
+        [companyId],
+      )
       await client.query(
         `insert into public.deadlines (company_id, title, due_on, kind, amount_cents, client_id,
            supplier_id, status, done_at, invoice_id)
