@@ -4131,6 +4131,9 @@ paths:
         giorno per dipendente e per mezzo, da chi ha più ore. I costi, alle ore per il costo
         orario fissato all'approvazione (attuale per i rapportini non approvati), ci sono solo con costs.view; senza quel permesso, o senza costo orario,
         sono null. Senza filtri conta tutti i rapportini del cantiere.
+        Per ogni dipendente anche le ore di straordinario (comprese nelle ore) e i giorni di
+        trasferta sul cantiere; le ore perse per maltempo sono nelle ore mensili per cantiere
+        (exportMonthlySiteHours).
       parameters:
         - name: filter
           in: query
@@ -15108,7 +15111,8 @@ components:
               type: array
               items:
                 type: object
-                required: [employee, hours, days, cost, first_date, last_date]
+                required:
+                  [employee, hours, days, overtime_hours, travel_days, cost, first_date, last_date]
                 properties:
                   employee:
                     type: object
@@ -15119,6 +15123,13 @@ components:
                       last_name: { type: string }
                   hours: { $ref: '#/components/schemas/WorkHours' }
                   days: { type: integer }
+                  overtime_hours:
+                    description: Di cui straordinario, somma di overtime_hours sul cantiere.
+                    allOf: [{ $ref: '#/components/schemas/WorkHours' }]
+                  travel_days:
+                    type: integer
+                    minimum: 0
+                    description: Giorni con travel sul cantiere, tra quelli con ore.
                   cost: { $ref: '#/components/schemas/NullableWorkCost' }
                   first_date: { $ref: '#/components/schemas/Date' }
                   last_date: { $ref: '#/components/schemas/Date' }

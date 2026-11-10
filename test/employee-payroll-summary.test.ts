@@ -11,7 +11,7 @@ beforeAll(async () => {
 })
 afterAll(() => ctx.close())
 
-const ALL: Permission[] = ['reports.view', 'employees.view']
+const ALL: Permission[] = ['reports.view', 'employees.view', 'sites.view']
 
 interface Payroll {
   overtime_hours: string
@@ -165,5 +165,43 @@ describe('voci delle buste paga nel riepilogo ore del dipendente', () => {
       `/api/companies/${s.company.slug}/employees/${other.verdi}/work-summary`,
     )
     expect(res.statusCode).toBe(404)
+  })
+})
+
+describe('straordinario e trasferte per dipendente nel riepilogo ore del cantiere', () => {
+  it('somma lo straordinario e conta i giorni di trasferta di ogni dipendente sul cantiere', async () => {
+    const s = await scene()
+    await s.row(s.villa, s.verdi, '2026-11-02', 'approved', {
+      hours: '9',
+      overtime: '1',
+      travel: true,
+    })
+    await s.row(s.villa, s.verdi, '2026-11-03', 'draft', { hours: '10', overtime: '2.25' })
+    // A whole day lost to the rain is no day worked, even with travel.
+    await s.row(s.villa, s.verdi, '2026-11-04', 'draft', { hours: '0', travel: true, weather: '8' })
+    // Another site does not count.
+    await s.row(s.condo, s.verdi, '2026-11-02', 'approved', { hours: '2', travel: true })
+    await s.row(s.villa, s.bassi, '2026-11-05', 'approved', { hours: '8' })
+
+    const res = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/sites/${s.villa}/work-summary`,
+    )
+    expect(res.statusCode).toBe(200)
+    const rows = res.json<{
+      labor: { rows: { employee: { id: string }; overtime_hours: string; travel_days: number }[] }
+    }>().labor.rows
+    expect(rows.map((r) => [r.employee.id, r.overtime_hours, r.travel_days])).toEqual([
+      [s.verdi, '3.25', 1],
+      [s.bassi, '0.00', 0],
+    ])
+
+    const approved = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/sites/${s.villa}/work-summary?filter[status]=approved`,
+    )
+    expect(
+      approved.json<{ labor: { rows: { overtime_hours: string }[] } }>().labor.rows[0],
+    ).toMatchObject({ overtime_hours: '1.00', travel_days: 1 })
   })
 })

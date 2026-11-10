@@ -213,11 +213,20 @@ async function readSiteSummary(
     }
     return { rows, hours: centsToAmount(hundredths.toString()), cost: cost(cents.toString()) }
   }
-  const labor = await part<ResourceRow & { first_name: string; last_name: string }>(
+  const labor = await part<
+    ResourceRow & {
+      first_name: string
+      last_name: string
+      overtime_hours: string
+      travel_days: number
+    }
+  >(
     'daily_report_labor',
     'employee_id',
     'employees',
-    'x.first_name, x.last_name',
+    `x.first_name, x.last_name,
+     sum(h.overtime_hours)::numeric(10, 2)::text as overtime_hours,
+     count(distinct r.report_date) filter (where h.travel)::int as travel_days`,
     'lower(x.last_name), lower(x.first_name)',
   )
   const vehicles = await part<ResourceRow & { name: string; plate: string | null }>(
@@ -241,6 +250,8 @@ async function readSiteSummary(
       rows: labor.rows.map((r) => ({
         employee: { id: r.id, first_name: r.first_name, last_name: r.last_name },
         ...common(r),
+        overtime_hours: r.overtime_hours,
+        travel_days: r.travel_days,
       })),
     },
     vehicles: {
