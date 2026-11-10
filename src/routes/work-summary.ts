@@ -85,7 +85,8 @@ async function readSummary(
   if (!canSeeReports) throw forbidden()
   const filters = readFilters(query)
   const values: unknown[] = [id]
-  const where = [`h.${source.column} = $1`]
+  // A day lost entirely to bad weather has no hours: it is not a day worked.
+  const where = [`h.${source.column} = $1`, 'h.hours > 0']
   if (filters.from) {
     values.push(filters.from)
     where.push(`r.report_date >= $${values.length}::date`)
@@ -167,7 +168,7 @@ async function readSiteSummary(
   if (!canSeeReports) throw forbidden()
   const filters = readFilters(query)
   const values: unknown[] = [siteId]
-  const where = ['r.site_id = $1']
+  const where = ['r.site_id = $1', 'h.hours > 0']
   if (filters.from) {
     values.push(filters.from)
     where.push(`r.report_date >= $${values.length}::date`)

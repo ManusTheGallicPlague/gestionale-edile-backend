@@ -12246,6 +12246,15 @@ components:
       description: Ore come stringa con il punto, da 0.01 a 24; in uscita sempre con due decimali.
       pattern: '^\d{1,4}(\.\d{1,2})?$'
       examples: ['8.00', '7.5']
+    LaborHours:
+      type: string
+      description: |
+        Ore lavorate da un dipendente in un rapportino, come stringa con il punto, da 0 a 24; in
+        uscita sempre con due decimali. 0 solo per una giornata persa tutta per maltempo, con
+        weather_hours maggiore di 0 (altrimenti 422 sotto labor.N.hours): la riga non conta
+        come giorno lavorato nei riepiloghi delle ore e nelle ore mensili per cantiere.
+      pattern: '^\d{1,4}(\.\d{1,2})?$'
+      examples: ['8.00', '7.5', '0']
     OvertimeHoursInput:
       type: [string, 'null']
       description: |
@@ -12266,8 +12275,8 @@ components:
       description: |
         Ore della giornata normale che il dipendente non ha lavorato per maltempo (pioggia, neve,
         gelo), per la cassa integrazione per intemperie: non sono comprese in hours (mandato a
-        casa dopo 3 ore per la pioggia: hours 3, weather_hours 5), e hours più weather_hours non
-        supera 24. Da 0 a 24, con il punto. Facoltativo, null o assente vale 0. Non hanno costi.
+        casa dopo 3 ore per la pioggia: hours 3, weather_hours 5; giornata persa tutta: hours 0,
+        weather_hours 8), e hours più weather_hours non supera 24. Da 0 a 24, con il punto. Facoltativo, null o assente vale 0. Non hanno costi.
       pattern: '^\d{1,2}(\.\d{1,2})?$'
       examples: ['5', '0']
     WeatherHours:
@@ -12308,7 +12317,7 @@ components:
             required: [employee_id, hours, description]
             properties:
               employee_id: { $ref: '#/components/schemas/Id' }
-              hours: { $ref: '#/components/schemas/Hours' }
+              hours: { $ref: '#/components/schemas/LaborHours' }
               overtime_hours: { $ref: '#/components/schemas/OvertimeHoursInput' }
               travel:
                 type: [boolean, 'null']
@@ -12426,7 +12435,7 @@ components:
                   employee_id: { $ref: '#/components/schemas/Id' }
                   first_name: { type: string }
                   last_name: { type: string }
-                  hours: { $ref: '#/components/schemas/Hours' }
+                  hours: { $ref: '#/components/schemas/LaborHours' }
                   overtime_hours: { $ref: '#/components/schemas/OvertimeHours' }
                   travel:
                     type: boolean

@@ -499,7 +499,7 @@ export function siteCostSummaryRoutes(app: FastifyInstance, db: Db): void {
           `with labor as (
              select coalesce(sum(l.hours), 0) as hours,
                coalesce(sum(round(l.hours * coalesce(l.hourly_cost_cents, e.hourly_cost_cents, 0))), 0) as cents,
-               count(*) filter (where coalesce(l.hourly_cost_cents, e.hourly_cost_cents) is null) as missing
+               count(*) filter (where l.hours > 0 and coalesce(l.hourly_cost_cents, e.hourly_cost_cents) is null) as missing
              from public.daily_report_labor l
              join public.daily_reports r on r.id = l.report_id and r.status = 'approved'
              join public.employees e on e.id = l.employee_id

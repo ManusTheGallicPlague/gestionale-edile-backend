@@ -783,6 +783,14 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where r.id = l.report_id and r.company_id = $1 and r.report_date = '2026-11-06'`,
         [companyId],
       )
+      // The first of the team was told not to come at all: the whole day lost to bad weather.
+      await client.query(
+        `update public.daily_report_labor l set hours = 0, weather_hours = 8
+         from public.daily_reports r
+         where r.id = l.report_id and r.company_id = $1 and r.report_date = '2026-11-06'
+           and l.position = 1`,
+        [companyId],
+      )
       // The site of the reports is out of town: the team is in travel (trasferta) that day too.
       await client.query(
         `update public.daily_report_labor l set travel = true

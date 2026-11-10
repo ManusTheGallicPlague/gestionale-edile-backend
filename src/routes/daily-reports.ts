@@ -241,9 +241,16 @@ export function parseReportInput(body: unknown): ReportInput {
       else if (id && seen.has(id.toLowerCase())) add(`${path}.${idField}`, 'Già presente.')
       seen.add(id.toLowerCase())
       const hours = text(entry, 'hours', `${path}.hours`, 5) ?? ''
+      // People may have no worked hours on a day lost entirely to bad weather (checked below).
+      const least = field === 'labor' ? 0 : 0.01
       if (!errors[`${path}.hours`]) {
-        if (!HOURS.test(hours) || Number(hours) <= 0 || Number(hours) > 24) {
-          add(`${path}.hours`, 'Ore non valide: da 0.01 a 24, con il punto (es. 7.5).')
+        if (!HOURS.test(hours) || Number(hours) < least || Number(hours) > 24) {
+          add(
+            `${path}.hours`,
+            field === 'labor'
+              ? 'Ore non valide: da 0 a 24, con il punto (es. 7.5).'
+              : 'Ore non valide: da 0.01 a 24, con il punto (es. 7.5).',
+          )
         }
       }
       // Overtime is optional (absent or null is no overtime) and only for people.
@@ -292,6 +299,19 @@ export function parseReportInput(body: unknown): ReportInput {
             weather_hours = weather
           }
         }
+      }
+      // A row of a person says something: worked hours, or hours lost to bad weather.
+      if (
+        field === 'labor' &&
+        !errors[`${path}.hours`] &&
+        !errors[`${path}.weather_hours`] &&
+        Number(hours) === 0 &&
+        Number(weather_hours) === 0
+      ) {
+        add(
+          `${path}.hours`,
+          'Indica le ore lavorate, oppure le ore perse per maltempo se non ha lavorato.',
+        )
       }
       const description = text(entry, 'description', `${path}.description`, 500)
       return { id: id.toLowerCase(), hours, overtime_hours, travel, weather_hours, description }
@@ -915,7 +935,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
         }>(
           `select e.last_name, e.first_name, e.tax_code,
              s.name as site_name, s.code as site_code, s.address as site_address,
-             count(distinct r.report_date)::int as days,
+             count(distinct r.report_date) filter (where l.hours > 0)::int as days,
              sum(l.hours)::numeric(8, 2)::text as hours,
              sum(l.overtime_hours)::numeric(8, 2)::text as overtime,
              count(distinct r.report_date) filter (where l.travel)::int as travel_days,
@@ -1301,13 +1321,16 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
               travel: boolean
               description: string | null
             }>(
-              `select l.employee_id, l.hours::text as hours,
+              // A day lost entirely to bad weather proposes a normal day, not zero hours.
+              `select l.employee_id,
+                 case when l.hours = 0 then $2::numeric else l.hours end::numeric(4, 2)::text
+                   as hours,
                  l.overtime_hours::text as overtime_hours, l.travel, l.description
                from public.daily_report_labor l
                join public.employees e on e.id = l.employee_id and e.active
                where l.report_id = $1
                order by lower(e.last_name), lower(e.first_name), e.id`,
-              [previousId],
+              [previousId, STANDARD_DAY_HOURS],
             )
             const machines = await client.query<{
               vehicle_id: string
