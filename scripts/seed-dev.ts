@@ -727,7 +727,7 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
            (select id from public.employees where company_id = $1 and last_name = 'Galli'),
            null, null
          union all
-         select $1, 'Revisione furgone', current_date + 12, 'vehicle', null, null,
+         select $1, 'Revisione furgone', current_date + 12, 'vehicle', 'biennial', null,
            (select id from public.vehicles where company_id = $1 and plate = 'AA000AA'), null
          union all
          select $1, 'Scadenza occupazione suolo pubblico', current_date + 30, 'other', null,

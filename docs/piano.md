@@ -23,7 +23,7 @@ Si lavora in ordine: si prende il primo compito non spuntato. Un compito si spun
 ### 2. Scadenziario
 - [x] Scadenze: titolo, data, tipo (`durc`, `insurance`, `tax`, `invoice_in`, `invoice_out`, `contract`, `vehicle`, `other`), importo facoltativo, collegamento facoltativo a cliente o fornitore, note, stato (`open`/`done`), `done_at`
 - [x] Elenco con intervallo di date (`filter[from]`, `filter[to]`) per il calendario, filtri per tipo, stato e soggetto; ordinamento per data
-- [x] Ricorrenze semplici (mensile, trimestrale, annuale): completare una scadenza ricorrente crea la successiva
+- [x] Ricorrenze semplici (mensile, trimestrale, semestrale, annuale, biennale): completare una scadenza ricorrente crea la successiva
 - [x] Riepilogo per la dashboard: scadute, in scadenza nei prossimi 7 e 30 giorni
 - [x] Le scadenze dei documenti dei fornitori compaiono nello scadenziario
 
@@ -663,6 +663,17 @@ Aggiunta il 09/11/2026, con il piano tutto spuntato: il registro delle modifiche
 
 - [x] `filter[action]` (`create`, `update`, `delete`) in `listAuditLog` ed `exportAuditLog`, insieme agli altri filtri; 422 su valori diversi (anche `constructor`) o ripetuto; nessuna migrazione, nessun permesso nuovo
 
+### 99. Ricorrenze semestrale e biennale
+Aggiunta il 10/11/2026, con il piano tutto spuntato: lo scadenziario ripeteva le scadenze ogni mese, tre mesi o anno, ma in un'impresa edile molte scadenze tornano ogni sei mesi (controllo degli estintori, verifiche periodiche delle attrezzature) o ogni due anni (revisione dei mezzi dopo la prima), e l'ufficio doveva ricrearle a mano.
+
+- [x] `semiannual` (Semestrale) e `biennial` (Biennale) in `DeadlineRecurrence`, nel controllo della tabella (migrazione 0083), nella scadenza successiva creata da `complete` (31/08 + sei mesi → 28/02, 29/02/2028 + due anni → 28/02/2030), nel CSV e nel calendario; nessun permesso nuovo
+
+### 100. Note di credito
+Aggiunta il 10/11/2026: il registro delle fatture conosce solo fatture (TD01), ma uno sconto concesso dopo, un reso al fornitore o una fattura sbagliata si chiudono con una nota di credito (TD04), che oggi l'ufficio non può registrare senza falsare saldi e IVA. Tocca tutti i totali delle fatture, quindi va in pezzi; ogni pezzo deve lasciare i totali giusti.
+
+- [ ] `document_type` (`invoice`, `credit_note`) e `credited_invoice_id` (fattura stornata, stessa direzione e stesso soggetto) nella fattura, con importi in ingresso positivi; la nota di credito vale col segno meno in `amount_due`/`remaining_amount`, nei totali dell'elenco e nel CSV, nei saldi e negli estratti conto di clienti e fornitori; niente scadenza di pagamento creata dalla nota
+- [ ] La nota di credito col segno meno nel riepilogo IVA, nella previsione di cassa, nella dashboard, nei ricavi del cantiere e del cliente e nel fatturato degli ordini ai fornitori
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -919,11 +930,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 09/11/2026: la ricerca nelle assenze guarda anche il nome del dipendente, sia «Nome Cognome» sia «Cognome Nome», perché in ufficio si scrive il nome più spesso di quanto si scelga dall'elenco; vale anche per il calendario, che ha gli stessi filtri dell'elenco.
 - 09/11/2026: la ricerca nei crediti e nei debiti è `filter[q]` come negli altri elenchi con `filter` (non il parametro `search` delle anagrafiche) e guarda nome, partita IVA e codice fiscale, non email o città: servono a trovare chi ha chiamato o il mittente di un sollecito.
 - 09/11/2026: nel registro delle modifiche il filtro per azione usa i valori del contratto (`create`, `update`, `delete`), non le etichette italiane del CSV.
+- 10/11/2026: ricorrenze nuove `semiannual` e `biennial` invece di un intervallo libero (ogni N mesi): restano un elenco chiuso, come in un calendario, e coprono estintori e revisioni dei mezzi; il primo controllo a quattro anni di un mezzo nuovo si scrive come scadenza semplice.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-10 00:21 UTC: main verde all'inizio (977 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Piano tutto spuntato: aggiunta e fatta la sezione 99, ricorrenze `semiannual` e `biennial` delle scadenze (migrazione 0083; test sulla successiva a fine mese e dal 29 febbraio, sulle etichette del CSV; seed con la revisione del furgone biennale). Aggiunta la sezione 100, note di credito (TD04), in due pezzi non ancora iniziati: toccano tutti i totali delle fatture. Niente a metà. 982 test.
 - 2026-11-09 23:36 UTC: stesso giro, terzo push: sezione 98, `filter[action]` nel registro delle modifiche e nel suo CSV (test sulle sole eliminazioni con autore, sulle sole creazioni in ordine, insieme a `filter[entity]`, registro di un'altra azienda vuoto e 404 sul nostro, CSV con la sola eliminazione, 422 su etichetta italiana, `constructor` e valore ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 977 test.
 - 2026-11-09 23:31 UTC: stesso giro, secondo push: sezione 97, `filter[site]` dichiarato nel contratto di `exportEstimates`, che il codice accettava già (test sul CSV di un solo cantiere, sul cantiere di un'altra azienda e sul 422; test sul contratto che confronta i parametri di ogni `…/export` con quelli del suo elenco, che falliva solo per i computi). Niente a metà; piano tutto spuntato. 977 test.
 - 2026-11-09 23:21 UTC: main era di nuovo staccato (HEAD detached): riallineato a `origin/main`, nessun lavoro perso. Main verde all'inizio (975 test); il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 96: `filter[q]` nei crediti verso i clienti e nei debiti verso i fornitori e nei loro CSV (test sul nome in maiuscolo con spazi, 0.10 + 0.20 = 0.30 con le somme del filtro, partita IVA e codice fiscale in minuscolo, `%` e `_` come testo, testo di soli spazi ignorato, insieme a `filter[overdue]`, fornitore, CSV, cliente omonimo di un'altra azienda escluso, 422 oltre 100 caratteri e ripetuto anche nel CSV). Niente a metà; piano tutto spuntato. 976 test.

@@ -273,7 +273,11 @@ describe('recurrences', () => {
   it.each([
     ['monthly', '2026-01-31', '2026-02-28'],
     ['quarterly', '2026-11-16', '2027-02-16'],
+    ['semiannual', '2026-08-31', '2027-02-28'],
+    ['semiannual', '2026-11-16', '2027-05-16'],
     ['yearly', '2028-02-29', '2029-02-28'],
+    ['biennial', '2026-11-16', '2028-11-16'],
+    ['biennial', '2028-02-29', '2030-02-28'],
   ])('completing a %s deadline due %s creates the next on %s', async (recurrence, due, next) => {
     const { browser, base, clientId } = await scene()
     const created = await browser.call('POST', base, {

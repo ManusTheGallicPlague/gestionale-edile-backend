@@ -16,7 +16,7 @@ export const DEADLINE_KINDS = [
 ] as const
 export type DeadlineKind = (typeof DEADLINE_KINDS)[number]
 
-export const RECURRENCES = ['monthly', 'quarterly', 'yearly'] as const
+export const RECURRENCES = ['monthly', 'quarterly', 'semiannual', 'yearly', 'biennial'] as const
 export type Recurrence = (typeof RECURRENCES)[number]
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

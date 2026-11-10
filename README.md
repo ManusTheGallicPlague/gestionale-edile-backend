@@ -15,7 +15,7 @@ Fatte le sezioni 1–5 del [piano](docs/piano.md), salvo la prova dell'immagine 
 | Fornitori e subappaltatori: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
 | Documenti di regolarità dei fornitori (DURC, visura, assicurazione) con scadenza e stato | Fatto |
 | Scadenze: elenco per intervallo di date, filtri, creazione, modifica, fatta/riaperta, eliminazione | Fatto |
-| Ricorrenze mensili, trimestrali e annuali delle scadenze | Fatto |
+| Ricorrenze mensili, trimestrali, semestrali, annuali e biennali delle scadenze | Fatto |
 | Riepilogo delle scadenze per la dashboard | Fatto |
 | Documenti dei fornitori nello scadenziario | Fatto |
 | Computo metrico: testata (titolo, cliente, indirizzo, stato) | Fatto |

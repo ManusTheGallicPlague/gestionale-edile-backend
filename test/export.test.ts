@@ -150,6 +150,22 @@ describe('deadlines export', () => {
     expect(denied.statusCode).toBe(403)
     expect((await b.call('GET', url)).statusCode).toBe(404)
   })
+  it('names the six-month and two-year recurrences in Italian', async () => {
+    const { company, user } = await fx.companyWithUser(['deadlines.view'])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    await ctx.owner.query(
+      `insert into public.deadlines (company_id, title, due_on, kind, recurrence)
+       values ($1, 'Estintori', '2026-12-01', 'other', 'semiannual'),
+              ($1, 'Revisione autocarro', '2026-12-02', 'vehicle', 'biennial')`,
+      [company.id],
+    )
+    const res = await browser.call('GET', `/api/companies/${company.slug}/deadlines/export`)
+    expect(res.body.replace('\uFEFF', '').trim().split('\r\n').slice(1)).toEqual([
+      '01/12/2026;Estintori;Altro;;;;;;;Aperta;Semestrale;',
+      '02/12/2026;Revisione autocarro;Mezzo;;;;;;;Aperta;Biennale;',
+    ])
+  })
 })
 
 describe('estimates export', () => {

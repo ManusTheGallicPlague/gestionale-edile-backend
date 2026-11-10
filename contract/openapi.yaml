@@ -11445,10 +11445,11 @@ components:
     DeadlineRecurrence:
       type: string
       description: |
-        monthly (ogni mese), quarterly (ogni tre mesi), yearly (ogni anno). La data successiva
-        si ottiene aggiungendo l'intervallo; a fine mese si ferma all'ultimo giorno (31/01 →
-        28/02).
-      enum: [monthly, quarterly, yearly]
+        monthly (ogni mese), quarterly (ogni tre mesi), semiannual (ogni sei mesi, es.
+        controllo degli estintori), yearly (ogni anno), biennial (ogni due anni, es. revisione
+        di un mezzo dopo la prima). La data successiva si ottiene aggiungendo l'intervallo; a
+        fine mese si ferma all'ultimo giorno (31/01 → 28/02, 31/08 + sei mesi → 28/02).
+      enum: [monthly, quarterly, semiannual, yearly, biennial]
     SubjectRef:
       type: object
       description: Cliente o fornitore collegato, con il nome per mostrarlo senza altre chiamate.

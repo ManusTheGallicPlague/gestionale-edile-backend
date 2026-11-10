@@ -8,9 +8,11 @@ import { enterCompany } from '../company.js'
 import {
   DEADLINE_COLUMNS,
   DEADLINE_KINDS,
+  RECURRENCES,
   UUID,
   parseDeadlineInput,
   type DeadlineInput,
+  type Recurrence,
 } from '../deadlines/input.js'
 import {
   ApiError,
@@ -132,7 +134,9 @@ const KIND_LABELS: Record<string, string> = {
 const RECURRENCE_LABELS: Record<string, string> = {
   monthly: 'Mensile',
   quarterly: 'Trimestrale',
+  semiannual: 'Semestrale',
   yearly: 'Annuale',
+  biennial: 'Biennale',
 }
 
 function calendarDescription(r: DeadlineRow): string {
@@ -167,7 +171,16 @@ async function readOne(client: PoolClient, id: string): Promise<DeadlineRow | un
   return rows[0]
 }
 
-const STEP = { monthly: '1 month', quarterly: '3 months', yearly: '1 year' } as const
+const STEP: Record<Recurrence, string> = {
+  monthly: '1 month',
+  quarterly: '3 months',
+  semiannual: '6 months',
+  yearly: '1 year',
+  biennial: '2 years',
+}
+const NEXT_DUE_ON = `(due_on + case recurrence
+           ${RECURRENCES.map((r) => `when '${r}' then interval '${STEP[r]}'`).join('\n           ')}
+           end)::date`
 
 /**
  * A completed recurring deadline gets its next one, once: next_deadline_id remembers it, so
@@ -183,10 +196,7 @@ async function createNext(client: PoolClient, id: string): Promise<void> {
        insert into public.deadlines (company_id, title, due_on, kind, amount_cents, client_id,
          supplier_id, site_id, employee_id, vehicle_id, notes, recurrence)
        select company_id, title,
-         (due_on + case recurrence
-           when 'monthly' then interval '${STEP.monthly}'
-           when 'quarterly' then interval '${STEP.quarterly}'
-           else interval '${STEP.yearly}' end)::date,
+         ${NEXT_DUE_ON},
          kind, amount_cents, client_id, supplier_id, site_id, employee_id, vehicle_id, notes,
          recurrence
        from source
