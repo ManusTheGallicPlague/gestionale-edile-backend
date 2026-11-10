@@ -744,7 +744,8 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          from public.sites s, (values
            ('2026-11-04', 'approved', 'Sereno', 'Scavo di fondazione e posa dei ferri'),
            ('2026-11-05', 'submitted', 'Nuvoloso', 'Getto delle fondazioni'),
-           ('2026-11-06', 'draft', 'Pioggia', 'Disarmo e pulizia del cantiere')
+           ('2026-11-06', 'draft', 'Pioggia', 'Disarmo e pulizia del cantiere'),
+           ('2026-11-08', 'submitted', 'Sereno', 'Recupero della pioggia: copertura dei ferri')
          ) as r (day, status, weather, work_done)
          where s.company_id = $1 and s.code = '2026-01'`,
         [companyId],
@@ -766,6 +767,13 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
         `update public.daily_report_labor l set hours = 10, overtime_hours = 2
          from public.daily_reports r
          where r.id = l.report_id and r.company_id = $1 and r.report_date = '2026-11-05'`,
+        [companyId],
+      )
+      // Sunday morning to make up for the rain: four hours, holiday hours for the payroll.
+      await client.query(
+        `update public.daily_report_labor l set hours = 4
+         from public.daily_reports r
+         where r.id = l.report_id and r.company_id = $1 and r.report_date = '2026-11-08'`,
         [companyId],
       )
       // The site of the reports is out of town: the team is in travel (trasferta) that day too.
