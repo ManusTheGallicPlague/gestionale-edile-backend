@@ -76,14 +76,21 @@ describe('PDF of registered invoices', () => {
     const replaced = await s.upload(JPEG, 'image/jpeg', '"2"', 'file_name=scansione.jpg')
     expect(replaced.json<Invoice>().file).toMatchObject({ file_name: 'scansione.jpg' })
 
-    // Only the version moves: the audit log does not record the file.
+    // The audit log records the file as a field of the invoice: replacing it is one update.
     const audit = await s.browser.call(
       'GET',
       `/api/companies/${s.company.slug}/audit-log?filter[entity]=invoice&filter[entity_id]=${s.id}`,
     )
     expect(audit.statusCode).toBe(200)
-    const actions = audit.json<{ data: { action: string }[] }>().data.map((e) => e.action)
-    expect(actions).not.toContain('update')
+    expect(
+      audit
+        .json<{ data: { action: string; fields: string[] }[] }>()
+        .data.map((e) => [e.action, e.fields]),
+    ).toEqual([
+      ['update', ['file']],
+      ['update', ['file']],
+      ['create', []],
+    ])
 
     expect((await s.browser.call('DELETE', s.fileUrl)).statusCode).toBe(428)
     const removed = await s.browser.call('DELETE', s.fileUrl, { headers: { 'if-match': '"3"' } })
@@ -139,5 +146,19 @@ describe('PDF of registered invoices', () => {
       s.id,
     ])
     expect(left.rowCount).toBe(0)
+    // The file deleted with the invoice is not a change of its own.
+    const audit = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/audit-log?filter[entity]=invoice&filter[entity_id]=${s.id}`,
+    )
+    expect(
+      audit
+        .json<{ data: { action: string; fields: string[] }[] }>()
+        .data.map((e) => [e.action, e.fields]),
+    ).toEqual([
+      ['delete', []],
+      ['update', ['file']],
+      ['create', []],
+    ])
   })
 })

@@ -10678,8 +10678,10 @@ components:
             aggiunti o tolti dalla squadra), lines per un preventivo, un ordine al fornitore
             o un SAL (righe), items per un prezzario (voci), structure per un computo
             (capitoli, voci e misure), labor e vehicles per un rapportino (ore dei dipendenti
-            e dei mezzi) e dependencies per un'attività del cronoprogramma (attività da cui
-            dipende). Vuoto per create e delete.
+            e dei mezzi), dependencies per un'attività del cronoprogramma (attività da cui
+            dipende), file per una fattura o un documento di fornitore, mezzo o dipendente
+            (file allegato caricato, sostituito o tolto) e logo per i dati dell'azienda.
+            Vuoto per create e delete.
           items:
             type: string
         user:

@@ -76,6 +76,39 @@ async function scene(
 }
 
 describe('company logo', () => {
+  it('is in the audit log as the field logo of the company details', async () => {
+    const { browser, company, upload } = await scene(['settings.update', 'audit.view'])
+    expect((await upload(png(40, 20))).statusCode).toBe(204)
+    expect((await upload(jpeg(300, 100), 'image/jpeg')).statusCode).toBe(204)
+    expect(
+      (await browser.call('DELETE', `/api/companies/${company.slug}/settings/logo`)).statusCode,
+    ).toBe(204)
+    const log = await browser.call(
+      'GET',
+      `/api/companies/${company.slug}/audit-log?filter[entity]=company_profile`,
+    )
+    expect(log.statusCode).toBe(200)
+    expect(
+      log
+        .json<{ data: { entity_id: string; action: string; fields: string[] }[] }>()
+        .data.map((e) => [e.entity_id, e.action, e.fields]),
+    ).toEqual([
+      [company.id, 'update', ['logo']],
+      [company.id, 'update', ['logo']],
+      [company.id, 'update', ['logo']],
+    ])
+    // Another company's logo is not in this log.
+    const other = await fx.company()
+    await ctx.owner.query(
+      "insert into public.company_logos (company_id, content_type, data) values ($1, 'image/png', '\\x01')",
+      [other.id],
+    )
+    const all = await browser.call('GET', `/api/companies/${company.slug}/audit-log`)
+    expect(
+      all.json<{ data: { entity_id: string }[] }>().data.map((e) => e.entity_id),
+    ).not.toContain(other.id)
+  })
+
   it('is uploaded, read back, replaced and deleted', async () => {
     const { browser, url, upload } = await scene()
     expect((await browser.call('GET', url)).statusCode).toBe(404)
