@@ -588,6 +588,121 @@ describe('audit log', () => {
     ])
   })
 
+  it('records the payments of the invoices and the documents of the suppliers', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'invoices.view',
+      'invoices.create',
+      'invoices.update',
+      'suppliers.view',
+      'suppliers.update',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const one = async (sql: string, companyId = company.id) =>
+      (await ctx.owner.query<{ id: string }>(sql, [companyId])).rows[0]?.id ?? ''
+    const client = await one(
+      "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Mario Bianchi') returning id",
+    )
+    const supplier = await one(
+      "insert into public.suppliers (company_id, name) values ($1, 'Ponteggi Srl') returning id",
+    )
+    const base = `/api/companies/${company.slug}`
+    const created = await browser.call('POST', `${base}/invoices`, {
+      body: {
+        direction: 'issued',
+        number: '1/2026',
+        date: '2026-11-02',
+        client_id: client,
+        supplier_id: null,
+        site_id: null,
+        description: null,
+        taxable_amount: '0.30',
+        vat_amount: '0',
+        due_date: null,
+        paid_on: null,
+        notes: null,
+      },
+    })
+    expect(created.statusCode).toBe(201)
+    const invoice = created.json<{ id: string }>().id
+    const etag = async () =>
+      (await browser.call('GET', `${base}/invoices/${invoice}`)).headers.etag as string
+    for (const amount of ['0.10', '0.20']) {
+      const paid = await browser.call('POST', `${base}/invoices/${invoice}/payments`, {
+        headers: { 'If-Match': await etag() },
+        body: { date: '2026-11-10', amount, method: null, notes: null },
+      })
+      expect(paid.statusCode).toBe(200)
+    }
+    const payments = await browser.call('GET', `${base}/invoices/${invoice}/payments`)
+    const [first, second] = payments.json<{ data: { id: string }[] }>().data.map((p) => p.id)
+    const removed = await browser.call('DELETE', `${base}/invoices/${invoice}/payments/${second}`, {
+      headers: { 'If-Match': await etag() },
+    })
+    expect(removed.statusCode).toBe(200)
+
+    const documents = `${base}/suppliers/${supplier}/documents`
+    const durc = {
+      kind: 'durc',
+      description: null,
+      issued_on: '2026-10-01',
+      expires_on: '2027-01-29',
+      notes: null,
+    }
+    const doc = await browser.call('POST', documents, { body: durc })
+    expect(doc.statusCode).toBe(201)
+    const docId = doc.json<{ id: string }>().id
+    const renewed = await browser.call('PUT', `${documents}/${docId}`, {
+      headers: { 'if-match': '"1"' },
+      body: { ...durc, expires_on: '2027-02-28' },
+    })
+    expect(renewed.statusCode).toBe(200)
+    const deleted = await browser.call('DELETE', `${documents}/${docId}`, {
+      headers: { 'if-match': '"2"' },
+    })
+    expect(deleted.statusCode).toBe(204)
+
+    // Another company's payment and document stay out of this log.
+    const other = await fx.company()
+    const theirSupplier = await one(
+      "insert into public.suppliers (company_id, name) values ($1, 'Ponteggi Srl') returning id",
+      other.id,
+    )
+    await ctx.owner.query(
+      `insert into public.supplier_documents (company_id, supplier_id, kind) values ($1, $2, 'durc')`,
+      [other.id, theirSupplier],
+    )
+
+    const author = { id: user.id, name: 'Utente di prova' }
+    const paymentLog = await browser.call('GET', `${base}/audit-log?filter[entity]=invoice_payment`)
+    expect(paymentLog.statusCode).toBe(200)
+    expect(
+      paymentLog
+        .json<{ data: Entry[] }>()
+        .data.map((e) => `${e.entity_id} ${e.action} ${e.user?.id ?? ''}`)
+        .sort(),
+    ).toEqual(
+      [`${first} create`, `${second} create`, `${second} delete`]
+        .map((e) => `${e} ${user.id}`)
+        .sort(),
+    )
+    const docs = await browser.call('GET', `${base}/audit-log?filter[entity]=supplier_document`)
+    expect(
+      docs.json<{ data: Entry[] }>().data.map((e) => [e.entity_id, e.action, e.fields, e.user]),
+    ).toEqual([
+      [docId, 'delete', expect.anything(), author],
+      [docId, 'update', ['expires_on'], author],
+      [docId, 'create', expect.anything(), author],
+    ])
+    const csv = await browser.call(
+      'GET',
+      `${base}/audit-log/export?filter[entity]=supplier_document&filter[action]=update`,
+    )
+    expect(csv.statusCode).toBe(200)
+    expect(csv.body).toContain(`Documento del fornitore;${docId};Modifica`)
+  })
+
   it('filters by day on Italian time and exports the log in CSV', async () => {
     const { company, user } = await fx.companyWithUser([
       'audit.view',

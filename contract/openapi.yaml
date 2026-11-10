@@ -10614,6 +10614,8 @@ components:
         vehicle_maintenance: manutenzione di un mezzo. vehicle_refueling: rifornimento di un mezzo.
         vehicle_document: documento di un mezzo (assicurazione, bollo...).
         employee_document: documento di un dipendente (idoneità, attestati dei corsi...).
+        invoice_payment: pagamento, incasso o rimborso registrato su una fattura.
+        supplier_document: documento di un fornitore (DURC, visura...).
       enum:
         [
           client,
@@ -10638,6 +10640,8 @@ components:
           vehicle_refueling,
           vehicle_document,
           employee_document,
+          invoice_payment,
+          supplier_document,
         ]
     AuditEntry:
       type: object
