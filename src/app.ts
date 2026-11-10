@@ -55,6 +55,7 @@ import { healthRoutes } from './routes/health.js'
 import { numberingRoutes, settingsRoutes } from './routes/settings.js'
 import { meRoutes } from './routes/me.js'
 import { passwordResetRoutes } from './routes/password-reset.js'
+import { emailChangeRoutes } from './routes/email-change.js'
 import { LogMailer, type Mailer } from './mail/mailer.js'
 
 export function buildApp(
@@ -128,6 +129,7 @@ export function buildApp(
   healthRoutes(app, db)
   authRoutes(app, config, db)
   passwordResetRoutes(app, config, db, mailer)
+  emailChangeRoutes(app, config, db, mailer)
   meRoutes(app, config, db)
   clientRoutes(app, config, db)
   supplierRoutes(app, config, db)

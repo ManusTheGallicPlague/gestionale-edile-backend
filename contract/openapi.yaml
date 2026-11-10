@@ -167,7 +167,7 @@ paths:
     put:
       operationId: updateMe
       summary: Cambio del proprio nome
-      description: L'email non si cambia da qui.
+      description: L'email non si cambia da qui, ma con POST /api/me/email.
       security:
         - session: []
           csrf: []
@@ -210,6 +210,65 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/me/email:
+    post:
+      operationId: requestEmailChange
+      summary: Cambio della propria email, richiesta del link di conferma
+      description: |
+        Serve la password attuale: se è sbagliata la risposta è 422 sul campo
+        current_password e conta come tentativo di accesso fallito (dopo troppi, 429).
+        L'email non cambia subito: al nuovo indirizzo arriva un messaggio con il link
+        /conferma-email/{token}, valido 24 ore e una volta sola; al vecchio indirizzo arriva
+        un avviso. Una nuova richiesta annulla i link precedenti; al massimo 3 richieste l'ora.
+        Un indirizzo uguale a quello attuale o già usato da un altro account risponde 422 su
+        new_email.
+      security:
+        - session: []
+          csrf: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/EmailChangeInput' }
+      responses:
+        '204':
+          description: Link di conferma inviato al nuovo indirizzo
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/auth/email-change/{token}:
+    parameters:
+      - name: token
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          maxLength: 100
+    post:
+      operationId: confirmEmailChange
+      summary: Conferma della nuova email
+      description: |
+        Serve il token CSRF, non la sessione: il link si può aprire anche da un altro
+        dispositivo. Con un link valido l'email dell'account diventa quella nuova (per
+        accedere si usa da subito la nuova) e le sessioni restano aperte. Un link
+        sconosciuto, già usato, scaduto o di un account disattivato risponde 404; se nel
+        frattempo l'indirizzo è stato preso da un altro account, 409 con code email_in_use.
+      security:
+        - csrf: []
+      responses:
+        '204':
+          description: Email cambiata
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: L'indirizzo è già di un altro account (code email_in_use).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/me/sessions:
     get:
@@ -10253,7 +10312,7 @@ components:
           description: |
             Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
             Tutti quelli in uso: already_member, credit_note, csrf_invalid, current_session,
-            database_unavailable, has_documents, invalid_transition, last_manager,
+            database_unavailable, email_in_use, has_documents, invalid_transition, last_manager,
             number_in_use, order_not_draft, precondition_required, quote_not_draft,
             report_not_draft, role_in_use, self_deactivation, site_exists, stale_record,
             statement_draft_exists, statement_not_draft.
@@ -10320,6 +10379,19 @@ components:
           type: string
           format: password
           minLength: 10
+          maxLength: 200
+    EmailChangeInput:
+      type: object
+      required: [new_email, current_password]
+      properties:
+        new_email:
+          type: string
+          format: email
+          maxLength: 254
+        current_password:
+          type: string
+          format: password
+          minLength: 1
           maxLength: 200
     PasswordResetRequestInput:
       type: object

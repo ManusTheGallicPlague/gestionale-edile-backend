@@ -2416,9 +2416,7 @@ describe('the API role cannot cross companies', () => {
         c.query("update auth.users set name = 'Preso' where id = $1", [alice.id]),
       ),
     ).rejects.toThrow(/permission denied/)
-    await expect(
-      auth.query("update auth.users set email = 'x@example.test' where false"),
-    ).rejects.toThrow(/permission denied/)
+    // The auth role can change the email (confirmed email change), never activate accounts.
     await expect(auth.query('update auth.users set active = false where false')).rejects.toThrow(
       /permission denied/,
     )
@@ -2439,6 +2437,33 @@ describe('the API role cannot cross companies', () => {
     // The auth role can mark a token used, but cannot move it to another account.
     await expect(
       auth.query('update auth.password_resets set user_id = $1 where false', [alice.id]),
+    ).rejects.toThrow(/permission denied/)
+  })
+
+  it('email changes: the API role cannot read or write them', async () => {
+    await expect(
+      as(alice.id, companyA.id, (c) => c.query('select * from auth.email_changes')),
+    ).rejects.toThrow(/permission denied/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query(
+          `insert into auth.email_changes (user_id, new_email, token_hash, expires_at)
+           values ($1, 'preso@example.test', $2, now())`,
+          [alice.id, 'e'.repeat(64)],
+        ),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    await expect(
+      as(alice.id, companyA.id, (c) =>
+        c.query("update auth.users set email = 'preso@example.test' where id = $1", [alice.id]),
+      ),
+    ).rejects.toThrow(/permission denied/)
+    // The auth role can mark a token used, but cannot move it or change its address.
+    await expect(
+      auth.query('update auth.email_changes set user_id = $1 where false', [alice.id]),
+    ).rejects.toThrow(/permission denied/)
+    await expect(
+      auth.query("update auth.email_changes set new_email = 'x@example.test' where false"),
     ).rejects.toThrow(/permission denied/)
   })
 
