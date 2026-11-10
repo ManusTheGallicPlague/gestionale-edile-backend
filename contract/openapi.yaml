@@ -5906,9 +5906,13 @@ paths:
         Permessi come getEmployeeWorkSummary: employees.view (senza, 404) e reports.view (senza, 403).
         Gli stessi cantieri nello stesso ordine e con gli stessi filtri, nello stesso formato
         delle altre esportazioni: colonne Codice, Cantiere, Ore, Giorni, Costo, Primo giorno,
-        Ultimo giorno, e in fondo una riga Totale con ore, giorni e costo di tutto il periodo. Ore e
-        importi con la virgola decimale (12,50), date come 30/11/2026, costo vuoto se il costo
-        orario manca. Il file si chiama ore-dipendente.csv.
+        Ultimo giorno, Di cui straordinario, Giorni di trasferta, Ore perse per maltempo, e in
+        fondo una riga Totale con ore, giorni, costo e le tre voci di payroll di tutto il periodo
+        (nel totale un giorno di trasferta su due cantieri conta una volta). I cantieri dove nel
+        periodo il dipendente ha soltanto ore perse per maltempo, assenti da sites, vengono dopo
+        gli altri in ordine di nome, con ore e giorni a zero. Ore e importi con la virgola decimale
+        (12,50), date come 30/11/2026, costo vuoto se il costo orario manca. Il file si chiama
+        ore-dipendente.csv.
       parameters:
         - name: filter
           in: query

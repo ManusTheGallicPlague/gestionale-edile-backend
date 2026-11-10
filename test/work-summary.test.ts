@@ -479,10 +479,10 @@ describe('ore di dipendenti e mezzi per cantiere in CSV', () => {
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="ore-dipendente.csv"')
     expect(lines(res.body)).toEqual([
-      'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno',
-      'C-1;"Villetta; ""nord""";15,50;2;441,75;01/10/2026;02/10/2026',
-      ';Condominio;11,33;3;322,91;30/09/2026;05/10/2026',
-      ';Totale;26,83;4;764,66;;',
+      'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Di cui straordinario;Giorni di trasferta;Ore perse per maltempo',
+      'C-1;"Villetta; ""nord""";15,50;2;441,75;01/10/2026;02/10/2026;0,00;0;0,00',
+      ';Condominio;11,33;3;322,91;30/09/2026;05/10/2026;0,00;0;0,00',
+      ';Totale;26,83;4;764,66;;;0,00;0;0,00',
     ])
 
     // Same filters as the summary; no hourly cost leaves the cost empty.
@@ -491,9 +491,9 @@ describe('ore di dipendenti e mezzi per cantiere in CSV', () => {
       `${employeeUrl(s.slug, s.bassi)}/export?filter[from]=2026-10-02&filter[to]=2026-10-02`,
     )
     expect(lines(filtered.body)).toEqual([
-      'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno',
-      ';Condominio;8,00;1;;02/10/2026;02/10/2026',
-      ';Totale;8,00;1;;;',
+      'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Di cui straordinario;Giorni di trasferta;Ore perse per maltempo',
+      ';Condominio;8,00;1;;02/10/2026;02/10/2026;0,00;0;0,00',
+      ';Totale;8,00;1;;;;0,00;0;0,00',
     ])
     const approved = await s.browser.call(
       'GET',

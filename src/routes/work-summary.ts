@@ -6,7 +6,7 @@ import { enterCompany } from '../company.js'
 import { UUID } from '../deadlines/input.js'
 import { isIsoDate } from '../suppliers/documents.js'
 import { centsToAmount } from '../money.js'
-import { italianDate, toCsv } from '../csv.js'
+import { italianDate, toCsv, type Cell } from '../csv.js'
 import { ValidationFailed, forbidden, notFound, type FieldErrors } from '../http/errors.js'
 import { requireSession } from '../http/request-context.js'
 import type { Permission } from '../permissions.js'
@@ -343,6 +343,43 @@ async function readPayroll(client: PoolClient, id: string, query: Record<string,
   }
 }
 
+interface PayrollSiteRow {
+  id: string
+  name: string
+  code: string | null
+  overtime_hours: string
+  travel_days: number
+  weather_hours: string
+  first_date: string
+  last_date: string
+}
+
+/**
+ * The payroll items of readPayroll for each site, including the sites where the employee only
+ * lost hours to bad weather (absent from the summary, which counts the hours worked).
+ */
+async function readPayrollBySite(client: PoolClient, id: string, query: Record<string, unknown>) {
+  const { from, to, status } = readFilters(query)
+  const { rows } = await client.query<PayrollSiteRow>(
+    `select s.id, s.name, s.code,
+       coalesce(sum(h.overtime_hours), 0)::numeric(10, 2)::text as overtime_hours,
+       count(distinct r.report_date) filter (where h.travel)::int as travel_days,
+       coalesce(sum(h.weather_hours), 0)::numeric(10, 2)::text as weather_hours,
+       min(r.report_date)::text as first_date,
+       max(r.report_date)::text as last_date
+     from public.daily_report_labor h
+     join public.daily_reports r on r.id = h.report_id
+     join public.sites s on s.id = r.site_id
+     where h.employee_id = $1
+       and ($2::date is null or r.report_date >= $2) and ($3::date is null or r.report_date <= $3)
+       and ($4::text is null or r.status = $4)
+     group by s.id
+     order by lower(s.name), s.id`,
+    [id, from ?? null, to ?? null, status ?? null],
+  )
+  return rows
+}
+
 /** Maintenance of a vehicle in the period of the summary: how many jobs and their cost. */
 async function readMaintenance(client: PoolClient, id: string, query: Record<string, unknown>) {
   const { from, to } = readFilters(query)
@@ -473,39 +510,86 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           if (!permissions.has(route.permission)) throw notFound()
           const id = request.params[route.param] ?? ''
           if (!UUID.test(id)) throw notFound()
-          return readSummary(
+          const summary = await readSummary(
             client,
             route.source,
             id.toLowerCase(),
             request.query,
             permissions.has('reports.view'),
           )
+          if (!summary || route.source.table !== 'employees') return summary
+          return {
+            ...summary,
+            payroll: await readPayroll(client, id.toLowerCase(), request.query),
+            payrollSites: await readPayrollBySite(client, id.toLowerCase(), request.query),
+          }
         })
         if (!summary) throw notFound()
         const decimal = (value: string | null) => (value === null ? null : value.replace('.', ','))
-        const csv = toCsv(
-          ['Codice', 'Cantiere', 'Ore', 'Giorni', 'Costo', 'Primo giorno', 'Ultimo giorno'],
-          [
-            ...summary.sites.map((r) => [
-              r.site.code,
-              r.site.name,
-              decimal(r.hours),
-              r.days,
-              decimal(r.cost),
-              italianDate(r.first_date),
-              italianDate(r.last_date),
-            ]),
+        const header = [
+          'Codice',
+          'Cantiere',
+          'Ore',
+          'Giorni',
+          'Costo',
+          'Primo giorno',
+          'Ultimo giorno',
+        ]
+        const rows: Cell[][] = summary.sites.map((r) => [
+          r.site.code,
+          r.site.name,
+          decimal(r.hours),
+          r.days,
+          decimal(r.cost),
+          italianDate(r.first_date),
+          italianDate(r.last_date),
+        ])
+        const total: Cell[] = [
+          null,
+          'Totale',
+          decimal(summary.hours),
+          summary.days,
+          decimal(summary.cost),
+          null,
+          null,
+        ]
+        let csv: string
+        if ('payroll' in summary) {
+          // Employees: the payroll items per site and in total; the sites with only hours lost
+          // to bad weather follow the others, with no hours worked.
+          const bySite = new Map(summary.payrollSites.map((p) => [p.id, p]))
+          const items = (p: PayrollSiteRow | undefined) => [
+            decimal(p?.overtime_hours ?? '0.00'),
+            p?.travel_days ?? 0,
+            decimal(p?.weather_hours ?? '0.00'),
+          ]
+          const worked = new Set(summary.sites.map((r) => r.site.id))
+          const weatherOnly = summary.payrollSites.filter((p) => !worked.has(p.id))
+          csv = toCsv(
+            [...header, 'Di cui straordinario', 'Giorni di trasferta', 'Ore perse per maltempo'],
             [
-              null,
-              'Totale',
-              decimal(summary.hours),
-              summary.days,
-              decimal(summary.cost),
-              null,
-              null,
+              ...summary.sites.map((r, n) => [...(rows[n] ?? []), ...items(bySite.get(r.site.id))]),
+              ...weatherOnly.map((p) => [
+                p.code,
+                p.name,
+                decimal('0.00'),
+                0,
+                summary.cost === null ? null : decimal('0.00'),
+                italianDate(p.first_date),
+                italianDate(p.last_date),
+                ...items(p),
+              ]),
+              [
+                ...total,
+                decimal(summary.payroll.overtime_hours),
+                summary.payroll.travel_days,
+                decimal(summary.payroll.weather_hours),
+              ],
             ],
-          ],
-        )
+          )
+        } else {
+          csv = toCsv(header, [...rows, total])
+        }
         return reply
           .header('Content-Type', 'text/csv; charset=utf-8')
           .header('Content-Disposition', `attachment; filename="${route.file}"`)

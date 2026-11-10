@@ -252,3 +252,77 @@ describe('straordinario e trasferte nei totali e nel CSV delle ore del cantiere'
     expect(draft.json()).toMatchObject({ labor: { overtime_hours: '0.00', travel_days: 0 } })
   })
 })
+
+describe('voci delle buste paga nel CSV del dipendente', () => {
+  const lines = (body: string) => body.replace('﻿', '').trim().split('\r\n')
+  const header =
+    'Codice;Cantiere;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;' +
+    'Di cui straordinario;Giorni di trasferta;Ore perse per maltempo'
+
+  it('aggiunge straordinario, trasferte e maltempo per cantiere e nel totale', async () => {
+    const s = await scene()
+    const { rows } = await ctx.owner.query<{ id: string }>(
+      `insert into public.sites (company_id, name) values ($1, 'Deposito') returning id`,
+      [s.company.id],
+    )
+    const depot = rows[0]?.id ?? ''
+    await s.row(s.villa, s.verdi, '2026-11-02', 'approved', {
+      hours: '6',
+      overtime: '1.5',
+      travel: true,
+    })
+    // Travel on two sites the same day: one day per site, once in the total.
+    await s.row(s.condo, s.verdi, '2026-11-02', 'submitted', { hours: '4', travel: true })
+    await s.row(s.villa, s.verdi, '2026-11-03', 'approved', {
+      hours: '9',
+      overtime: '1',
+      travel: true,
+      weather: '2',
+    })
+    // Only hours lost to the rain on this site: a row with no hours worked.
+    await s.row(depot, s.verdi, '2026-11-05', 'draft', { hours: '0', weather: '8' })
+    // Outside the period, and another employee.
+    await s.row(s.villa, s.verdi, '2026-12-01', 'approved', { hours: '10', overtime: '2' })
+    await s.row(s.condo, s.bassi, '2026-11-03', 'approved', { hours: '10', weather: '1' })
+
+    const url = `/api/companies/${s.company.slug}/employees/${s.verdi}/work-summary/export`
+    const res = await s.browser.call('GET', `${url}?filter[from]=2026-11-01&filter[to]=2026-11-30`)
+    expect(res.statusCode).toBe(200)
+    expect(lines(res.body)).toEqual([
+      header,
+      ';Villetta;15,00;2;420,00;02/11/2026;03/11/2026;2,50;2;2,00',
+      ';Condominio;4,00;1;112,00;02/11/2026;02/11/2026;0,00;1;0,00',
+      ';Deposito;0,00;0;0,00;05/11/2026;05/11/2026;0,00;0;8,00',
+      ';Totale;19,00;2;532,00;;;2,50;2;10,00',
+    ])
+
+    // Same filters as the summary: without the drafts the site with only lost hours goes away.
+    const approved = await s.browser.call(
+      'GET',
+      `${url}?filter[from]=2026-11-01&filter[to]=2026-11-30&filter[status]=approved`,
+    )
+    expect(lines(approved.body)).toEqual([
+      header,
+      ';Villetta;15,00;2;420,00;02/11/2026;03/11/2026;2,50;2;2,00',
+      ';Totale;15,00;2;420,00;;;2,50;2;2,00',
+    ])
+  })
+
+  it('lascia vuoto il costo dei cantieri con sole ore perse se manca il costo orario', async () => {
+    const s = await scene()
+    await ctx.owner.query(`update public.employees set hourly_cost_cents = null where id = $1`, [
+      s.bassi,
+    ])
+    await s.row(s.condo, s.bassi, '2026-11-04', 'submitted', { hours: '0', weather: '8' })
+    const res = await s.browser.call(
+      'GET',
+      `/api/companies/${s.company.slug}/employees/${s.bassi}/work-summary/export`,
+    )
+    expect(res.statusCode).toBe(200)
+    expect(lines(res.body)).toEqual([
+      header,
+      ';Condominio;0,00;0;;04/11/2026;04/11/2026;0,00;0;8,00',
+      ';Totale;0,00;0;;;;0,00;0;8,00',
+    ])
+  })
+})
