@@ -3,6 +3,8 @@ import { randomToken, sha256 } from './crypto.js'
 
 const LIFETIME_MS = 14 * 24 * 60 * 60 * 1000 // 14 days of inactivity
 const RENEW_BELOW_MS = 7 * 24 * 60 * 60 * 1000
+const LAST_USED_EVERY_MS = 5 * 60 * 1000
+const USER_AGENT_MAX = 300
 
 export interface SessionUser {
   id: string
@@ -20,15 +22,16 @@ export interface Session {
 export async function createSession(
   auth: pg.Pool,
   userId: string,
+  userAgent?: string,
 ): Promise<{ token: string; id: string; expiresAt: Date }> {
   const token = randomToken()
   const id = sha256(token)
   const expiresAt = new Date(Date.now() + LIFETIME_MS)
-  await auth.query('insert into auth.sessions (id, user_id, expires_at) values ($1, $2, $3)', [
-    id,
-    userId,
-    expiresAt,
-  ])
+  const agent = userAgent?.trim().slice(0, USER_AGENT_MAX) || null
+  await auth.query(
+    'insert into auth.sessions (id, user_id, expires_at, user_agent) values ($1, $2, $3, $4)',
+    [id, userId, expiresAt, agent],
+  )
   return { token, id, expiresAt }
 }
 
@@ -37,12 +40,13 @@ export async function findSession(auth: pg.Pool, token: string): Promise<Session
   const id = sha256(token)
   const { rows } = await auth.query<{
     expires_at: Date
+    last_used_at: Date
     user_id: string
     name: string
     email: string
     active: boolean
   }>(
-    `select s.expires_at, u.id as user_id, u.name, u.email, u.active
+    `select s.expires_at, s.last_used_at, u.id as user_id, u.name, u.email, u.active
      from auth.sessions s join auth.users u on u.id = s.user_id
      where s.id = $1`,
     [id],
@@ -56,7 +60,13 @@ export async function findSession(auth: pg.Pool, token: string): Promise<Session
   let expiresAt = row.expires_at
   if (expiresAt.getTime() - Date.now() < RENEW_BELOW_MS) {
     expiresAt = new Date(Date.now() + LIFETIME_MS)
-    await auth.query('update auth.sessions set expires_at = $2 where id = $1', [id, expiresAt])
+    await auth.query(
+      'update auth.sessions set expires_at = $2, last_used_at = now() where id = $1',
+      [id, expiresAt],
+    )
+  } else if (Date.now() - row.last_used_at.getTime() >= LAST_USED_EVERY_MS) {
+    // Not on every request: the list of sessions only needs the minutes.
+    await auth.query('update auth.sessions set last_used_at = now() where id = $1', [id])
   }
   return { id, user: { id: row.user_id, name: row.name, email: row.email }, expiresAt }
 }

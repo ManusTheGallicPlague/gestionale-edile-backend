@@ -5,10 +5,11 @@ import type { Config } from '../config.js'
 import { clearFailures, recordFailure, secondsUntilAllowed } from '../auth/login-limits.js'
 import { hashPassword, verifyPassword } from '../auth/password.js'
 import type { SessionUser } from '../auth/sessions.js'
-import { ApiError, ValidationFailed, messages, type FieldErrors } from '../http/errors.js'
+import { ApiError, ValidationFailed, messages, notFound, type FieldErrors } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MIN_PASSWORD_LENGTH } from './invitations.js'
 import { isPermission } from '../permissions.js'
+import { UUID } from '../deadlines/input.js'
 
 export function meRoutes(app: FastifyInstance, config: Config, db: Db): void {
   app.get('/api/me', (request) => loadMe(db, requireSession(request).user))
@@ -74,7 +75,68 @@ export function meRoutes(app: FastifyInstance, config: Config, db: Db): void {
     }
     return reply.code(204).send()
   })
+
+  app.get('/api/me/sessions', async (request) => {
+    const session = requireSession(request)
+    const { rows } = await db.auth.query<{
+      id: string
+      user_agent: string | null
+      created_at: Date
+      last_used_at: Date
+      current: boolean
+    }>(
+      `select public_id as id, user_agent, created_at, last_used_at, id = $2 as current
+         from auth.sessions
+        where user_id = $1 and expires_at > now()
+        order by id = $2 desc, last_used_at desc, created_at desc, public_id`,
+      [session.user.id, session.id],
+    )
+    return {
+      data: rows.map((row) => ({
+        id: row.id,
+        user_agent: row.user_agent,
+        created_at: row.created_at.toISOString(),
+        last_used_at: row.last_used_at.toISOString(),
+        current: row.current,
+      })),
+    }
+  })
+
+  // Every session but this one: "esci dagli altri dispositivi".
+  app.delete('/api/me/sessions', async (request, reply) => {
+    const session = requireSession(request)
+    checkCsrf(config, request)
+    await db.auth.query('delete from auth.sessions where user_id = $1 and id <> $2', [
+      session.user.id,
+      session.id,
+    ])
+    return reply.code(204).send()
+  })
+
+  app.delete<{ Params: { session: string } }>(
+    '/api/me/sessions/:session',
+    async (request, reply) => {
+      const session = requireSession(request)
+      checkCsrf(config, request)
+      if (!UUID.test(request.params.session)) throw notFound()
+      const { rows } = await db.auth.query<{ current: boolean }>(
+        `select id = $3 as current from auth.sessions
+          where user_id = $1 and public_id = $2 and expires_at > now()`,
+        [session.user.id, request.params.session, session.id],
+      )
+      const row = rows[0]
+      if (!row) throw notFound()
+      if (row.current) throw new ApiError(409, CURRENT_SESSION, 'current_session')
+      await db.auth.query('delete from auth.sessions where user_id = $1 and public_id = $2', [
+        session.user.id,
+        request.params.session,
+      ])
+      return reply.code(204).send()
+    },
+  )
 }
+
+const CURRENT_SESSION = "Questo è l'accesso che stai usando: per chiuderlo esci."
 
 function asObject(body: unknown): Record<string, unknown> {
   return (typeof body === 'object' && body !== null ? body : {}) as Record<string, unknown>

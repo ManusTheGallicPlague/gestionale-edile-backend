@@ -44,7 +44,7 @@ export async function startSession(
   userId: string,
 ): Promise<void> {
   if (request.session) await destroySession(db.auth, request.session.id)
-  const session = await createSession(db.auth, userId)
+  const session = await createSession(db.auth, userId, request.headers['user-agent'])
   reply.setCookie(COOKIES.session, session.token, {
     ...cookieOptions(config),
     httpOnly: true,

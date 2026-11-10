@@ -211,6 +211,64 @@ paths:
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
 
+  /api/me/sessions:
+    get:
+      operationId: listMySessions
+      summary: Accessi aperti dell'utente
+      description: |
+        Le sessioni ancora valide dell'utente, su tutti i dispositivi, senza paginazione:
+        prima quella da cui arriva la richiesta (current true), poi dalla più usata di
+        recente. user_agent è il browser che ha fatto l'accesso (null per gli accessi più
+        vecchi); last_used_at si aggiorna al massimo ogni cinque minuti.
+      responses:
+        '200':
+          description: Gli accessi
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MySessionList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    delete:
+      operationId: closeOtherSessions
+      summary: Uscita da tutti gli altri dispositivi
+      description: |
+        Chiude tutte le sessioni dell'utente tranne quella da cui arriva la richiesta.
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Altri accessi chiusi
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  /api/me/sessions/{session}:
+    parameters:
+      - name: session
+        in: path
+        required: true
+        schema: { $ref: '#/components/schemas/Id' }
+    delete:
+      operationId: closeMySession
+      summary: Chiusura di un accesso
+      description: |
+        Chiude una sessione dell'utente da un altro dispositivo. Una sessione di un altro
+        utente, scaduta o già chiusa risponde 404. Quella da cui arriva la richiesta risponde
+        409 con code current_session: per chiuderla si esce (logout).
+      security:
+        - session: []
+          csrf: []
+      responses:
+        '204':
+          description: Accesso chiuso
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: È la sessione da cui arriva la richiesta (code current_session).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
   /api/companies/{company}/clients:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -10188,7 +10246,8 @@ components:
           description: |
             Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
             Per ora: csrf_invalid, stale_record, precondition_required, has_documents,
-            statement_draft_exists, statement_not_draft, invalid_transition, site_exists.
+            statement_draft_exists, statement_not_draft, invalid_transition, site_exists,
+            current_session.
     ValidationError:
       type: object
       required: [message, errors]
@@ -10356,6 +10415,26 @@ components:
         joined_at:
           type: string
           format: date-time
+    MySession:
+      type: object
+      required: [id, user_agent, created_at, last_used_at, current]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        user_agent:
+          type: [string, 'null']
+          maxLength: 300
+        created_at: { type: string, format: date-time }
+        last_used_at: { type: string, format: date-time }
+        current:
+          type: boolean
+          description: true per la sessione da cui arriva la richiesta.
+    MySessionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: '#/components/schemas/MySession' }
     CompanyUserList:
       type: object
       required: [data]
