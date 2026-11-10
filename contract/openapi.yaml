@@ -2392,7 +2392,8 @@ paths:
       description: |
         Permesso: reports.view. Stessi filtri e ordinamento dell'elenco, senza paginazione, nello
         stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con la
-        virgola decimale (1234,50). Il file si chiama rapportini.csv.
+        virgola decimale (1234,50). In fondo la colonna «Ore straordinario»
+        (total_overtime_hours). Il file si chiama rapportini.csv.
       parameters:
         - name: sort
           in: query
@@ -2449,8 +2450,9 @@ paths:
         filter[site] ci sono anche le assenze (listEmployeeAbsences), qualunque sia
         filter[status]: nei giorni di assenza la cella porta la sigla, dopo le ore se ci sono
         (FE ferie, MA malattia, PE permesso, IN infortunio, AL altro; con le ore del permesso,
-        come «6 PE 2»), e compare anche chi nel mese ha solo assenze, con totale 0. Il file si
-        chiama ore-2026-11.csv.
+        come «6 PE 2»), e compare anche chi nel mese ha solo assenze, con totale 0. Dopo il
+        totale, la colonna «Di cui straordinario» con la somma di overtime_hours del mese (0 se
+        non ce ne sono). Il file si chiama ore-2026-11.csv.
       parameters:
         - name: month
           in: query
@@ -2669,7 +2671,8 @@ paths:
         Permesso: reports.view. Il rapportino in A4, da archiviare o da far firmare al
         committente o al direttore dei lavori: intestazione dell'azienda, cantiere, data, meteo,
         lavori eseguiti, ore dei dipendenti e dei mezzi con i totali, note e spazi per le firme.
-        Niente costi. Una bozza esce con la dicitura «bozza»; un rapportino approvato riporta
+        Lo straordinario compare accanto al dipendente («straordinario 2») e sotto il totale
+        delle ore («di cui straordinario»), solo se c'è. Niente costi. Una bozza esce con la dicitura «bozza»; un rapportino approvato riporta
         chi l'ha approvato e quando. Il file si chiama rapportino-2026-11-05-C-1.pdf (data e
         codice del cantiere, se c'è). Senza permesso risponde 404, non 403.
       responses:
@@ -12228,12 +12231,28 @@ components:
       description: Ore come stringa con il punto, da 0.01 a 24; in uscita sempre con due decimali.
       pattern: '^\d{1,4}(\.\d{1,2})?$'
       examples: ['8.00', '7.5']
+    OvertimeHoursInput:
+      type: [string, 'null']
+      description: |
+        Ore di straordinario del dipendente in quel giorno, comprese in hours (8 ore con 1
+        di straordinario: hours 8, overtime_hours 1): da 0 a hours, con il punto. Facoltativo,
+        null o assente vale 0. Servono al consulente del lavoro; i costi restano sulle ore
+        (hours) al costo orario del dipendente.
+      pattern: '^\d{1,2}(\.\d{1,2})?$'
+      examples: ['1.5', '0']
+    OvertimeHours:
+      type: string
+      description: |
+        Ore di straordinario comprese nelle ore, con due decimali ('0.00' se non ce ne sono).
+      pattern: '^\d{1,4}\.\d{2}$'
+      examples: ['1.50', '0.00']
     DailyReportInput:
       type: object
       description: |
         I campi facoltativi si inviano comunque, con null se vuoti. labor e vehicles sono gli
         elenchi completi (anche vuoti), al massimo 100 righe ciascuno, senza doppioni; gli
-        errori delle righe usano il percorso con l'indice (labor.0.hours).
+        errori delle righe usano il percorso con l'indice (labor.0.hours). Fa eccezione
+        overtime_hours delle righe dei dipendenti: se manca (o è null) vale 0.
       required: [site_id, date, weather, work_done, notes, labor, vehicles]
       properties:
         site_id: { $ref: '#/components/schemas/Id' }
@@ -12258,6 +12277,7 @@ components:
             properties:
               employee_id: { $ref: '#/components/schemas/Id' }
               hours: { $ref: '#/components/schemas/Hours' }
+              overtime_hours: { $ref: '#/components/schemas/OvertimeHoursInput' }
               description:
                 type: [string, 'null']
                 maxLength: 500
@@ -12291,6 +12311,7 @@ components:
         - work_done
         - notes
         - total_labor_hours
+        - total_overtime_hours
         - total_vehicle_hours
         - created_by
         - submitted_at
@@ -12314,6 +12335,10 @@ components:
         work_done: { type: [string, 'null'] }
         notes: { type: [string, 'null'] }
         total_labor_hours: { $ref: '#/components/schemas/Hours' }
+        total_overtime_hours:
+          allOf:
+            - $ref: '#/components/schemas/OvertimeHours'
+          description: Somma degli straordinari dei dipendenti, compresa in total_labor_hours.
         total_vehicle_hours: { $ref: '#/components/schemas/Hours' }
         created_by:
           description: Chi ha scritto il rapportino; null per i dati caricati fuori dall'API.
@@ -12347,12 +12372,14 @@ components:
               description: Ore dei dipendenti, senza costi.
               items:
                 type: object
-                required: [employee_id, first_name, last_name, hours, description]
+                required:
+                  [employee_id, first_name, last_name, hours, overtime_hours, description]
                 properties:
                   employee_id: { $ref: '#/components/schemas/Id' }
                   first_name: { type: string }
                   last_name: { type: string }
                   hours: { $ref: '#/components/schemas/Hours' }
+                  overtime_hours: { $ref: '#/components/schemas/OvertimeHours' }
                   description: { type: [string, 'null'] }
             vehicles:
               type: array

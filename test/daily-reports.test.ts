@@ -192,14 +192,17 @@ describe('daily reports', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="ore-2026-11.csv"')
     const lines = await read('month=2026-11')
     const days = Array.from({ length: 30 }, (_, i) => String(i + 1))
-    expect(lines[0]).toBe(['Cognome', 'Nome', 'Codice fiscale', ...days, 'Totale'].join(';'))
+    expect(lines[0]).toBe(
+      ['Cognome', 'Nome', 'Codice fiscale', ...days, 'Totale', 'Di cui straordinario'].join(';'),
+    )
     const row = (
       last: string,
       first: string,
       tax: string,
       cells: Record<number, string>,
       total: string,
-    ) => [last, first, tax, ...days.map((d) => cells[Number(d)] ?? ''), total].join(';')
+      overtime = '0',
+    ) => [last, first, tax, ...days.map((d) => cells[Number(d)] ?? ''), total, overtime].join(';')
     expect(lines.slice(1)).toEqual([
       row('Bassi', 'Anna', '', { 5: '7,5', 30: '4,25' }, '11,75'),
       row('Verdi', 'Luca', 'VRDLCU80A01H501U', { 5: '10' }, '10'),
@@ -207,7 +210,7 @@ describe('daily reports', () => {
     // February has 28 days; a month with no reports has only the header.
     const feb = await read('month=2026-02')
     expect(feb).toHaveLength(1)
-    expect(feb[0]?.split(';')).toHaveLength(3 + 28 + 1)
+    expect(feb[0]?.split(';')).toHaveLength(3 + 28 + 2)
 
     // Only one site, only one status.
     expect((await read(`month=2026-11&filter[site]=${s.other}`)).slice(1)).toEqual([
@@ -343,12 +346,12 @@ describe('daily reports', () => {
     const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
     expect(lines).toHaveLength(3)
     expect(lines[0]).toBe(
-      'Data;Cantiere;Codice cantiere;Stato;Ore manodopera;Ore mezzi;Meteo;Lavori eseguiti;Note;Compilato da;Approvato da',
+      'Data;Cantiere;Codice cantiere;Stato;Ore manodopera;Ore mezzi;Meteo;Lavori eseguiti;Note;Compilato da;Approvato da;Ore straordinario',
     )
     expect(lines[1]).toMatch(
-      /^05\/11\/2026;Villetta;C-1;Bozza;15,50;3,25;Sereno;Getto del solaio;;[^;]+;$/,
+      /^05\/11\/2026;Villetta;C-1;Bozza;15,50;3,25;Sereno;Getto del solaio;;[^;]+;;0,00$/,
     )
-    expect(lines[2]).toMatch(/^06\/11\/2026;Condominio;;Bozza;0,00;0,00;;'@scavo;;[^;]+;$/)
+    expect(lines[2]).toMatch(/^06\/11\/2026;Condominio;;Bozza;0,00;0,00;;'@scavo;;[^;]+;;0,00$/)
     const filtered = await s.browser.call('GET', `${url}?filter[site]=${s.site}`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
     expect((await s.browser.call('GET', `${url}?filter[status]=chiuso`)).statusCode).toBe(422)
@@ -637,7 +640,7 @@ describe('daily reports', () => {
     expect(fresh.report).toBeNull()
     expect(fresh.proposal).toMatchObject({ date: '2026-11-05', site_id: s.site, vehicles: [] })
     expect(fresh.proposal.labor).toEqual([
-      { employee_id: s.bassi, hours: '8.00', description: null },
+      { employee_id: s.bassi, hours: '8.00', overtime_hours: '0.00', description: null },
     ])
     expect(fresh.employees.map((e) => [e.last_name, e.in_team])).toEqual([
       ['Bassi', true],

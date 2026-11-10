@@ -761,6 +761,13 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
                and r.report_date between a.starts_on and a.ends_on)`,
         [companyId],
       )
+      // The day of the casting the team stayed two hours longer: overtime for the payroll.
+      await client.query(
+        `update public.daily_report_labor l set hours = 10, overtime_hours = 2
+         from public.daily_reports r
+         where r.id = l.report_id and r.company_id = $1 and r.report_date = '2026-11-05'`,
+        [companyId],
+      )
       await client.query(
         `insert into public.daily_report_vehicles (company_id, report_id, vehicle_id, hours, position)
          select $1, r.id, v.id, 4, 0

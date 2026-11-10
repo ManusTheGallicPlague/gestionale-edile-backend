@@ -34,6 +34,8 @@ const MAX_ROWS = 100
 interface HoursInput {
   id: string
   hours: string
+  /** Only for people: the part of hours beyond the normal day, '0' if not given. */
+  overtime_hours: string
   description: string | null
 }
 
@@ -64,6 +66,7 @@ interface ReportRow {
   approved_by: string | null
   approved_by_name: string | null
   labor_hours: string
+  overtime_hours: string
   vehicle_hours: string
   version: number
   created_at: Date
@@ -75,6 +78,7 @@ interface LaborRow {
   first_name: string
   last_name: string
   hours: string
+  overtime_hours: string
   description: string | null
 }
 
@@ -100,6 +104,8 @@ const SELECT = `select r.id, r.site_id, s.name as site_name, s.code as site_code
     au.name as approved_by_name,
     coalesce((select sum(l.hours) from public.daily_report_labor l where l.report_id = r.id),
       0)::numeric(6, 2)::text as labor_hours,
+    coalesce((select sum(l.overtime_hours) from public.daily_report_labor l
+      where l.report_id = r.id), 0)::numeric(6, 2)::text as overtime_hours,
     coalesce((select sum(v.hours) from public.daily_report_vehicles v where v.report_id = r.id),
       0)::numeric(6, 2)::text as vehicle_hours,
     r.version, r.created_at, r.updated_at
@@ -126,6 +132,7 @@ function summary(row: ReportRow) {
     work_done: row.work_done,
     notes: row.notes,
     total_labor_hours: row.labor_hours,
+    total_overtime_hours: row.overtime_hours,
     total_vehicle_hours: row.vehicle_hours,
     created_by: row.created_by ? { id: row.created_by, name: row.created_by_name ?? '' } : null,
     submitted_at: row.submitted_at?.toISOString() ?? null,
@@ -209,7 +216,7 @@ export function parseReportInput(body: unknown): ReportInput {
       const path = `${field}.${index}`
       if (typeof item !== 'object' || item === null || Array.isArray(item)) {
         add(path, 'Ogni riga deve essere un oggetto.')
-        return { id: '', hours: '', description: null }
+        return { id: '', hours: '', overtime_hours: '0', description: null }
       }
       const entry = item as Record<string, unknown>
       const id = text(entry, idField, `${path}.${idField}`, 36) ?? ''
@@ -223,8 +230,29 @@ export function parseReportInput(body: unknown): ReportInput {
           add(`${path}.hours`, 'Ore non valide: da 0.01 a 24, con il punto (es. 7.5).')
         }
       }
+      // Overtime is optional (absent or null is no overtime) and only for people.
+      let overtime_hours = '0'
+      if (
+        field === 'labor' &&
+        entry.overtime_hours !== undefined &&
+        entry.overtime_hours !== null
+      ) {
+        const overtime = text(entry, 'overtime_hours', `${path}.overtime_hours`, 5) ?? '0'
+        if (!errors[`${path}.overtime_hours`]) {
+          if (!HOURS.test(overtime) || Number(overtime) > 24) {
+            add(
+              `${path}.overtime_hours`,
+              'Ore di straordinario non valide: da 0 a 24, con il punto (es. 1.5).',
+            )
+          } else if (!errors[`${path}.hours`] && Number(overtime) > Number(hours)) {
+            add(`${path}.overtime_hours`, 'Lo straordinario non può superare le ore lavorate.')
+          } else {
+            overtime_hours = overtime
+          }
+        }
+      }
       const description = text(entry, 'description', `${path}.description`, 500)
-      return { id: id.toLowerCase(), hours, description }
+      return { id: id.toLowerCase(), hours, overtime_hours, description }
     })
   }
   const labor = rows('labor', 'employee_id', 'Scegli il dipendente.')
@@ -370,6 +398,7 @@ function pdfData(
     approved_by: row.approved_by ? (row.approved_by_name ?? null) : null,
     approved_at: row.approved_at,
     total_labor_hours: row.labor_hours,
+    total_overtime_hours: row.overtime_hours,
     total_vehicle_hours: row.vehicle_hours,
     labor,
     vehicles,
@@ -391,7 +420,8 @@ async function readOne(client: PoolClient, id: string): Promise<FullReport | und
   const row = rows[0]
   if (!row) return undefined
   const labor = await client.query<LaborRow>(
-    `select l.employee_id, e.first_name, e.last_name, l.hours::text as hours, l.description
+    `select l.employee_id, e.first_name, e.last_name, l.hours::text as hours,
+       l.overtime_hours::text as overtime_hours, l.description
      from public.daily_report_labor l join public.employees e on e.id = l.employee_id
      where l.report_id = $1 order by l.position`,
     [id],
@@ -453,34 +483,40 @@ async function checkReferences(client: PoolClient, input: ReportInput) {
  * no entry in the change log.
  */
 async function writeHours(client: PoolClient, id: string, input: ReportInput) {
-  const write = async (table: string, column: string, rows: HoursInput[]) => {
+  const write = async (table: string, column: string, rows: HoursInput[], overtime: boolean) => {
     await client.query(
       `delete from public.${table} where report_id = $1 and not (${column} = any($2::uuid[]))`,
       [id, rows.map((r) => r.id)],
     )
     if (rows.length === 0) return
+    // Vehicles have no overtime: the column is there only for people.
+    const extra = overtime ? ', overtime_hours' : ''
     await client.query(
       `insert into public.${table} as t (company_id, report_id, ${column}, hours, description,
-         position)
+         position${extra})
        select app.current_company_id(), $1, x.id, x.hours, x.description, x.position
-       from unnest($2::uuid[], $3::numeric[], $4::text[], $5::int[])
-         as x(id, hours, description, position)
+         ${overtime ? ', x.overtime' : ''}
+       from unnest($2::uuid[], $3::numeric[], $4::text[], $5::int[], $6::numeric[])
+         as x(id, hours, description, position, overtime)
        on conflict (report_id, ${column}) do update
          set hours = excluded.hours, description = excluded.description,
-           position = excluded.position
-         where (t.hours, t.description, t.position)
-           is distinct from (excluded.hours, excluded.description, excluded.position)`,
+           position = excluded.position${overtime ? ', overtime_hours = excluded.overtime_hours' : ''}
+         where (t.hours, t.description, t.position${overtime ? ', t.overtime_hours' : ''})
+           is distinct from (excluded.hours, excluded.description, excluded.position${
+             overtime ? ', excluded.overtime_hours' : ''
+           })`,
       [
         id,
         rows.map((r) => r.id),
         rows.map((r) => r.hours),
         rows.map((r) => r.description),
         rows.map((_, i) => i),
+        rows.map((r) => r.overtime_hours),
       ],
     )
   }
-  await write('daily_report_labor', 'employee_id', input.labor)
-  await write('daily_report_vehicles', 'vehicle_id', input.vehicles)
+  await write('daily_report_labor', 'employee_id', input.labor, true)
+  await write('daily_report_vehicles', 'vehicle_id', input.vehicles, false)
 }
 
 function duplicateDay(error: unknown): never {
@@ -583,6 +619,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             'Note',
             'Compilato da',
             'Approvato da',
+            'Ore straordinario',
           ],
           rows.map((r) => [
             italianDate(r.report_date),
@@ -596,6 +633,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             r.notes,
             r.created_by_name,
             r.approved_by_name,
+            r.overtime_hours.replace('.', ','),
           ]),
         )
       })
@@ -637,11 +675,14 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
           day: number
           hours: string
           total: string
+          overtime: string
         }>(
           `select e.id, e.last_name, e.first_name, e.tax_code,
              extract(day from r.report_date)::int as day,
              sum(l.hours)::numeric(8, 2)::text as hours,
-             (sum(sum(l.hours)) over (partition by e.id))::numeric(8, 2)::text as total
+             (sum(sum(l.hours)) over (partition by e.id))::numeric(8, 2)::text as total,
+             (sum(sum(l.overtime_hours)) over (partition by e.id))::numeric(8, 2)::text
+               as overtime
            from public.daily_report_labor l
            join public.daily_reports r on r.id = l.report_id
            join public.employees e on e.id = l.employee_id
@@ -654,7 +695,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
         const days = new Date(Date.UTC(year, month, 0)).getUTCDate()
         const employees = new Map<
           string,
-          { head: string[]; cells: (string | null)[]; total: string }
+          { head: string[]; cells: (string | null)[]; total: string; overtime: string }
         >()
         for (const r of rows) {
           let entry = employees.get(r.id)
@@ -663,6 +704,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
               head: [r.last_name, r.first_name, r.tax_code ?? ''],
               cells: Array.from({ length: days }, () => null),
               total: r.total,
+              overtime: r.overtime,
             }
             employees.set(r.id, entry)
           }
@@ -698,6 +740,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
                 head: [a.last_name, a.first_name, a.tax_code ?? ''],
                 cells: Array.from({ length: days }, () => null),
                 total: '0',
+                overtime: '0',
               }
               employees.set(a.id, entry)
             }
@@ -721,10 +764,13 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             'Codice fiscale',
             ...Array.from({ length: days }, (_, i) => String(i + 1)),
             'Totale',
+            'Di cui straordinario',
           ],
           order.rows.flatMap((o) => {
             const e = employees.get(o.id)
-            return e ? [[...e.head, ...e.cells, italianQuantity(e.total)]] : []
+            return e
+              ? [[...e.head, ...e.cells, italianQuantity(e.total), italianQuantity(e.overtime)]]
+              : []
           }),
         )
       })
@@ -1123,6 +1169,7 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
           .map((e) => ({
             employee_id: e.id,
             hours: STANDARD_DAY_HOURS,
+            overtime_hours: '0.00',
             description: null as string | null,
           }))
         let usedVehicles: { vehicle_id: string; hours: string; description: string | null }[] = []
@@ -1138,9 +1185,11 @@ export function dailyReportTodayRoutes(app: FastifyInstance, db: Db): void {
             const people = await client.query<{
               employee_id: string
               hours: string
+              overtime_hours: string
               description: string | null
             }>(
-              `select l.employee_id, l.hours::text as hours, l.description
+              `select l.employee_id, l.hours::text as hours,
+                 l.overtime_hours::text as overtime_hours, l.description
                from public.daily_report_labor l
                join public.employees e on e.id = l.employee_id and e.active
                where l.report_id = $1

@@ -15,8 +15,15 @@ export interface ReportPdfData {
   approved_by: string | null
   approved_at: Date | null
   total_labor_hours: string
+  total_overtime_hours: string
   total_vehicle_hours: string
-  labor: { first_name: string; last_name: string; hours: string; description: string | null }[]
+  labor: {
+    first_name: string
+    last_name: string
+    hours: string
+    overtime_hours: string
+    description: string | null
+  }[]
   vehicles: { name: string; plate: string | null; hours: string; description: string | null }[]
 }
 
@@ -32,6 +39,7 @@ const ACTIVITY_X = 230
 const NAME_WIDTH = ACTIVITY_X - MARGIN - 10
 const ACTIVITY_WIDTH = RIGHT - 60 - ACTIVITY_X
 
+const isZero = (hours: string) => /^0+(\.0+)?$/.test(hours)
 const italianDate = (date: string) => date.split('-').reverse().join('/')
 const romeDate = new Intl.DateTimeFormat('it-IT', {
   timeZone: 'Europe/Rome',
@@ -79,6 +87,7 @@ function drawReport(pdf: PdfDocument, data: ReportPdfData, labels: string[]): vo
     title: string,
     rows: { name: string; activity: string | null; hours: string }[],
     total: string,
+    overtime: string | null = null,
   ) => {
     if (y - 3 * LEADING < BOTTOM) newPage()
     const header = () => {
@@ -112,6 +121,11 @@ function drawReport(pdf: PdfDocument, data: ReportPdfData, labels: string[]): vo
     y -= 6
     pdf.textRight(RIGHT - 50, y, 'Totale ore', BOLD)
     pdf.textRight(RIGHT, y, italianQuantity(total), BOLD)
+    if (overtime !== null && !isZero(overtime)) {
+      y -= LEADING
+      pdf.textRight(RIGHT - 50, y, 'di cui straordinario', BODY)
+      pdf.textRight(RIGHT, y, italianQuantity(overtime), BODY)
+    }
     y -= 2 * LEADING
   }
 
@@ -144,11 +158,14 @@ function drawReport(pdf: PdfDocument, data: ReportPdfData, labels: string[]): vo
   table(
     'Dipendenti',
     data.labor.map((l) => ({
-      name: `${l.last_name} ${l.first_name}`,
+      name: isZero(l.overtime_hours)
+        ? `${l.last_name} ${l.first_name}`
+        : `${l.last_name} ${l.first_name} (straordinario ${italianQuantity(l.overtime_hours)})`,
       activity: l.description,
       hours: l.hours,
     })),
     data.total_labor_hours,
+    data.total_overtime_hours,
   )
   table(
     'Mezzi',
