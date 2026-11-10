@@ -218,11 +218,16 @@ describe('overtime in daily reports', () => {
     expect(res.statusCode).toBe(200)
     const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
     const head = lines[0]?.split(';') ?? []
-    expect(head.slice(-3)).toEqual(['Totale', 'Di cui straordinario', 'Giorni di trasferta'])
+    expect(head.slice(-4)).toEqual([
+      'Totale',
+      'Di cui straordinario',
+      'Giorni di trasferta',
+      'Di cui festive',
+    ])
     const verdi = lines[1]?.split(';') ?? []
     expect(verdi.slice(0, 2)).toEqual(['Verdi', 'Luca'])
     expect(verdi[3 + 4]).toBe('10')
-    expect(verdi.slice(-3)).toEqual(['20', '3,5', '0'])
+    expect(verdi.slice(-4)).toEqual(['20', '3,5', '0', '0'])
     // Another company sees none of it.
     const theirs = await scene()
     const other = await theirs.browser.call('GET', `${theirs.base}/monthly-hours?month=2026-11`)

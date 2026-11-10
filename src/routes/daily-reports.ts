@@ -19,6 +19,7 @@ import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 import { centsToAmount } from '../money.js'
 import { reportPdf, reportsPdf, type ReportPdfData } from '../daily-reports/pdf.js'
 import { italianQuantity } from '../quotes/pdf.js'
+import { holidaysOfMonth, patronSaintDay } from '../holidays.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
 import { ABSENCE_CODES, type AbsenceKind } from './employee-absences.js'
@@ -680,6 +681,9 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
           values.push(query.status)
           where.push(`r.status = $${values.length}`)
         }
+        // Sundays, national holidays and the patron saint day of the company.
+        values.push(holidaysOfMonth(query.month, await patronSaintDay(client)))
+        const HOLIDAY = `(extract(isodow from r.report_date) = 7 or r.report_date = any($${values.length}::date[]))`
         const { rows } = await client.query<{
           id: string
           last_name: string
@@ -690,6 +694,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
           total: string
           overtime: string
           travel_days: number
+          holiday: string
         }>(
           `select e.id, e.last_name, e.first_name, e.tax_code,
              extract(day from r.report_date)::int as day,
@@ -698,7 +703,9 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
              (sum(sum(l.overtime_hours)) over (partition by e.id))::numeric(8, 2)::text
                as overtime,
              (sum(case when bool_or(l.travel) then 1 else 0 end) over (partition by e.id))::int
-               as travel_days
+               as travel_days,
+             (sum(case when ${HOLIDAY} then sum(l.hours) else 0 end) over (partition by e.id))
+               ::numeric(8, 2)::text as holiday
            from public.daily_report_labor l
            join public.daily_reports r on r.id = l.report_id
            join public.employees e on e.id = l.employee_id
@@ -717,6 +724,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             total: string
             overtime: string
             travel_days: number
+            holiday: string
           }
         >()
         for (const r of rows) {
@@ -728,6 +736,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
               total: r.total,
               overtime: r.overtime,
               travel_days: r.travel_days,
+              holiday: r.holiday,
             }
             employees.set(r.id, entry)
           }
@@ -765,6 +774,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
                 total: '0',
                 overtime: '0',
                 travel_days: 0,
+                holiday: '0',
               }
               employees.set(a.id, entry)
             }
@@ -790,6 +800,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             'Totale',
             'Di cui straordinario',
             'Giorni di trasferta',
+            'Di cui festive',
           ],
           order.rows.flatMap((o) => {
             const e = employees.get(o.id)
@@ -801,6 +812,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
                     italianQuantity(e.total),
                     italianQuantity(e.overtime),
                     String(e.travel_days),
+                    italianQuantity(e.holiday),
                   ],
                 ]
               : []
@@ -837,6 +849,9 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
           values.push(query.status)
           where.push(`r.status = $${values.length}`)
         }
+        // Sundays, national holidays and the patron saint day of the company.
+        values.push(holidaysOfMonth(query.month, await patronSaintDay(client)))
+        const HOLIDAY = `(extract(isodow from r.report_date) = 7 or r.report_date = any($${values.length}::date[]))`
         const { rows } = await client.query<{
           last_name: string
           first_name: string
@@ -848,13 +863,15 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
           hours: string
           overtime: string
           travel_days: number
+          holiday: string
         }>(
           `select e.last_name, e.first_name, e.tax_code,
              s.name as site_name, s.code as site_code, s.address as site_address,
              count(distinct r.report_date)::int as days,
              sum(l.hours)::numeric(8, 2)::text as hours,
              sum(l.overtime_hours)::numeric(8, 2)::text as overtime,
-             count(distinct r.report_date) filter (where l.travel)::int as travel_days
+             count(distinct r.report_date) filter (where l.travel)::int as travel_days,
+             coalesce(sum(l.hours) filter (where ${HOLIDAY}), 0)::numeric(8, 2)::text as holiday
            from public.daily_report_labor l
            join public.daily_reports r on r.id = l.report_id
            join public.employees e on e.id = l.employee_id
@@ -876,6 +893,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             'Ore',
             'Di cui straordinario',
             'Giorni di trasferta',
+            'Di cui festive',
           ],
           rows.map((r) => [
             r.last_name,
@@ -888,6 +906,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             italianQuantity(r.hours),
             italianQuantity(r.overtime),
             String(r.travel_days),
+            italianQuantity(r.holiday),
           ]),
         )
       })

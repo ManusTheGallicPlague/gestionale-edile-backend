@@ -101,3 +101,14 @@ export function workingDays(from: string, to: string, patron: string | null = nu
   }
   return count
 }
+
+/**
+ * Holidays of a month (AAAA-MM) as AAAA-MM-GG: the national ones and the patron saint day of
+ * the company. Sundays are not listed: callers check the weekday.
+ */
+export function holidaysOfMonth(month: string, patron: string | null): string[] {
+  const year = Number(month.slice(0, 4))
+  const all = [...nationalHolidays(year)]
+  if (patron) all.push(`${year}-${patron}`)
+  return all.filter((day) => day.startsWith(`${month}-`)).sort()
+}

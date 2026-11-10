@@ -2453,7 +2453,9 @@ paths:
         come «6 PE 2»), e compare anche chi nel mese ha solo assenze, con totale 0. Dopo il
         totale, la colonna «Di cui straordinario» con la somma di overtime_hours del mese (0 se
         non ce ne sono), poi «Giorni di trasferta»: i giorni del mese con almeno una riga con
-        travel (un giorno su due cantieri conta una volta). Il file si chiama ore-2026-11.csv.
+        travel (un giorno su due cantieri conta una volta), poi «Di cui festive»: le ore lavorate
+        di domenica, nei festivi nazionali (Pasquetta compresa) e nel santo patrono dei dati
+        dell'azienda (0 se non ce ne sono). Il file si chiama ore-2026-11.csv.
       parameters:
         - name: month
           in: query
@@ -2500,8 +2502,9 @@ paths:
         dipendente e cantiere con ore nel mese (per cognome, nome e nome del cantiere), con
         cognome, nome, codice fiscale, cantiere, codice e indirizzo del cantiere, giorni con
         ore e ore (con la virgola decimale, 7,5), poi «Di cui straordinario» (somma di
-        overtime_hours, 0 se non ce ne sono) e «Giorni di trasferta» (giorni con travel su quel
-        cantiere). Si possono tenere solo i rapportini di un
+        overtime_hours, 0 se non ce ne sono), «Giorni di trasferta» (giorni con travel su quel
+        cantiere) e «Di cui festive» (ore di domenica, dei festivi nazionali e del santo patrono
+        dei dati dell'azienda). Si possono tenere solo i rapportini di un
         cantiere o di uno stato (per esempio solo gli approvati). Il file si chiama
         ore-cantieri-2026-11.csv.
       parameters:

@@ -168,15 +168,15 @@ describe('travel in daily reports', () => {
     const monthly = await s.browser.call('GET', `${s.base}/monthly-hours?month=2026-11`)
     expect(monthly.statusCode).toBe(200)
     const lines = csvLines(monthly.body)
-    expect(lines[0]?.split(';').slice(-1)).toEqual(['Giorni di trasferta'])
-    expect(lines[1]?.split(';').slice(-3)).toEqual(['16', '0', '2'])
+    expect(lines[0]?.split(';').slice(-2)).toEqual(['Giorni di trasferta', 'Di cui festive'])
+    expect(lines[1]?.split(';').slice(-4)).toEqual(['16', '0', '2', '0'])
 
     // By site: the Villetta has two days of travel, the Condominio one.
     const bySite = await s.browser.call('GET', `${s.base}/monthly-site-hours?month=2026-11`)
     expect(bySite.statusCode).toBe(200)
     expect(csvLines(bySite.body).slice(1)).toEqual([
-      'Verdi;Luca;;Condominio;;;1;4;0;1',
-      'Verdi;Luca;;Villetta;;;3;12;0;2',
+      'Verdi;Luca;;Condominio;;;1;4;0;1;0',
+      'Verdi;Luca;;Villetta;;;3;12;0;2;0',
     ])
 
     // Another company sees none of it.

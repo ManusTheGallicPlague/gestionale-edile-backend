@@ -201,6 +201,7 @@ describe('daily reports', () => {
         'Totale',
         'Di cui straordinario',
         'Giorni di trasferta',
+        'Di cui festive',
       ].join(';'),
     )
     const row = (
@@ -211,7 +212,16 @@ describe('daily reports', () => {
       total: string,
       overtime = '0',
     ) =>
-      [last, first, tax, ...days.map((d) => cells[Number(d)] ?? ''), total, overtime, '0'].join(';')
+      [
+        last,
+        first,
+        tax,
+        ...days.map((d) => cells[Number(d)] ?? ''),
+        total,
+        overtime,
+        '0',
+        '0',
+      ].join(';')
     expect(lines.slice(1)).toEqual([
       row('Bassi', 'Anna', '', { 5: '7,5', 30: '4,25' }, '11,75'),
       row('Verdi', 'Luca', 'VRDLCU80A01H501U', { 5: '10' }, '10'),
@@ -219,7 +229,7 @@ describe('daily reports', () => {
     // February has 28 days; a month with no reports has only the header.
     const feb = await read('month=2026-02')
     expect(feb).toHaveLength(1)
-    expect(feb[0]?.split(';')).toHaveLength(3 + 28 + 3)
+    expect(feb[0]?.split(';')).toHaveLength(3 + 28 + 4)
 
     // Only one site, only one status.
     expect((await read(`month=2026-11&filter[site]=${s.other}`)).slice(1)).toEqual([
