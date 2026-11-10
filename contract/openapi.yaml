@@ -8299,13 +8299,17 @@ paths:
             filter[split_payment]=true (le fatture dietro reverse_charge_taxable e
             sales_split_payment_vat di getVatSummary), filter[purchase_order]=<id> (le fatture
             ricevute di un ordine al fornitore), filter[direction]=received con
-            filter[has_purchase_order]=false (le fatture ricevute senza ordine).
+            filter[has_purchase_order]=false (le fatture ricevute senza ordine),
+            filter[document_type]=credit_note (solo le note di credito) e
+            filter[credited_invoice]=<id> (le note di credito di una fattura).
           style: deepObject
           explode: true
           schema:
             type: object
             properties:
               direction: { $ref: '#/components/schemas/InvoiceDirection' }
+              document_type: { $ref: '#/components/schemas/InvoiceDocumentType' }
+              credited_invoice: { $ref: '#/components/schemas/Id' }
               client: { $ref: '#/components/schemas/Id' }
               supplier: { $ref: '#/components/schemas/Id' }
               site: { $ref: '#/components/schemas/Id' }
@@ -8384,8 +8388,9 @@ paths:
         la virgola decimale (1234,50). Con il netto a pagare ci sono anche il già pagato
         (paid_amount) e il residuo (remaining_amount); dopo la scissione dei pagamenti, Sì o No
         per lo svincolo della ritenuta di garanzia (retention_release). In fondo la colonna
-        Ordine, con il numero dell'ordine al fornitore collegato (vuota senza ordine). Il file
-        si chiama fatture.csv.
+        Ordine, con il numero dell'ordine al fornitore collegato (vuota senza ordine), poi
+        Documento (Fattura o Nota di credito) e Fattura stornata (il numero, solo sulle note).
+        Il file si chiama fatture.csv.
       parameters:
         - name: sort
           in: query
@@ -8401,6 +8406,8 @@ paths:
             type: object
             properties:
               direction: { $ref: '#/components/schemas/InvoiceDirection' }
+              document_type: { $ref: '#/components/schemas/InvoiceDocumentType' }
+              credited_invoice: { $ref: '#/components/schemas/Id' }
               client: { $ref: '#/components/schemas/Id' }
               supplier: { $ref: '#/components/schemas/Id' }
               site: { $ref: '#/components/schemas/Id' }

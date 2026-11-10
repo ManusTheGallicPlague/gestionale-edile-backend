@@ -846,6 +846,12 @@ function readList(query: Record<string, unknown>) {
   if (directionValue !== undefined && !direction) {
     errors['filter[direction]'] = ['Valori ammessi: issued, received.']
   }
+  const documentTypeValue = single('filter[document_type]')
+  const documentType = DOCUMENT_TYPES.find((t) => t === documentTypeValue)
+  if (documentTypeValue !== undefined && !documentType) {
+    errors['filter[document_type]'] = ['Valori ammessi: invoice, credit_note.']
+  }
+  const creditedInvoiceId = id('filter[credited_invoice]')
   const statusValue = single('filter[status]')
   const status = PAYMENT_STATUSES.find((s) => s === statusValue)
   if (statusValue !== undefined && !status) errors['filter[status]'] = ['Stato non valido.']
@@ -878,6 +884,8 @@ function readList(query: Record<string, unknown>) {
     perPage,
     sort: sort ?? '-date',
     direction,
+    documentType,
+    creditedInvoiceId,
     status,
     clientId,
     supplierId,
@@ -897,6 +905,10 @@ function listFilter(list: ReturnType<typeof readList>) {
     where.push(sql(`$${values.length}`))
   }
   if (list.direction) add((p) => `i.direction = ${p}`, list.direction)
+  if (list.documentType) add((p) => `i.document_type = ${p}`, list.documentType)
+  if (list.creditedInvoiceId) {
+    add((p) => `i.credited_invoice_id = ${p}`, list.creditedInvoiceId)
+  }
   if (list.status) add((p) => `${PAYMENT_STATUS} = ${p}`, list.status)
   if (list.clientId) add((p) => `i.client_id = ${p}`, list.clientId)
   if (list.supplierId) add((p) => `i.supplier_id = ${p}`, list.supplierId)

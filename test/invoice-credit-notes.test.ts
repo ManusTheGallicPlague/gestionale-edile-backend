@@ -281,4 +281,52 @@ describe('credit notes', () => {
     })
     expect((await get(s, inv.id)).remaining_amount).toBe('1020.00')
   })
+
+  it('lists only the credit notes, or the notes of one invoice, also in the CSV', async () => {
+    const s = await scene()
+    const first = await create(s, { number: '1/2026' })
+    const second = await create(s, { number: '2/2026' })
+    const a = await s.browser.call('POST', s.base, {
+      body: note(s, first.id, { number: 'NC-1', taxable_amount: '0.10', vat_amount: '0' }),
+    })
+    const b = await s.browser.call('POST', s.base, {
+      body: note(s, second.id, { number: 'NC-2', taxable_amount: '0.20', vat_amount: '0' }),
+    })
+    expect([a.statusCode, b.statusCode]).toEqual([201, 201])
+    const notes = await s.browser.call('GET', `${s.base}?filter[document_type]=credit_note`)
+    expect(notes.statusCode).toBe(200)
+    expect(notes.json()).toMatchObject({ meta: { total: 2 }, total_amount: '-0.30' })
+    const invoices = await s.browser.call('GET', `${s.base}?filter[document_type]=invoice`)
+    expect(invoices.json()).toMatchObject({ meta: { total: 2 }, total_amount: '2440.00' })
+    const ofFirst = await s.browser.call('GET', `${s.base}?filter[credited_invoice]=${first.id}`)
+    expect(ofFirst.json<{ data: Invoice[] }>().data.map((i) => i.number)).toEqual(['NC-1'])
+    const csv = await s.browser.call(
+      'GET',
+      `${s.base}/export?filter[document_type]=credit_note&sort=date`,
+    )
+    expect(csv.statusCode).toBe(200)
+    const rows = csv.body.replace('\uFEFF', '').trim().split('\r\n')
+    expect(rows.slice(1).map((r) => r.split(';').slice(-2).join(';'))).toEqual([
+      'Nota di credito;1/2026',
+      'Nota di credito;2/2026',
+    ])
+    // Another company's invoice: an empty list, not its notes.
+    const stranger = await scene()
+    const theirs = await create(stranger)
+    const res = await stranger.browser.call('POST', stranger.base, {
+      body: note(stranger, theirs.id),
+    })
+    expect(res.statusCode).toBe(201)
+    const empty = await s.browser.call('GET', `${s.base}?filter[credited_invoice]=${theirs.id}`)
+    expect(empty.json()).toMatchObject({ meta: { total: 0 }, total_amount: '0.00' })
+    for (const bad of [
+      'filter[document_type]=TD04',
+      'filter[document_type]=constructor',
+      'filter[document_type]=invoice&filter[document_type]=credit_note',
+      'filter[credited_invoice]=x',
+    ]) {
+      expect((await s.browser.call('GET', `${s.base}?${bad}`)).statusCode).toBe(422)
+      expect((await s.browser.call('GET', `${s.base}/export?${bad}`)).statusCode).toBe(422)
+    }
+  })
 })
