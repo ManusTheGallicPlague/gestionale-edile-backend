@@ -104,6 +104,7 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
       hours: '26.83',
       days: 4,
       cost: '764.66',
+      payroll: { overtime_hours: '0.00', travel_days: 0, weather_hours: '0.00' },
       absences: { days: 0, hours: '0.00', kinds: [] },
       sites: [
         {
@@ -178,6 +179,7 @@ describe('ore di dipendenti e mezzi per cantiere', () => {
       days: 0,
       cost: '0.00',
       sites: [],
+      payroll: { overtime_hours: '0.00', travel_days: 0, weather_hours: '0.00' },
       absences: { days: 0, hours: '0.00', kinds: [] },
     })
   })

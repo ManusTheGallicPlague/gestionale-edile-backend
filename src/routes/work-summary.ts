@@ -282,6 +282,35 @@ async function readAbsences(client: PoolClient, id: string, query: Record<string
   }
 }
 
+/**
+ * Payroll items of an employee from the daily reports of the summary, with the same filters:
+ * overtime hours, travel days (once per day, even on two sites) and hours lost to bad weather,
+ * including the days lost entirely (no hours worked).
+ */
+async function readPayroll(client: PoolClient, id: string, query: Record<string, unknown>) {
+  const { from, to, status } = readFilters(query)
+  const { rows } = await client.query<{
+    overtime_hours: string
+    travel_days: number
+    weather_hours: string
+  }>(
+    `select coalesce(sum(h.overtime_hours), 0)::numeric(10, 2)::text as overtime_hours,
+       count(distinct r.report_date) filter (where h.travel)::int as travel_days,
+       coalesce(sum(h.weather_hours), 0)::numeric(10, 2)::text as weather_hours
+     from public.daily_report_labor h
+     join public.daily_reports r on r.id = h.report_id
+     where h.employee_id = $1
+       and ($2::date is null or r.report_date >= $2) and ($3::date is null or r.report_date <= $3)
+       and ($4::text is null or r.status = $4)`,
+    [id, from ?? null, to ?? null, status ?? null],
+  )
+  return {
+    overtime_hours: rows[0]?.overtime_hours ?? '0.00',
+    travel_days: rows[0]?.travel_days ?? 0,
+    weather_hours: rows[0]?.weather_hours ?? '0.00',
+  }
+}
+
 /** Maintenance of a vehicle in the period of the summary: how many jobs and their cost. */
 async function readMaintenance(client: PoolClient, id: string, query: Record<string, unknown>) {
   const { from, to } = readFilters(query)
@@ -394,6 +423,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           }
           return {
             ...summary,
+            payroll: await readPayroll(client, id.toLowerCase(), request.query),
             absences: await readAbsences(client, id.toLowerCase(), request.query),
           }
         })

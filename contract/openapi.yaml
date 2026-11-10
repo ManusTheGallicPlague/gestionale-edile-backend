@@ -5861,6 +5861,8 @@ paths:
         Con le ore anche le assenze dello stesso periodo (`absences`), per tipo: i giorni di
         calendario delle assenze di tutto il giorno, contati solo dentro filter[from] e
         filter[to], e le ore dei permessi. filter[status] vale solo per i rapportini.
+        In `payroll` le voci delle buste paga dagli stessi rapportini, con gli stessi filtri:
+        ore di straordinario, giorni di trasferta e ore perse per maltempo.
       parameters:
         - name: filter
           in: query
@@ -15057,8 +15059,21 @@ components:
       allOf:
         - $ref: '#/components/schemas/WorkSummary'
         - type: object
-          required: [absences]
+          required: [absences, payroll]
           properties:
+            payroll:
+              type: object
+              description: |
+                Voci delle buste paga dai rapportini del periodo, con gli stessi filtri delle ore
+                (anche filter[status]), di tutti i cantieri. overtime_hours: somma di
+                overtime_hours, già comprese in hours; travel_days: giorni con travel, un giorno
+                su due cantieri conta una volta; weather_hours: somma di weather_hours, anche
+                dalle giornate perse tutte (non comprese in hours né in days).
+              required: [overtime_hours, travel_days, weather_hours]
+              properties:
+                overtime_hours: { $ref: '#/components/schemas/WorkHours' }
+                travel_days: { type: integer, minimum: 0 }
+                weather_hours: { $ref: '#/components/schemas/WorkHours' }
             absences:
               type: object
               description: |
