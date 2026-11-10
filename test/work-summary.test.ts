@@ -605,6 +605,7 @@ describe('ore di un cantiere per dipendente e per mezzo', () => {
     expect(res.json()).toEqual({
       labor: {
         hours: '20.00',
+        weather_hours: '0.00',
         // Bassi has no hourly cost: zero in the total, null in the row.
         cost: '228.00',
         rows: [
@@ -614,6 +615,7 @@ describe('ore di un cantiere per dipendente e per mezzo', () => {
             days: 2,
             overtime_hours: '0.00',
             travel_days: 0,
+            weather_hours: '0.00',
             cost: null,
             first_date: '2026-10-01',
             last_date: '2026-10-02',
@@ -624,6 +626,7 @@ describe('ore di un cantiere per dipendente e per mezzo', () => {
             days: 1,
             overtime_hours: '0.00',
             travel_days: 0,
+            weather_hours: '0.00',
             cost: '228.00',
             first_date: '2026-10-01',
             last_date: '2026-10-01',
@@ -653,7 +656,7 @@ describe('ore di un cantiere per dipendente e per mezzo', () => {
     expect(approved.json<SiteSummary>().labor).toMatchObject({ hours: '12.00', cost: '228.00' })
     const empty = await s.browser.call('GET', siteUrl(s.slug, s.villa, '?filter[from]=2026-10-03'))
     expect(empty.json()).toEqual({
-      labor: { hours: '0.00', cost: '0.00', rows: [] },
+      labor: { hours: '0.00', weather_hours: '0.00', cost: '0.00', rows: [] },
       vehicles: { hours: '0.00', cost: '0.00', rows: [] },
     })
   })
@@ -709,12 +712,12 @@ describe('ore di un cantiere per dipendente e per mezzo in CSV', () => {
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="ore-cantiere.csv"')
     expect(lines(res.body)).toEqual([
-      'Tipo;Nome;Targa;Ore;Giorni;Costo;Primo giorno;Ultimo giorno',
-      'Dipendente;Bassi Anna;;12,00;2;;01/10/2026;02/10/2026',
-      'Dipendente;Verdi Luca;;8,00;1;228,00;01/10/2026;01/10/2026',
-      'Totale dipendenti;;;20,00;;228,00;;',
-      'Mezzo;"Escavatore; ""grande""";AB123CD;3,50;1;157,50;01/10/2026;01/10/2026',
-      'Totale mezzi;;;3,50;;157,50;;',
+      'Tipo;Nome;Targa;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Ore perse per maltempo',
+      'Dipendente;Bassi Anna;;12,00;2;;01/10/2026;02/10/2026;0,00',
+      'Dipendente;Verdi Luca;;8,00;1;228,00;01/10/2026;01/10/2026;0,00',
+      'Totale dipendenti;;;20,00;;228,00;;;0,00',
+      'Mezzo;"Escavatore; ""grande""";AB123CD;3,50;1;157,50;01/10/2026;01/10/2026;',
+      'Totale mezzi;;;3,50;;157,50;;;',
     ])
 
     const approved = await s.browser.call(
@@ -722,22 +725,22 @@ describe('ore di un cantiere per dipendente e per mezzo in CSV', () => {
       `${siteUrl(s.slug, s.villa)}/export?filter[status]=approved&filter[to]=2026-10-01`,
     )
     expect(lines(approved.body)).toEqual([
-      'Tipo;Nome;Targa;Ore;Giorni;Costo;Primo giorno;Ultimo giorno',
-      'Dipendente;Verdi Luca;;8,00;1;228,00;01/10/2026;01/10/2026',
-      'Dipendente;Bassi Anna;;4,00;1;;01/10/2026;01/10/2026',
-      'Totale dipendenti;;;12,00;;228,00;;',
-      'Mezzo;"Escavatore; ""grande""";AB123CD;3,50;1;157,50;01/10/2026;01/10/2026',
-      'Totale mezzi;;;3,50;;157,50;;',
+      'Tipo;Nome;Targa;Ore;Giorni;Costo;Primo giorno;Ultimo giorno;Ore perse per maltempo',
+      'Dipendente;Verdi Luca;;8,00;1;228,00;01/10/2026;01/10/2026;0,00',
+      'Dipendente;Bassi Anna;;4,00;1;;01/10/2026;01/10/2026;0,00',
+      'Totale dipendenti;;;12,00;;228,00;;;0,00',
+      'Mezzo;"Escavatore; ""grande""";AB123CD;3,50;1;157,50;01/10/2026;01/10/2026;',
+      'Totale mezzi;;;3,50;;157,50;;;',
     ])
 
     const plain = await scene(['sites.view', 'reports.view'])
     await plain.report(plain.villa, '2026-10-01', 'approved', { verdi: '8' })
     const noCosts = await plain.browser.call('GET', `${siteUrl(plain.slug, plain.villa)}/export`)
     expect(lines(noCosts.body)).toEqual([
-      'Tipo;Nome;Targa;Ore;Giorni;Primo giorno;Ultimo giorno',
-      'Dipendente;Verdi Luca;;8,00;1;01/10/2026;01/10/2026',
-      'Totale dipendenti;;;8,00;;;',
-      'Totale mezzi;;;0,00;;;',
+      'Tipo;Nome;Targa;Ore;Giorni;Primo giorno;Ultimo giorno;Ore perse per maltempo',
+      'Dipendente;Verdi Luca;;8,00;1;01/10/2026;01/10/2026;0,00',
+      'Totale dipendenti;;;8,00;;;;0,00',
+      'Totale mezzi;;;0,00;;;;',
     ])
   })
 

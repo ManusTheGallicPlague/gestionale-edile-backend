@@ -4131,9 +4131,11 @@ paths:
         giorno per dipendente e per mezzo, da chi ha più ore. I costi, alle ore per il costo
         orario fissato all'approvazione (attuale per i rapportini non approvati), ci sono solo con costs.view; senza quel permesso, o senza costo orario,
         sono null. Senza filtri conta tutti i rapportini del cantiere.
-        Per ogni dipendente anche le ore di straordinario (comprese nelle ore) e i giorni di
-        trasferta sul cantiere; le ore perse per maltempo sono nelle ore mensili per cantiere
-        (exportMonthlySiteHours).
+        Per ogni dipendente anche le ore di straordinario (comprese nelle ore), i giorni di
+        trasferta e le ore perse per maltempo sul cantiere (weather_hours, anche dalle giornate
+        perse tutte), con il totale delle ore perse in labor.weather_hours, per la richiesta
+        di cassa integrazione per intemperie. Chi nel periodo ha solo ore perse compare con
+        ore, giorni e costo a zero, e primo e ultimo giorno sono quelli delle ore perse.
       parameters:
         - name: filter
           in: query
@@ -4172,8 +4174,8 @@ paths:
         una riga «Totale dipendenti», poi i mezzi e una riga «Totale mezzi». Colonne Tipo
         (Dipendente o Mezzo), Nome (cognome e nome del dipendente, nome del mezzo), Targa, Ore,
         Giorni, poi Costo solo con costs.view (vuoto senza costo orario), poi Primo giorno e
-        Ultimo giorno. Ore e importi con la virgola decimale (12,50), date come 30/11/2026. Il
-        file si chiama ore-cantiere.csv.
+        Ultimo giorno, e in fondo Ore perse per maltempo (vuota per i mezzi). Ore e importi con
+        la virgola decimale (12,50), date come 30/11/2026. Il file si chiama ore-cantiere.csv.
       parameters:
         - name: filter
           in: query
@@ -15103,16 +15105,27 @@ components:
       properties:
         labor:
           type: object
-          required: [hours, cost, rows]
+          required: [hours, weather_hours, cost, rows]
           properties:
             hours: { $ref: '#/components/schemas/WorkHours' }
+            weather_hours:
+              description: Ore perse per maltempo sul cantiere, somma delle righe.
+              allOf: [{ $ref: '#/components/schemas/WorkHours' }]
             cost: { $ref: '#/components/schemas/NullableWorkCost' }
             rows:
               type: array
               items:
                 type: object
                 required:
-                  [employee, hours, days, overtime_hours, travel_days, cost, first_date, last_date]
+                  - employee
+                  - hours
+                  - days
+                  - overtime_hours
+                  - travel_days
+                  - weather_hours
+                  - cost
+                  - first_date
+                  - last_date
                 properties:
                   employee:
                     type: object
@@ -15130,6 +15143,11 @@ components:
                     type: integer
                     minimum: 0
                     description: Giorni con travel sul cantiere, tra quelli con ore.
+                  weather_hours:
+                    description: |
+                      Ore perse per maltempo sul cantiere (non comprese nelle ore), anche dalle
+                      giornate perse tutte.
+                    allOf: [{ $ref: '#/components/schemas/WorkHours' }]
                   cost: { $ref: '#/components/schemas/NullableWorkCost' }
                   first_date: { $ref: '#/components/schemas/Date' }
                   last_date: { $ref: '#/components/schemas/Date' }

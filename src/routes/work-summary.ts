@@ -168,7 +168,7 @@ async function readSiteSummary(
   if (!canSeeReports) throw forbidden()
   const filters = readFilters(query)
   const values: unknown[] = [siteId]
-  const where = ['r.site_id = $1', 'h.hours > 0']
+  const where = ['r.site_id = $1']
   if (filters.from) {
     values.push(filters.from)
     where.push(`r.report_date >= $${values.length}::date`)
@@ -188,18 +188,23 @@ async function readSiteSummary(
     table: Source['table'],
     fields: string,
     order: string,
+    include: string,
   ) => {
+    // Rows without worked hours (a day lost to bad weather) count in no day, cost or date,
+    // except the dates of who has nothing else.
     const { rows } = await client.query<T>(
       `select x.id, ${fields},
          sum(h.hours)::numeric(10, 2)::text as hours,
-         count(distinct r.report_date)::int as days,
+         count(distinct r.report_date) filter (where h.hours > 0)::int as days,
          sum(round(h.hours * coalesce(h.hourly_cost_cents, x.hourly_cost_cents)))::bigint::text as cents,
-         min(r.report_date)::text as first_date,
-         max(r.report_date)::text as last_date
+         coalesce(min(r.report_date) filter (where h.hours > 0), min(r.report_date))::text
+           as first_date,
+         coalesce(max(r.report_date) filter (where h.hours > 0), max(r.report_date))::text
+           as last_date
        from public.${hours} h
        join public.daily_reports r on r.id = h.report_id
        join public.${table} x on x.id = h.${column}
-       where ${where.join(' and ')}
+       where ${[...where, include].join(' and ')}
        group by x.id
        order by sum(h.hours) desc, ${order}, x.id`,
       values,
@@ -219,6 +224,7 @@ async function readSiteSummary(
       last_name: string
       overtime_hours: string
       travel_days: number
+      weather_hours: string
     }
   >(
     'daily_report_labor',
@@ -226,15 +232,20 @@ async function readSiteSummary(
     'employees',
     `x.first_name, x.last_name,
      sum(h.overtime_hours)::numeric(10, 2)::text as overtime_hours,
-     count(distinct r.report_date) filter (where h.travel)::int as travel_days`,
+     count(distinct r.report_date) filter (where h.travel and h.hours > 0)::int as travel_days,
+     sum(h.weather_hours)::numeric(10, 2)::text as weather_hours`,
     'lower(x.last_name), lower(x.first_name)',
+    '(h.hours > 0 or h.weather_hours > 0)',
   )
+  let weatherHundredths = 0n
+  for (const r of labor.rows) weatherHundredths += BigInt(r.weather_hours.replace('.', ''))
   const vehicles = await part<ResourceRow & { name: string; plate: string | null }>(
     'daily_report_vehicles',
     'vehicle_id',
     'vehicles',
     'x.name, x.plate',
     'lower(x.name)',
+    'h.hours > 0',
   )
   const common = (r: ResourceRow) => ({
     hours: r.hours,
@@ -246,12 +257,14 @@ async function readSiteSummary(
   return {
     labor: {
       hours: labor.hours,
+      weather_hours: centsToAmount(weatherHundredths.toString()),
       cost: labor.cost,
       rows: labor.rows.map((r) => ({
         employee: { id: r.id, first_name: r.first_name, last_name: r.last_name },
         ...common(r),
         overtime_hours: r.overtime_hours,
         travel_days: r.travel_days,
+        weather_hours: r.weather_hours,
       })),
     },
     vehicles: {
@@ -545,6 +558,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           days?: number
           first_date?: string
           last_date?: string
+          weather_hours?: string
         },
       ) => [
         kind,
@@ -555,6 +569,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
         ...(canSeeCosts ? [decimal(r.cost)] : []),
         r.first_date && italianDate(r.first_date),
         r.last_date && italianDate(r.last_date),
+        r.weather_hours === undefined ? null : decimal(r.weather_hours),
       ]
       const csv = toCsv(
         [
@@ -566,6 +581,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           ...(canSeeCosts ? ['Costo'] : []),
           'Primo giorno',
           'Ultimo giorno',
+          'Ore perse per maltempo',
         ],
         [
           ...summary.labor.rows.map((r) =>
