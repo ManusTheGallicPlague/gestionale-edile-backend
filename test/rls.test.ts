@@ -2514,7 +2514,7 @@ describe('the API role cannot cross companies', () => {
         companyA.id,
       ])
       return c.query<{ user_id: string; fields: string[] }>(
-        "select user_id, fields from public.audit_log where action = 'update'",
+        "select user_id, fields from public.audit_log where action = 'update' and entity = 'client'",
       )
     })
     expect(logged.rows).toEqual([{ user_id: alice.id, fields: ['notes'] }])
@@ -2532,6 +2532,11 @@ describe('the API role cannot cross companies', () => {
     await expect(
       as(alice.id, companyA.id, (c) => c.query('select app.audit_row()')),
     ).rejects.toThrow(/permission denied|trigger/)
+    for (const fn of ['app.audit_child_row()', 'app.audit_site_team()']) {
+      await expect(as(alice.id, companyA.id, (c) => c.query(`select ${fn}`))).rejects.toThrow(
+        /permission denied|trigger/,
+      )
+    }
   })
 
   it('cannot read password hashes or sessions', async () => {

@@ -910,6 +910,141 @@ describe('audit log', () => {
     ])
   })
 
+  it('records quote lines, price list items and the estimate tree as a field of the document', async () => {
+    const { company, user } = await fx.companyWithUser([
+      'audit.view',
+      'quotes.view',
+      'quotes.update',
+      'price_lists.view',
+      'price_lists.create',
+      'price_lists.update',
+      'estimates.view',
+      'estimates.create',
+      'estimates.update',
+      'estimates.delete',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const base = `/api/companies/${company.slug}`
+    const author = { id: user.id, name: 'Utente di prova' }
+    const log = async (entity: string, id: string) => {
+      const res = await browser.call('GET', `${base}/audit-log?filter[entity]=${entity}`)
+      expect(res.statusCode).toBe(200)
+      return res
+        .json<{ data: Entry[] }>()
+        .data.filter((e) => e.entity_id === id)
+        .map((e) => [e.action, e.fields, e.user])
+    }
+
+    // Quote: two lines added, one entry per request; a line saved with the same values leaves
+    // nothing.
+    const quoteClient = await ctx.owner.query<{ id: string }>(
+      "insert into public.clients (company_id, kind, name) values ($1, 'person', 'Rossi') returning id",
+      [company.id],
+    )
+    const quote = await ctx.owner.query<{ id: string }>(
+      "insert into public.quotes (company_id, client_id, subject) values ($1, $2, 'Tetto') returning id",
+      [company.id, quoteClient.rows[0]?.id],
+    )
+    const quoteId = quote.rows[0]?.id ?? ''
+    const lines = `${base}/quotes/${quoteId}/lines`
+    const line = {
+      kind: 'item',
+      description: 'Rimozione del manto di copertura',
+      unit: 'm²',
+      quantity: '0.1',
+      unit_price: '0.20',
+      discount_percent: '0',
+      vat_rate: 10,
+    }
+    const first = await browser.call('POST', lines, { body: line })
+    expect(first.statusCode).toBe(201)
+    expect((await browser.call('POST', lines, { body: line })).statusCode).toBe(201)
+    const lineUrl = `${lines}/${first.json<{ id: string }>().id}`
+    const sameLine = await browser.call('PUT', lineUrl, {
+      headers: { 'if-match': '"1"' },
+      body: line,
+    })
+    expect(sameLine.statusCode).toBe(200)
+    expect(await log('quote', quoteId)).toEqual([
+      ['update', ['lines'], author],
+      ['update', ['lines'], author],
+      ['create', [], null],
+    ])
+
+    // Price list: a new item is an update of the list.
+    const list = await browser.call('POST', `${base}/price-lists`, {
+      body: { name: 'Prezzario', year: 2026, notes: null },
+    })
+    expect(list.statusCode).toBe(201)
+    const listId = list.json<{ id: string }>().id
+    const item = await browser.call('POST', `${base}/price-lists/${listId}/items`, {
+      body: { code: '01.A01', description: 'Scavo di sbancamento', unit: 'm³', unit_price: '8.5' },
+    })
+    expect(item.statusCode).toBe(201)
+    expect(await log('price_list', listId)).toEqual([
+      ['update', ['items'], author],
+      ['create', [], author],
+    ])
+
+    // Estimate: a chapter and an item in two requests; deleting the estimate removes its tree
+    // and logs only the deletion.
+    const estimate = await browser.call('POST', `${base}/estimates`, {
+      body: {
+        title: 'Bagno',
+        client_id: null,
+        site_id: null,
+        site_address: null,
+        status: 'draft',
+        notes: null,
+      },
+    })
+    expect(estimate.statusCode).toBe(201)
+    const estimateId = estimate.json<{ id: string }>().id
+    const tree = `${base}/estimates/${estimateId}`
+    const chapter = await browser.call('POST', `${tree}/chapters`, {
+      body: { code: null, title: 'Demolizioni', parent_id: null },
+    })
+    expect(chapter.statusCode).toBe(201)
+    const estimateItem = await browser.call('POST', `${tree}/items`, {
+      body: {
+        chapter_id: chapter.json<{ id: string }>().id,
+        code: null,
+        description: 'Demolizione di pavimento',
+        unit: 'm²',
+        unit_price: '12.5',
+      },
+    })
+    expect(estimateItem.statusCode).toBe(201)
+    const current = await browser.call('GET', tree)
+    const deleted = await browser.call('DELETE', tree, {
+      headers: { 'if-match': String(current.headers.etag) },
+    })
+    expect(deleted.statusCode).toBe(204)
+    expect(await log('estimate', estimateId)).toEqual([
+      ['delete', [], author],
+      ['update', ['structure'], author],
+      ['update', ['structure'], author],
+      ['create', [], author],
+    ])
+
+    // Rows of another company's document: not in this log.
+    const other = await fx.company()
+    const theirs = await ctx.owner.query<{ id: string }>(
+      "insert into public.price_lists (company_id, name, year) values ($1, 'Altrui', 2026) returning id",
+      [other.id],
+    )
+    await ctx.owner.query(
+      `insert into public.price_list_items (company_id, price_list_id, code, description, unit,
+         unit_price_cents) values ($1, $2, 'X', 'Altrui', 'm', 100)`,
+      [other.id, theirs.rows[0]?.id],
+    )
+    const all = await browser.call('GET', `${base}/audit-log`)
+    expect(all.json<{ data: Entry[] }>().data.map((e) => e.entity_id)).not.toContain(
+      theirs.rows[0]?.id,
+    )
+  })
+
   it('records invitations and changes to the company details', async () => {
     const { company, user, roleId } = await fx.companyWithUser([
       'audit.view',
