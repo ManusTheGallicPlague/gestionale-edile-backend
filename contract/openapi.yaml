@@ -2498,7 +2498,8 @@ paths:
         cantiere, come le chiedono la Cassa Edile e il consulente del lavoro: una riga per
         dipendente e cantiere con ore nel mese (per cognome, nome e nome del cantiere), con
         cognome, nome, codice fiscale, cantiere, codice e indirizzo del cantiere, giorni con
-        ore e ore (con la virgola decimale, 7,5). Si possono tenere solo i rapportini di un
+        ore e ore (con la virgola decimale, 7,5), poi «Di cui straordinario» (somma di
+        overtime_hours, 0 se non ce ne sono). Si possono tenere solo i rapportini di un
         cantiere o di uno stato (per esempio solo gli approvati). Il file si chiama
         ore-cantieri-2026-11.csv.
       parameters:

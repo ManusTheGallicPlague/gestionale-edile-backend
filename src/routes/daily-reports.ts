@@ -813,11 +813,13 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
           site_address: string | null
           days: number
           hours: string
+          overtime: string
         }>(
           `select e.last_name, e.first_name, e.tax_code,
              s.name as site_name, s.code as site_code, s.address as site_address,
              count(distinct r.report_date)::int as days,
-             sum(l.hours)::numeric(8, 2)::text as hours
+             sum(l.hours)::numeric(8, 2)::text as hours,
+             sum(l.overtime_hours)::numeric(8, 2)::text as overtime
            from public.daily_report_labor l
            join public.daily_reports r on r.id = l.report_id
            join public.employees e on e.id = l.employee_id
@@ -837,6 +839,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             'Indirizzo cantiere',
             'Giorni',
             'Ore',
+            'Di cui straordinario',
           ],
           rows.map((r) => [
             r.last_name,
@@ -847,6 +850,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
             r.site_address ?? '',
             String(r.days),
             italianQuantity(r.hours),
+            italianQuantity(r.overtime),
           ]),
         )
       })

@@ -777,6 +777,13 @@ describe('ore mensili dei dipendenti per cantiere in CSV', () => {
     // Other months stay out.
     await s.report(s.villa, '2026-10-31', 'approved', { verdi: '9' })
     await s.report(s.villa, '2026-12-01', 'approved', { verdi: '9' })
+    // Overtime in the draft of the 3rd: only there.
+    await ctx.owner.query(
+      `update public.daily_report_labor l set overtime_hours = 1.25
+       from public.daily_reports r
+       where r.id = l.report_id and r.site_id = $1 and r.report_date = '2026-11-03'`,
+      [s.villa],
+    )
 
     const res = await s.browser.call('GET', url(s.slug, 'month=2026-11'))
     expect(res.statusCode).toBe(200)
@@ -784,10 +791,10 @@ describe('ore mensili dei dipendenti per cantiere in CSV', () => {
       'attachment; filename="ore-cantieri-2026-11.csv"',
     )
     expect(lines(res.body)).toEqual([
-      'Cognome;Nome;Codice fiscale;Cantiere;Codice cantiere;Indirizzo cantiere;Giorni;Ore',
-      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5',
-      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4',
-      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;2;12,25',
+      'Cognome;Nome;Codice fiscale;Cantiere;Codice cantiere;Indirizzo cantiere;Giorni;Ore;Di cui straordinario',
+      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5;0',
+      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4;0',
+      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;2;12,25;1,25',
     ])
 
     const approved = await s.browser.call(
@@ -795,12 +802,12 @@ describe('ore mensili dei dipendenti per cantiere in CSV', () => {
       url(s.slug, 'month=2026-11&filter[status]=approved'),
     )
     expect(lines(approved.body).slice(1)).toEqual([
-      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5',
-      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4',
-      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;1;8',
+      'Bassi;Anna;;Villetta;C-1;Via Roma 1, Treviso;1;7,5;0',
+      'Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4;0',
+      'Verdi;Luca;VRDLCU80A01H501U;Villetta;C-1;Via Roma 1, Treviso;1;8;0',
     ])
     const condo = await s.browser.call('GET', url(s.slug, `month=2026-11&filter[site]=${s.condo}`))
-    expect(lines(condo.body).slice(1)).toEqual(['Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4'])
+    expect(lines(condo.body).slice(1)).toEqual(['Verdi;Luca;VRDLCU80A01H501U;Condominio;;;1;4;0'])
 
     for (const [query, field] of [
       ['', 'month'],
