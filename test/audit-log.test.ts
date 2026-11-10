@@ -126,6 +126,34 @@ describe('audit log', () => {
       expect((await browser.call('GET', `${log}?${query}`)).statusCode).toBe(422)
       expect((await browser.call('GET', `${log}/export?${query}`)).statusCode).toBe(422)
     }
+    // Who changed a field: only the updates that touched it, in the list and in the CSV.
+    const byField = await browser.call('GET', `${log}?filter[field]=title`)
+    expect(byField.statusCode).toBe(200)
+    expect(byField.json<{ data: Entry[]; meta: { total: number } }>()).toMatchObject({
+      data: [{ entity: 'estimate', entity_id: id, action: 'update', fields: ['status', 'title'] }],
+      meta: { total: 1 },
+    })
+    const fieldCsv = await browser.call('GET', `${log}/export?filter[field]=status`)
+    expect(fieldCsv.body.replace('\uFEFF', '').trim().split('\r\n')).toHaveLength(2)
+    for (const query of ['filter[field]=budget', 'filter[field]=title&filter[action]=create']) {
+      const none = await browser.call('GET', `${log}?${query}`)
+      expect(none.json<{ meta: { total: number } }>().meta.total).toBe(0)
+    }
+    expect(
+      (await them.call('GET', `${theirLog}?filter[field]=title`)).json<{
+        meta: { total: number }
+      }>().meta.total,
+    ).toBe(0)
+    for (const query of [
+      'filter[field]=Title',
+      'filter[field]=',
+      "filter[field]=title'--",
+      `filter[field]=${'a'.repeat(65)}`,
+      'filter[field]=title&filter[field]=status',
+    ]) {
+      expect((await browser.call('GET', `${log}?${query}`)).statusCode).toBe(422)
+      expect((await browser.call('GET', `${log}/export?${query}`)).statusCode).toBe(422)
+    }
     const csv = await browser.call('GET', `${log}/export?filter[action]=delete`)
     expect(csv.body.replace('\uFEFF', '').trim().split('\r\n')).toEqual([
       'Data e ora;Utente;Documento;Id del documento;Azione;Campi',

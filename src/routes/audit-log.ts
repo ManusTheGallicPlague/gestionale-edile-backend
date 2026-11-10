@@ -95,6 +95,9 @@ interface AuditRow {
   local_time: string
 }
 
+/** The name of a changed field, as written in AuditEntry.fields. */
+const FIELD = /^[a-z][a-z0-9_]{0,63}$/
+
 function readList(query: Record<string, unknown>) {
   const errors: FieldErrors = {}
   const single = (name: string): string | undefined => {
@@ -142,8 +145,14 @@ function readList(query: Record<string, unknown>) {
   if (actionValue !== undefined && !action) {
     errors['filter[action]'] = ['Valori ammessi: create, update, delete.']
   }
+  const field = single('filter[field]')
+  if (field !== undefined && !FIELD.test(field)) {
+    errors['filter[field]'] = [
+      'Nome di campo non valido: lettere minuscole, cifre e trattini bassi.',
+    ]
+  }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
-  return { page, perPage, entity, entityId, userId, from, to, action }
+  return { page, perPage, entity, entityId, userId, from, to, action, field }
 }
 
 /** The day of a change, on Italian time: what filter[from] and filter[to] compare. */
@@ -160,6 +169,7 @@ function auditFilters(list: ReturnType<typeof readList>) {
   if (list.entityId) add((p) => `a.entity_id = ${p}`, list.entityId)
   if (list.userId) add((p) => `a.user_id = ${p}`, list.userId)
   if (list.action) add((p) => `a.action = ${p}`, list.action)
+  if (list.field) add((p) => `${p} = any(a.fields)`, list.field)
   if (list.from) add((p) => `${LOCAL_DAY} >= ${p}::date`, list.from)
   if (list.to) add((p) => `${LOCAL_DAY} <= ${p}::date`, list.to)
   return { where, values }
