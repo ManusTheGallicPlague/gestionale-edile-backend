@@ -38,6 +38,8 @@ const ENTITIES = [
   'warehouse_movement',
   'role',
   'user',
+  'invitation',
+  'company_profile',
 ] as const
 
 /** Italian name of each kind of record, for the CSV. */
@@ -69,6 +71,8 @@ const ENTITY_LABELS: Record<(typeof ENTITIES)[number], string> = {
   warehouse_movement: 'Movimento di magazzino',
   role: 'Ruolo',
   user: "Utente dell'azienda",
+  invitation: 'Invito',
+  company_profile: "Dati dell'azienda",
 }
 
 const ACTION_LABELS: Record<string, string> = {

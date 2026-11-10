@@ -837,6 +837,104 @@ describe('audit log', () => {
     expect(roleCsv.body).toContain(`Ruolo;${roleId};Eliminazione`)
   })
 
+  it('records invitations and changes to the company details', async () => {
+    const { company, user, roleId } = await fx.companyWithUser([
+      'audit.view',
+      'users.view',
+      'users.manage',
+      'settings.view',
+      'settings.update',
+    ])
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const base = `/api/companies/${company.slug}`
+    const invite = async (email: string) => {
+      const res = await browser.call('POST', `${base}/invitations`, {
+        body: { email, role_id: roleId },
+      })
+      expect(res.statusCode).toBe(201)
+      return res.json<{ id: string; token: string }>()
+    }
+    const withdrawn = await invite('ritirato@example.test')
+    expect((await browser.call('DELETE', `${base}/invitations/${withdrawn.id}`)).statusCode).toBe(
+      204,
+    )
+    const accepted = await invite('accettato@example.test')
+    const guest = new Browser(ctx.app)
+    await guest.request('GET', '/api/auth/csrf')
+    const accept = await guest.call('POST', `/api/invitations/${accepted.token}/accept`, {
+      body: { name: 'Nuova Persona', password: 'una-password-lunga' },
+    })
+    expect(accept.statusCode).toBe(204)
+
+    const url = `${base}/settings/company`
+    const profile = (version: number, overrides: Record<string, unknown> = {}) =>
+      browser.call('PUT', url, {
+        headers: { 'if-match': `"${version}"` },
+        body: {
+          legal_name: 'Edilizia Prova S.r.l.',
+          vat_number: null,
+          tax_code: null,
+          rea: null,
+          share_capital: null,
+          street: null,
+          postal_code: null,
+          city: 'Torino',
+          province: null,
+          country: 'IT',
+          phone: null,
+          email: null,
+          pec: null,
+          iban: null,
+          ...overrides,
+        },
+      })
+    // First save with the patron saint day: only the creation.
+    expect((await profile(0, { patron_saint_day: '06-24' })).statusCode).toBe(200)
+    // Same values: no entry. Then the city alone, then the city and the day together.
+    expect((await profile(1)).statusCode).toBe(200)
+    expect((await profile(2, { city: 'Roma' })).statusCode).toBe(200)
+    expect((await profile(3, { city: 'Milano', patron_saint_day: '12-07' })).statusCode).toBe(200)
+    // Another company's details: not in this log.
+    const other = await fx.company()
+    await ctx.owner.query(
+      "insert into public.company_profiles (company_id, legal_name) values ($1, 'Altra')",
+      [other.id],
+    )
+
+    const author = { id: user.id, name: 'Utente di prova' }
+    const entries = async (entity: string) => {
+      const res = await browser.call('GET', `${base}/audit-log?filter[entity]=${entity}`)
+      expect(res.statusCode).toBe(200)
+      return res
+        .json<{ data: Entry[] }>()
+        .data.map((e) => [e.entity_id, e.action, e.fields, e.user])
+    }
+    const invitations = await entries('invitation')
+    expect(invitations.slice(1)).toEqual([
+      [accepted.id, 'create', [], author],
+      [withdrawn.id, 'delete', [], author],
+      [withdrawn.id, 'create', [], author],
+    ])
+    expect(invitations[0]?.slice(0, 3)).toEqual([
+      accepted.id,
+      'update',
+      ['accepted_at', 'accepted_user_id'],
+    ])
+    expect(await entries('company_profile')).toEqual([
+      [company.id, 'update', ['city', 'patron_saint_day'], author],
+      [company.id, 'update', ['city'], author],
+      [company.id, 'create', [], author],
+    ])
+    const csv = await browser.call('GET', `${base}/audit-log/export?filter[entity]=company_profile`)
+    expect(csv.body).toContain(`Dati dell'azienda;${company.id};Modifica`)
+    const invCsv = await browser.call(
+      'GET',
+      `${base}/audit-log/export?filter[entity]=invitation&filter[action]=delete`,
+    )
+    expect(invCsv.body).toContain(`Invito;${withdrawn.id};Eliminazione`)
+  })
+
   it('filters by day on Italian time and exports the log in CSV', async () => {
     const { company, user } = await fx.companyWithUser([
       'audit.view',

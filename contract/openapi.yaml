@@ -10620,6 +10620,9 @@ components:
         role: ruolo (nome e permessi; i permessi cambiati compaiono come campo permissions).
         user: utente dell'azienda, con entity_id uguale all'id dell'utente di …/users/{user}
         (creazione all'accettazione dell'invito, modifica di role_id o disabled_at).
+        invitation: invito a entrare nell'azienda (l'accettazione è una modifica di accepted_at).
+        company_profile: dati dell'azienda di …/settings/company, con entity_id uguale all'id
+        dell'azienda.
       enum:
         [
           client,
@@ -10649,6 +10652,8 @@ components:
           warehouse_movement,
           role,
           user,
+          invitation,
+          company_profile,
         ]
     AuditEntry:
       type: object
