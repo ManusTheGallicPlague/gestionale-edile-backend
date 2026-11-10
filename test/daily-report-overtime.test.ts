@@ -218,11 +218,11 @@ describe('overtime in daily reports', () => {
     expect(res.statusCode).toBe(200)
     const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
     const head = lines[0]?.split(';') ?? []
-    expect(head.slice(-2)).toEqual(['Totale', 'Di cui straordinario'])
+    expect(head.slice(-3)).toEqual(['Totale', 'Di cui straordinario', 'Giorni di trasferta'])
     const verdi = lines[1]?.split(';') ?? []
     expect(verdi.slice(0, 2)).toEqual(['Verdi', 'Luca'])
     expect(verdi[3 + 4]).toBe('10')
-    expect(verdi.slice(-2)).toEqual(['20', '3,5'])
+    expect(verdi.slice(-3)).toEqual(['20', '3,5', '0'])
     // Another company sees none of it.
     const theirs = await scene()
     const other = await theirs.browser.call('GET', `${theirs.base}/monthly-hours?month=2026-11`)
@@ -244,7 +244,13 @@ describe('overtime in daily reports', () => {
     const copied = await today('date=2026-11-05&copy_previous=true')
     expect(copied.statusCode).toBe(200)
     expect(copied.json<{ proposal: { labor: unknown[] } }>().proposal.labor).toEqual([
-      { employee_id: s.verdi, hours: '9.00', overtime_hours: '1.00', description: null },
+      {
+        employee_id: s.verdi,
+        hours: '9.00',
+        overtime_hours: '1.00',
+        travel: false,
+        description: null,
+      },
     ])
     // The usual team proposal has no overtime.
     await ctx.owner.query(
@@ -254,7 +260,13 @@ describe('overtime in daily reports', () => {
     const plain = await today('date=2026-11-05')
     expect(plain.statusCode).toBe(200)
     expect(plain.json<{ proposal: { labor: unknown[] } }>().proposal.labor).toEqual([
-      { employee_id: s.bassi, hours: '8.00', overtime_hours: '0.00', description: null },
+      {
+        employee_id: s.bassi,
+        hours: '8.00',
+        overtime_hours: '0.00',
+        travel: false,
+        description: null,
+      },
     ])
   })
 })

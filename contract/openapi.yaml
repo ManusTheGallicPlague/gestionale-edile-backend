@@ -2452,7 +2452,8 @@ paths:
         (FE ferie, MA malattia, PE permesso, IN infortunio, AL altro; con le ore del permesso,
         come «6 PE 2»), e compare anche chi nel mese ha solo assenze, con totale 0. Dopo il
         totale, la colonna «Di cui straordinario» con la somma di overtime_hours del mese (0 se
-        non ce ne sono). Il file si chiama ore-2026-11.csv.
+        non ce ne sono), poi «Giorni di trasferta»: i giorni del mese con almeno una riga con
+        travel (un giorno su due cantieri conta una volta). Il file si chiama ore-2026-11.csv.
       parameters:
         - name: month
           in: query
@@ -2499,7 +2500,8 @@ paths:
         dipendente e cantiere con ore nel mese (per cognome, nome e nome del cantiere), con
         cognome, nome, codice fiscale, cantiere, codice e indirizzo del cantiere, giorni con
         ore e ore (con la virgola decimale, 7,5), poi «Di cui straordinario» (somma di
-        overtime_hours, 0 se non ce ne sono). Si possono tenere solo i rapportini di un
+        overtime_hours, 0 se non ce ne sono) e «Giorni di trasferta» (giorni con travel su quel
+        cantiere). Si possono tenere solo i rapportini di un
         cantiere o di uno stato (per esempio solo gli approvati). Il file si chiama
         ore-cantieri-2026-11.csv.
       parameters:
@@ -12259,7 +12261,8 @@ components:
         I campi facoltativi si inviano comunque, con null se vuoti. labor e vehicles sono gli
         elenchi completi (anche vuoti), al massimo 100 righe ciascuno, senza doppioni; gli
         errori delle righe usano il percorso con l'indice (labor.0.hours). Fa eccezione
-        overtime_hours delle righe dei dipendenti: se manca (o è null) vale 0.
+        overtime_hours delle righe dei dipendenti: se manca (o è null) vale 0; e travel: se
+        manca (o è null) vale false.
       required: [site_id, date, weather, work_done, notes, labor, vehicles]
       properties:
         site_id: { $ref: '#/components/schemas/Id' }
@@ -12285,6 +12288,12 @@ components:
               employee_id: { $ref: '#/components/schemas/Id' }
               hours: { $ref: '#/components/schemas/Hours' }
               overtime_hours: { $ref: '#/components/schemas/OvertimeHoursInput' }
+              travel:
+                type: [boolean, 'null']
+                description: |
+                  Il dipendente quel giorno ha lavorato in trasferta, fuori dalla zona abituale:
+                  il consulente del lavoro paga l'indennità secondo il contratto (il gestionale
+                  segna solo il giorno). Facoltativo, null o assente vale false.
               description:
                 type: [string, 'null']
                 maxLength: 500
@@ -12380,13 +12389,16 @@ components:
               items:
                 type: object
                 required:
-                  [employee_id, first_name, last_name, hours, overtime_hours, description]
+                  [employee_id, first_name, last_name, hours, overtime_hours, travel, description]
                 properties:
                   employee_id: { $ref: '#/components/schemas/Id' }
                   first_name: { type: string }
                   last_name: { type: string }
                   hours: { $ref: '#/components/schemas/Hours' }
                   overtime_hours: { $ref: '#/components/schemas/OvertimeHours' }
+                  travel:
+                    type: boolean
+                    description: Giorno in trasferta.
                   description: { type: [string, 'null'] }
             vehicles:
               type: array

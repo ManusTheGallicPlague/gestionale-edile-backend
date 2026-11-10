@@ -1191,7 +1191,12 @@ describe('the API role cannot cross companies', () => {
       const l = await c.query('delete from public.daily_report_labor where company_id = $1', [
         companyB.id,
       ])
-      return u.rowCount! + d.rowCount! + l.rowCount!
+      // The travel flag of company B cannot be set from company A.
+      const t = await c.query(
+        'update public.daily_report_labor set travel = true where company_id = $1',
+        [companyB.id],
+      )
+      return u.rowCount! + d.rowCount! + l.rowCount! + t.rowCount!
     })
     expect(changed).toBe(0)
     // Approving from company A did not reach the trigger that fixes the costs of company B.

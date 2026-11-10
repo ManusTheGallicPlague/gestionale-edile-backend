@@ -22,9 +22,21 @@ export interface ReportPdfData {
     last_name: string
     hours: string
     overtime_hours: string
+    travel: boolean
     description: string | null
   }[]
   vehicles: { name: string; plate: string | null; hours: string; description: string | null }[]
+}
+
+const isZero = (hours: string) => /^0+(\.0+)?$/.test(hours)
+
+/** Name of the person, with overtime and travel in brackets when there are any. */
+function personLabel(l: ReportPdfData['labor'][number]): string {
+  const notes: string[] = []
+  if (!isZero(l.overtime_hours)) notes.push(`straordinario ${italianQuantity(l.overtime_hours)}`)
+  if (l.travel) notes.push('trasferta')
+  const name = `${l.last_name} ${l.first_name}`
+  return notes.length > 0 ? `${name} (${notes.join(', ')})` : name
 }
 
 const MARGIN = 42
@@ -39,7 +51,6 @@ const ACTIVITY_X = 230
 const NAME_WIDTH = ACTIVITY_X - MARGIN - 10
 const ACTIVITY_WIDTH = RIGHT - 60 - ACTIVITY_X
 
-const isZero = (hours: string) => /^0+(\.0+)?$/.test(hours)
 const italianDate = (date: string) => date.split('-').reverse().join('/')
 const romeDate = new Intl.DateTimeFormat('it-IT', {
   timeZone: 'Europe/Rome',
@@ -158,9 +169,7 @@ function drawReport(pdf: PdfDocument, data: ReportPdfData, labels: string[]): vo
   table(
     'Dipendenti',
     data.labor.map((l) => ({
-      name: isZero(l.overtime_hours)
-        ? `${l.last_name} ${l.first_name}`
-        : `${l.last_name} ${l.first_name} (straordinario ${italianQuantity(l.overtime_hours)})`,
+      name: personLabel(l),
       activity: l.description,
       hours: l.hours,
     })),

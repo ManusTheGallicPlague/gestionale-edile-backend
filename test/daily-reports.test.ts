@@ -193,7 +193,15 @@ describe('daily reports', () => {
     const lines = await read('month=2026-11')
     const days = Array.from({ length: 30 }, (_, i) => String(i + 1))
     expect(lines[0]).toBe(
-      ['Cognome', 'Nome', 'Codice fiscale', ...days, 'Totale', 'Di cui straordinario'].join(';'),
+      [
+        'Cognome',
+        'Nome',
+        'Codice fiscale',
+        ...days,
+        'Totale',
+        'Di cui straordinario',
+        'Giorni di trasferta',
+      ].join(';'),
     )
     const row = (
       last: string,
@@ -202,7 +210,8 @@ describe('daily reports', () => {
       cells: Record<number, string>,
       total: string,
       overtime = '0',
-    ) => [last, first, tax, ...days.map((d) => cells[Number(d)] ?? ''), total, overtime].join(';')
+    ) =>
+      [last, first, tax, ...days.map((d) => cells[Number(d)] ?? ''), total, overtime, '0'].join(';')
     expect(lines.slice(1)).toEqual([
       row('Bassi', 'Anna', '', { 5: '7,5', 30: '4,25' }, '11,75'),
       row('Verdi', 'Luca', 'VRDLCU80A01H501U', { 5: '10' }, '10'),
@@ -210,7 +219,7 @@ describe('daily reports', () => {
     // February has 28 days; a month with no reports has only the header.
     const feb = await read('month=2026-02')
     expect(feb).toHaveLength(1)
-    expect(feb[0]?.split(';')).toHaveLength(3 + 28 + 2)
+    expect(feb[0]?.split(';')).toHaveLength(3 + 28 + 3)
 
     // Only one site, only one status.
     expect((await read(`month=2026-11&filter[site]=${s.other}`)).slice(1)).toEqual([
@@ -640,7 +649,13 @@ describe('daily reports', () => {
     expect(fresh.report).toBeNull()
     expect(fresh.proposal).toMatchObject({ date: '2026-11-05', site_id: s.site, vehicles: [] })
     expect(fresh.proposal.labor).toEqual([
-      { employee_id: s.bassi, hours: '8.00', overtime_hours: '0.00', description: null },
+      {
+        employee_id: s.bassi,
+        hours: '8.00',
+        overtime_hours: '0.00',
+        travel: false,
+        description: null,
+      },
     ])
     expect(fresh.employees.map((e) => [e.last_name, e.in_team])).toEqual([
       ['Bassi', true],

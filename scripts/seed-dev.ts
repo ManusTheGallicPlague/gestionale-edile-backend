@@ -768,6 +768,13 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where r.id = l.report_id and r.company_id = $1 and r.report_date = '2026-11-05'`,
         [companyId],
       )
+      // The site of the reports is out of town: the team is in travel (trasferta) that day too.
+      await client.query(
+        `update public.daily_report_labor l set travel = true
+         from public.daily_reports r
+         where r.id = l.report_id and r.company_id = $1 and r.report_date = '2026-11-05'`,
+        [companyId],
+      )
       await client.query(
         `insert into public.daily_report_vehicles (company_id, report_id, vehicle_id, hours, position)
          select $1, r.id, v.id, 4, 0
