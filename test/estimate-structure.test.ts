@@ -757,16 +757,180 @@ describe('estimate structure', () => {
     })
   })
 
+  describe('final estimate', () => {
+    it('refuses every change of the tree with 409 until it goes back to draft', async () => {
+      const { browser, base, company, estimateId, chapter } = await scene([
+        ...ALL,
+        'price_lists.view',
+      ])
+      const a = await chapter('Demolizioni')
+      const item = (await browser.call('POST', `${base}/items`, { body: itemBody(a.id) })).json<
+        Item & { version: string }
+      >()
+      const measurement = (
+        await browser.call('POST', `${base}/measurements`, {
+          body: {
+            item_id: item.id,
+            description: 'Bagno',
+            equal_parts: null,
+            length: '3',
+            width: '2',
+            height: null,
+          },
+        })
+      ).json<Measurement & { version: string }>()
+      const list = await ctx.owner.query<{ id: string }>(
+        "insert into public.price_lists (company_id, name) values ($1, 'Interni') returning id",
+        [company.id],
+      )
+      const priceItem = await ctx.owner.query<{ id: string }>(
+        `insert into public.price_list_items (company_id, price_list_id, code, description, unit,
+           unit_price_cents) values ($1, $2, 'SC.01', 'Scavo', 'm³', 850) returning id`,
+        [company.id, list.rows[0]?.id],
+      )
+      const before = await browser.call('GET', `${base}/structure`)
+      const tree = before.json<Structure>()
+
+      // Back to the header: final, through the API, with its ETag.
+      const header = await browser.call('GET', base)
+      const headerBody = header.json<Record<string, unknown>>()
+      const toFinal = await browser.call('PUT', base, {
+        headers: { 'if-match': header.headers.etag as string },
+        body: {
+          title: headerBody.title,
+          client_id: null,
+          site_id: null,
+          site_address: headerBody.site_address ?? null,
+          status: 'final',
+          notes: headerBody.notes ?? null,
+        },
+      })
+      expect(toFinal.statusCode).toBe(200)
+
+      const ifMatch = (v: string) => ({ headers: { 'if-match': v } })
+      const attempts = [
+        () =>
+          browser.call('PUT', `${base}/structure`, {
+            ...ifMatch(before.headers.etag as string),
+            body: {
+              chapters: tree.chapters.map((c) => ({ id: c.id, parent_id: c.parent_id })),
+              items: tree.items.map((i) => ({ id: i.id, chapter_id: i.chapter_id })),
+            },
+          }),
+        () =>
+          browser.call('POST', `${base}/chapters`, {
+            body: { code: null, title: 'Nuovo', parent_id: null },
+          }),
+        () =>
+          browser.call('PUT', `${base}/chapters/${a.id}`, {
+            ...ifMatch(a.version),
+            body: { code: null, title: 'Altro' },
+          }),
+        () => browser.call('DELETE', `${base}/chapters/${a.id}`, ifMatch(a.version)),
+        () => browser.call('POST', `${base}/items`, { body: itemBody(a.id) }),
+        () =>
+          browser.call('POST', `${base}/items/from-price-list`, {
+            body: { chapter_id: a.id, price_list_item_id: priceItem.rows[0]?.id },
+          }),
+        () =>
+          browser.call('PUT', `${base}/items/${item.id}`, {
+            ...ifMatch(item.version),
+            body: itemBody(a.id, { unit_price: '99' }),
+          }),
+        () => browser.call('DELETE', `${base}/items/${item.id}`, ifMatch(item.version)),
+        () =>
+          browser.call('POST', `${base}/measurements`, {
+            body: {
+              item_id: item.id,
+              description: null,
+              equal_parts: null,
+              length: '1',
+              width: null,
+              height: null,
+            },
+          }),
+        () =>
+          browser.call('PUT', `${base}/measurements/${measurement.id}`, {
+            ...ifMatch(measurement.version),
+            body: {
+              item_id: item.id,
+              description: 'Bagno',
+              equal_parts: null,
+              length: '30',
+              width: '2',
+              height: null,
+            },
+          }),
+        () =>
+          browser.call(
+            'DELETE',
+            `${base}/measurements/${measurement.id}`,
+            ifMatch(measurement.version),
+          ),
+      ]
+      for (const attempt of attempts) {
+        const res = await attempt()
+        expect(res.statusCode).toBe(409)
+        expect(res.json<{ code: string }>().code).toBe('estimate_final')
+      }
+      // Nothing moved, and the tree is still readable and exportable.
+      const after = await browser.call('GET', `${base}/structure`)
+      expect(after.statusCode).toBe(200)
+      expect(after.headers.etag).toBe(before.headers.etag)
+      expect(after.json()).toEqual(tree)
+      expect((await browser.call('GET', `${base}/items/export`)).statusCode).toBe(200)
+      const row = await ctx.owner.query<{ status: string }>(
+        'select status from public.estimates where id = $1',
+        [estimateId],
+      )
+      expect(row.rows[0]?.status).toBe('final')
+
+      // Back to draft: the tree changes again.
+      const finalHeader = await browser.call('GET', base)
+      const toDraft = await browser.call('PUT', base, {
+        headers: { 'if-match': finalHeader.headers.etag as string },
+        body: {
+          title: headerBody.title,
+          client_id: null,
+          site_id: null,
+          site_address: headerBody.site_address ?? null,
+          status: 'draft',
+          notes: headerBody.notes ?? null,
+        },
+      })
+      expect(toDraft.statusCode).toBe(200)
+      expect((await attempts[1]!()).statusCode).toBe(201)
+    })
+
+    it('keeps 404 and 403 before 409', async () => {
+      const mine = await scene()
+      const theirs = await scene()
+      await ctx.owner.query("update public.estimates set status = 'final' where id = $1", [
+        theirs.estimateId,
+      ])
+      const foreign = `/api/companies/${mine.company.slug}/estimates/${theirs.estimateId}`
+      const res = await mine.browser.call('POST', `${foreign}/chapters`, {
+        body: { code: null, title: 'X', parent_id: null },
+      })
+      expect(res.statusCode).toBe(404)
+
+      const reader = await scene(['estimates.view'])
+      await ctx.owner.query("update public.estimates set status = 'final' where id = $1", [
+        reader.estimateId,
+      ])
+      const forbidden = await reader.browser.call('POST', `${reader.base}/chapters`, {
+        body: { code: null, title: 'X', parent_id: null },
+      })
+      expect(forbidden.statusCode).toBe(403)
+    })
+  })
+
   describe('duplication', () => {
     it('copies header and tree with new ids, as a draft', async () => {
       const { browser, base, company, estimateId, chapter } = await scene([
         ...ALL,
         'estimates.delete',
       ])
-      await ctx.owner.query(
-        "update public.estimates set status = 'final', title = $2 where id = $1",
-        [estimateId, 'T'.repeat(200)],
-      )
       const a = await chapter('A')
       const a1 = await chapter('A1', a.id)
       const item = await browser.call('POST', `${base}/items`, { body: itemBody(a1.id) })
@@ -782,6 +946,11 @@ describe('estimate structure', () => {
         },
       })
       const original = (await browser.call('GET', `${base}/structure`)).json<Structure>()
+      // The tree is built while in draft; a final estimate is duplicated as a draft.
+      await ctx.owner.query(
+        "update public.estimates set status = 'final', title = $2 where id = $1",
+        [estimateId, 'T'.repeat(200)],
+      )
 
       const res = await browser.call('POST', `${base}/duplicate`)
       expect(res.statusCode).toBe(201)

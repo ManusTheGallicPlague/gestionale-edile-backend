@@ -268,7 +268,10 @@ function inStatements(error: unknown): never {
   throw error
 }
 
-/** Opens the company, checks the permission and that the estimate exists (else 404). */
+/**
+ * Opens the company, checks the permission and that the estimate exists (else 404);
+ * a final estimate's tree is read-only (409) until it goes back to draft.
+ */
 async function enterEstimate(
   client: PoolClient,
   request: FastifyRequest<{ Params: Params }>,
@@ -281,8 +284,15 @@ async function enterEstimate(
   }
   const id = request.params.estimate
   if (!UUID.test(id)) throw notFound()
-  const { rowCount } = await client.query('select 1 from public.estimates where id = $1', [id])
-  if (!rowCount) throw notFound()
+  // Writers lock the estimate: a change of status waits for the tree change, and vice versa.
+  const { rows } = await client.query<{ status: string }>(
+    `select status from public.estimates where id = $1 ${permission === 'estimates.update' ? 'for update' : ''}`,
+    [id],
+  )
+  if (!rows[0]) throw notFound()
+  if (permission === 'estimates.update' && rows[0].status === 'final') {
+    throw new ApiError(409, messages.estimateFinal, 'estimate_final')
+  }
   return id
 }
 

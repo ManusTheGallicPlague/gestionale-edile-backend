@@ -129,6 +129,7 @@ export const messages = {
   quoteStale:
     'Il preventivo è stato modificato da qualcun altro. Ricarica la pagina per vedere le modifiche.',
   quoteMissingIfMatch: 'Manca la versione del preventivo: ricarica la pagina e riprova.',
+  estimateFinal: 'Il computo è definitivo e non si modifica più: rimettilo in bozza per cambiarlo.',
   quoteNotDraft: 'Il preventivo è già stato inviato e non si modifica più: fanne una revisione.',
   lineStale:
     'La riga è stata modificata da qualcun altro. Ricarica la pagina per vedere le modifiche.',

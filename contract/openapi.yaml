@@ -7874,6 +7874,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il computo è definitivo e va prima rimesso in bozza (code estimate_final).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
@@ -7906,6 +7911,11 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: Il computo è definitivo e va prima rimesso in bozza (code estimate_final).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/companies/{company}/estimates/{estimate}/chapters/{chapter}:
     parameters:
@@ -7937,6 +7947,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il computo è definitivo e va prima rimesso in bozza (code estimate_final).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
@@ -7956,7 +7971,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: Il capitolo contiene voci presenti in un SAL (code has_documents).
+          description: Il capitolo contiene voci presenti in un SAL (code has_documents), oppure il computo è definitivo e va prima rimesso in bozza (code estimate_final).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -7991,6 +8006,11 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: Il computo è definitivo e va prima rimesso in bozza (code estimate_final).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/companies/{company}/estimates/{estimate}/items/from-price-list:
     parameters:
@@ -8028,6 +8048,11 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: Il computo è definitivo e va prima rimesso in bozza (code estimate_final).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/companies/{company}/estimates/{estimate}/items/{item}:
     parameters:
@@ -8059,6 +8084,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il computo è definitivo e va prima rimesso in bozza (code estimate_final).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
@@ -8078,7 +8108,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409':
-          description: La voce compare in un SAL (code has_documents).
+          description: La voce compare in un SAL (code has_documents), oppure il computo è definitivo e va prima rimesso in bozza (code estimate_final).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -8113,6 +8143,11 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '409':
+          description: Il computo è definitivo e va prima rimesso in bozza (code estimate_final).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/companies/{company}/estimates/{estimate}/measurements/{measurement}:
     parameters:
@@ -8144,6 +8179,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il computo è definitivo e va prima rimesso in bozza (code estimate_final).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
@@ -8162,6 +8202,11 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Il computo è definitivo e va prima rimesso in bozza (code estimate_final).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
@@ -10312,7 +10357,7 @@ components:
           description: |
             Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
             Tutti quelli in uso: already_member, credit_note, csrf_invalid, current_session,
-            database_unavailable, email_in_use, has_documents, invalid_transition, last_manager,
+            database_unavailable, email_in_use, estimate_final, has_documents, invalid_transition, last_manager,
             number_in_use, order_not_draft, precondition_required, quote_not_draft,
             report_not_draft, role_in_use, self_deactivation, site_exists, stale_record,
             statement_draft_exists, statement_not_draft.
@@ -15096,7 +15141,10 @@ components:
         meta: { $ref: '#/components/schemas/ListMeta' }
     EstimateStatus:
       type: string
-      description: 'draft: bozza. final: definitivo.'
+      description: >-
+        draft: bozza. final: definitivo: capitoli, voci e righe di misura non si modificano
+        più (409 estimate_final) finché il computo non torna in bozza; la testata resta
+        modificabile, stato compreso.
       enum: [draft, final]
     EstimateInput:
       type: object
