@@ -64,6 +64,8 @@ interface OrderRow {
   site_id: string | null
   site_name: string | null
   site_code: string | null
+  site_cig: string | null
+  site_cup: string | null
   order_date: string
   delivery_date: string | null
   notes: string | null
@@ -100,6 +102,7 @@ const TOTALS = `(select count(*)::int as line_count,
 
 const SELECT = `select o.id, o.number_year, o.number_seq, o.status, o.supplier_id,
     p.name as supplier_name, o.site_id, s.name as site_name, s.code as site_code,
+    s.cig as site_cig, s.cup as site_cup,
     o.order_date::text as order_date, o.delivery_date::text as delivery_date, o.notes,
     t.line_count, t.total_cents,
     (select coalesce(sum(${SIGNED_TAXABLE}), 0)::text from public.invoices i
@@ -141,7 +144,15 @@ function summary(row: OrderRow) {
     supplier_id: row.supplier_id,
     supplier: { id: row.supplier_id, name: row.supplier_name },
     site_id: row.site_id,
-    site: row.site_id ? { id: row.site_id, name: row.site_name ?? '', code: row.site_code } : null,
+    site: row.site_id
+      ? {
+          id: row.site_id,
+          name: row.site_name ?? '',
+          code: row.site_code,
+          cig: row.site_cig,
+          cup: row.site_cup,
+        }
+      : null,
     date: row.order_date,
     delivery_date: row.delivery_date,
     notes: row.notes,
@@ -661,7 +672,14 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
           status: order.row.status,
           date: order.row.order_date,
           delivery_date: order.row.delivery_date,
-          site: head.site ? { name: head.site.name, address: supplier.site_address } : null,
+          site: head.site
+            ? {
+                name: head.site.name,
+                address: supplier.site_address,
+                cig: head.site.cig,
+                cup: head.site.cup,
+              }
+            : null,
           notes: order.row.notes,
           total: head.total,
           lines: order.lines.map((l) => ({

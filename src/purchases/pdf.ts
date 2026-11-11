@@ -10,7 +10,7 @@ export interface OrderPdfData {
   status: 'draft' | 'sent' | 'received'
   date: string
   delivery_date: string | null
-  site: { name: string; address: string | null } | null
+  site: { name: string; address: string | null; cig: string | null; cup: string | null } | null
   notes: string | null
   total: string
   lines: {
@@ -86,6 +86,12 @@ export function orderPdf(data: OrderPdfData): Buffer {
   if (data.site) {
     const where = data.site.address ? `${data.site.name}, ${data.site.address}` : data.site.name
     paragraph(`Consegna in cantiere: ${where}`, BODY)
+    // Public works: the supplier must quote CIG and CUP on its invoice.
+    const codes = [
+      data.site.cig ? `CIG ${data.site.cig}` : null,
+      data.site.cup ? `CUP ${data.site.cup}` : null,
+    ].filter(Boolean)
+    if (codes.length) paragraph(`${codes.join(' - ')}, da riportare in fattura`, BODY)
   }
   if (data.delivery_date)
     paragraph(`Consegna richiesta entro il ${italianDate(data.delivery_date)}`, BODY)

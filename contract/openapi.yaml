@@ -13000,11 +13000,17 @@ components:
         site:
           oneOf:
             - type: object
-              required: [id, name, code]
+              required: [id, name, code, cig, cup]
               properties:
                 id: { $ref: '#/components/schemas/Id' }
                 name: { type: string }
                 code: { type: [string, 'null'] }
+                cig:
+                  type: [string, 'null']
+                  description: CIG del cantiere (vedi Site), per i lavori pubblici.
+                cup:
+                  type: [string, 'null']
+                  description: CUP del cantiere (vedi Site), per i lavori pubblici.
             - type: 'null'
         date: { $ref: '#/components/schemas/Date' }
         delivery_date:
@@ -13286,11 +13292,17 @@ components:
             site:
               oneOf:
                 - type: object
-                  required: [id, name, code]
+                  required: [id, name, code, cig, cup]
                   properties:
                     id: { $ref: '#/components/schemas/Id' }
                     name: { type: string }
                     code: { type: [string, 'null'] }
+                    cig:
+                      type: [string, 'null']
+                      description: CIG del cantiere (vedi Site), per i lavori pubblici.
+                    cup:
+                      type: [string, 'null']
+                      description: CUP del cantiere (vedi Site), per i lavori pubblici.
                 - type: 'null'
             purchase_order:
               description: |

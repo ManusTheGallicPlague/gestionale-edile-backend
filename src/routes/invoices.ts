@@ -80,6 +80,8 @@ interface InvoiceRow {
   site_id: string | null
   site_name: string | null
   site_code: string | null
+  site_cig: string | null
+  site_cup: string | null
   description: string | null
   taxable_cents: string
   vat_cents: string
@@ -190,7 +192,8 @@ const PAYMENT_STATUS = `case
 
 const SELECT = `select i.id, i.direction, i.number, i.invoice_date::text as invoice_date,
     i.client_id, c.name as client_name, i.supplier_id, p.name as supplier_name,
-    i.site_id, s.name as site_name, s.code as site_code, i.description,
+    i.site_id, s.name as site_name, s.code as site_code, s.cig as site_cig, s.cup as site_cup,
+    i.description,
     i.taxable_cents::text as taxable_cents, i.vat_cents::text as vat_cents,
     i.vat_nature, i.progress_statement_id, i.purchase_order_id,
     o.number_year || '/' || lpad(o.number_seq::text, greatest(3, length(o.number_seq::text)), '0')
@@ -234,7 +237,15 @@ function toContract(row: InvoiceRow) {
     supplier_id: row.supplier_id,
     supplier: row.supplier_id ? { id: row.supplier_id, name: row.supplier_name ?? '' } : null,
     site_id: row.site_id,
-    site: row.site_id ? { id: row.site_id, name: row.site_name ?? '', code: row.site_code } : null,
+    site: row.site_id
+      ? {
+          id: row.site_id,
+          name: row.site_name ?? '',
+          code: row.site_code,
+          cig: row.site_cig,
+          cup: row.site_cup,
+        }
+      : null,
     description: row.description,
     taxable_amount: centsToAmount(row.taxable_cents),
     vat_amount: centsToAmount(row.vat_cents),
