@@ -222,9 +222,9 @@ describe('purchase orders', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="ordini.csv"')
     const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
     expect(lines).toEqual([
-      'Numero;Data;Fornitore;Cantiere;Consegna prevista;Stato;Righe;Totale;Note;Fatturato',
-      '2026/001;04/11/2026;Calcestruzzi Srl;Villetta;10/11/2026;Bozza;2;1625,02;;',
-      "2026/002;05/11/2026;Ferramenta Spa;;;Bozza;0;0,00;'+39 sotto;",
+      'Numero;Data;Fornitore;Cantiere;Consegna prevista;Stato;Righe;Totale;Note;Fatturato;CIG;CUP',
+      '2026/001;04/11/2026;Calcestruzzi Srl;Villetta;10/11/2026;Bozza;2;1625,02;;;;',
+      "2026/002;05/11/2026;Ferramenta Spa;;;Bozza;0;0,00;'+39 sotto;;;",
     ])
     const filtered = await s.browser.call('GET', `${url}?filter[supplier]=${s.other}`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(2)

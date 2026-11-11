@@ -1025,7 +1025,10 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.q) {
     add(
-      (p) => `strpos(lower(i.number || ' ' || coalesce(i.description, '')), lower(${p})) > 0`,
+      (p) => `(strpos(lower(i.number || ' ' || coalesce(i.description, '')), lower(${p})) > 0
+        or exists (select 1 from public.sites cs where cs.id = i.site_id
+          and strpos(coalesce(cs.cig, '') || ' ' || coalesce(cs.cup, ''),
+            upper(regexp_replace(${p}, '\\s', '', 'g'))) > 0))`,
       list.q,
     )
   }
@@ -1333,6 +1336,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             'Ordine',
             'Documento',
             'Fattura stornata',
+            'CIG',
+            'CUP',
           ],
           rows.map((r) => [
             r.direction === 'issued' ? 'Emessa' : 'Ricevuta',
@@ -1358,6 +1363,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             r.purchase_order_number,
             r.document_type === 'credit_note' ? 'Nota di credito' : 'Fattura',
             r.credited_invoice_number,
+            r.site_cig,
+            r.site_cup,
           ]),
         )
       })

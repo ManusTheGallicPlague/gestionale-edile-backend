@@ -306,7 +306,7 @@ describe('credit notes', () => {
     )
     expect(csv.statusCode).toBe(200)
     const rows = csv.body.replace('\uFEFF', '').trim().split('\r\n')
-    expect(rows.slice(1).map((r) => r.split(';').slice(-2).join(';'))).toEqual([
+    expect(rows.slice(1).map((r) => r.split(';').slice(-4, -2).join(';'))).toEqual([
       'Nota di credito;1/2026',
       'Nota di credito;2/2026',
     ])

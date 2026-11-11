@@ -508,6 +508,9 @@ function listFilter(list: ReturnType<typeof readList>) {
       (p) => `(strpos(lower(o.number_year || '/' || lpad(o.number_seq::text,
           greatest(3, length(o.number_seq::text)), '0') || ' ' || coalesce(o.notes, '')),
           lower(${p})) > 0
+        or exists (select 1 from public.sites cs where cs.id = o.site_id
+          and strpos(coalesce(cs.cig, '') || ' ' || coalesce(cs.cup, ''),
+            upper(regexp_replace(${p}, '\\s', '', 'g'))) > 0)
         or exists (select 1 from public.purchase_order_lines l
           where l.order_id = o.id and strpos(lower(l.description), lower(${p})) > 0))`,
       list.q,
@@ -601,6 +604,8 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
             'Totale',
             'Note',
             'Fatturato',
+            'CIG',
+            'CUP',
           ],
           rows.map((r) => [
             summary(r).number,
@@ -615,6 +620,8 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
             permissions.has('invoices.view') && r.invoiced_cents !== null
               ? italianAmount(r.invoiced_cents)
               : null,
+            r.site_cig,
+            r.site_cup,
           ]),
         )
       })
