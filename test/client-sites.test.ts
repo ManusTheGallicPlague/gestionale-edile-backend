@@ -102,6 +102,8 @@ const row = (siteId: string, name: string, status: string, code: string | null =
   code,
   name,
   status,
+  cig: null,
+  cup: null,
   quoted: null,
   invoiced: null,
   collected: null,
@@ -213,9 +215,9 @@ describe('sites of a client', () => {
     })
     const csv = await browser.call('GET', `${url}/export`)
     expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Codice;Cantiere;Stato;Preventivo',
-      ';Tetto;In corso;3217,20',
-      ';Box;Da iniziare;',
+      'Codice;Cantiere;Stato;Preventivo;CIG;CUP',
+      ';Tetto;In corso;3217,20;;',
+      ';Box;Da iniziare;;;',
     ])
 
     // Without quotes.view the amount is not there.
@@ -240,9 +242,9 @@ describe('sites of a client', () => {
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="cantieri-cliente.csv"')
     expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Codice;Cantiere;Stato;Fatturato;Incassato;Da incassare',
-      'C-01;"Villetta; ""nord""";In corso;0,30;0,20;0,10',
-      ';Arena;Chiuso;1234,56;0,00;1506,16',
+      'Codice;Cantiere;Stato;Fatturato;Incassato;Da incassare;CIG;CUP',
+      'C-01;"Villetta; ""nord""";In corso;0,30;0,20;0,10;;',
+      ';Arena;Chiuso;1234,56;0,00;1506,16;;',
     ])
 
     const plain = await scene()
@@ -252,8 +254,8 @@ describe('sites of a client', () => {
     expect(csv.statusCode).toBe(200)
     expect(csv.body).not.toMatch(/9876[.,]54/)
     expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Codice;Cantiere;Stato',
-      ';Box;Da iniziare',
+      'Codice;Cantiere;Stato;CIG;CUP',
+      ';Box;Da iniziare;;',
     ])
   })
 

@@ -835,8 +835,8 @@ paths:
         Le stesse righe nello stesso ordine, nello stesso formato dell'esportazione dei clienti:
         colonne Codice, Cantiere, Stato, poi Preventivo solo con quotes.view (vuota per i
         cantieri non nati da un preventivo), poi Fatturato, Incassato e Da incassare solo con
-        invoices.view, importi con la virgola decimale (1234,50). Il file si chiama
-        cantieri-cliente.csv.
+        invoices.view, importi con la virgola decimale (1234,50), e in fondo CIG e CUP del
+        cantiere (vuote se mancano). Il file si chiama cantieri-cliente.csv.
       responses:
         '200':
           description: Il file CSV
@@ -1357,8 +1357,8 @@ paths:
         Permessi come listSupplierSites: suppliers.view (senza, 404) e sites.view (senza, 403).
         Le stesse righe nello stesso ordine, nello stesso formato dell'esportazione dei clienti:
         colonne Codice, Cantiere, Stato, poi Costi solo con costs.view e Ordinato solo con
-        purchases.view, importi con la virgola decimale (1234,50). Il file si chiama
-        cantieri-fornitore.csv.
+        purchases.view, importi con la virgola decimale (1234,50), e in fondo CIG e CUP del
+        cantiere (vuote se mancano). Il file si chiama cantieri-fornitore.csv.
       responses:
         '200':
           description: Il file CSV
@@ -12473,12 +12473,18 @@ components:
           items: { $ref: '#/components/schemas/SiteSubcontractor' }
     ClientSite:
       type: object
-      required: [site_id, code, name, status, quoted, invoiced, collected, to_collect]
+      required: [site_id, code, name, status, cig, cup, quoted, invoiced, collected, to_collect]
       properties:
         site_id: { $ref: '#/components/schemas/Id' }
         code: { type: [string, 'null'] }
         name: { type: string }
         status: { $ref: '#/components/schemas/SiteStatus' }
+        cig:
+          type: [string, 'null']
+          description: CIG del cantiere (vedi Site), per i lavori pubblici.
+        cup:
+          type: [string, 'null']
+          description: CUP del cantiere (vedi Site), per i lavori pubblici.
         quoted:
           description: |
             Imponibile del preventivo da cui è nato il cantiere; null se non è nato da un
@@ -12511,12 +12517,18 @@ components:
           items: { $ref: '#/components/schemas/ClientSite' }
     SupplierSite:
       type: object
-      required: [site_id, code, name, status, costs, orders]
+      required: [site_id, code, name, status, cig, cup, costs, orders]
       properties:
         site_id: { $ref: '#/components/schemas/Id' }
         code: { type: [string, 'null'] }
         name: { type: string }
         status: { $ref: '#/components/schemas/SiteStatus' }
+        cig:
+          type: [string, 'null']
+          description: CIG del cantiere (vedi Site), per i lavori pubblici.
+        cup:
+          type: [string, 'null']
+          description: CUP del cantiere (vedi Site), per i lavori pubblici.
         costs:
           description: Costi inseriti a mano con il fornitore sul cantiere; null senza costs.view.
           oneOf:

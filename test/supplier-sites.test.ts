@@ -101,6 +101,8 @@ describe('sites of a supplier', () => {
           code: null,
           name: 'Condominio',
           status: 'active',
+          cig: null,
+          cup: null,
           costs: null,
           orders: null,
         },
@@ -109,15 +111,28 @@ describe('sites of a supplier', () => {
           code: 'C-01',
           name: 'Villetta',
           status: 'active',
+          cig: null,
+          cup: null,
           costs: null,
           orders: null,
         },
-        { site_id: planned, code: null, name: 'Box', status: 'planned', costs: null, orders: null },
+        {
+          site_id: planned,
+          code: null,
+          name: 'Box',
+          status: 'planned',
+          cig: null,
+          cup: null,
+          costs: null,
+          orders: null,
+        },
         {
           site_id: suspended,
           code: null,
           name: 'Scuola',
           status: 'suspended',
+          cig: null,
+          cup: null,
           costs: null,
           orders: null,
         },
@@ -126,6 +141,8 @@ describe('sites of a supplier', () => {
           code: null,
           name: 'Arena',
           status: 'completed',
+          cig: null,
+          cup: null,
           costs: null,
           orders: null,
         },
@@ -141,6 +158,8 @@ describe('sites of a supplier', () => {
           code: null,
           name: 'Niente',
           status: 'active',
+          cig: null,
+          cup: null,
           costs: null,
           orders: null,
         },
@@ -173,9 +192,36 @@ describe('sites of a supplier', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({
       data: [
-        { site_id: a, code: null, name: 'Arena', status: 'active', costs: '0.30', orders: null },
-        { site_id: b, code: null, name: 'Box', status: 'active', costs: '9876.54', orders: null },
-        { site_id: c, code: null, name: 'Casa', status: 'active', costs: '0.00', orders: null },
+        {
+          site_id: a,
+          code: null,
+          name: 'Arena',
+          status: 'active',
+          cig: null,
+          cup: null,
+          costs: '0.30',
+          orders: null,
+        },
+        {
+          site_id: b,
+          code: null,
+          name: 'Box',
+          status: 'active',
+          cig: null,
+          cup: null,
+          costs: '9876.54',
+          orders: null,
+        },
+        {
+          site_id: c,
+          code: null,
+          name: 'Casa',
+          status: 'active',
+          cig: null,
+          cup: null,
+          costs: '0.00',
+          orders: null,
+        },
       ],
     })
 
@@ -215,9 +261,36 @@ describe('sites of a supplier', () => {
     expect(res.statusCode).toBe(200)
     expect(res.json()).toEqual({
       data: [
-        { site_id: a, code: null, name: 'Arena', status: 'active', costs: null, orders: '10.50' },
-        { site_id: b, code: null, name: 'Box', status: 'active', costs: null, orders: '0.00' },
-        { site_id: c, code: null, name: 'Casa', status: 'active', costs: null, orders: '0.00' },
+        {
+          site_id: a,
+          code: null,
+          name: 'Arena',
+          status: 'active',
+          cig: null,
+          cup: null,
+          costs: null,
+          orders: '10.50',
+        },
+        {
+          site_id: b,
+          code: null,
+          name: 'Box',
+          status: 'active',
+          cig: null,
+          cup: null,
+          costs: null,
+          orders: '0.00',
+        },
+        {
+          site_id: c,
+          code: null,
+          name: 'Casa',
+          status: 'active',
+          cig: null,
+          cup: null,
+          costs: null,
+          orders: '0.00',
+        },
       ],
     })
   })
@@ -236,9 +309,9 @@ describe('sites of a supplier', () => {
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="cantieri-fornitore.csv"')
     expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Codice;Cantiere;Stato;Costi;Ordinato',
-      'C-01;"Villetta; ""nord""";In corso;0,30;0,00',
-      ';Arena;Chiuso;0,00;2469,12',
+      'Codice;Cantiere;Stato;Costi;Ordinato;CIG;CUP',
+      'C-01;"Villetta; ""nord""";In corso;0,30;0,00;;',
+      ';Arena;Chiuso;0,00;2469,12;;',
     ])
 
     // Without costs.view and purchases.view the amount columns are not there.
@@ -249,8 +322,8 @@ describe('sites of a supplier', () => {
     expect(csv.statusCode).toBe(200)
     expect(csv.body).not.toMatch(/9876[.,]54/)
     expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Codice;Cantiere;Stato',
-      ';Box;Da iniziare',
+      'Codice;Cantiere;Stato;CIG;CUP',
+      ';Box;Da iniziare;;',
     ])
   })
 
@@ -287,6 +360,8 @@ describe('sites of a supplier', () => {
           code: null,
           name: 'Villetta',
           status: 'completed',
+          cig: null,
+          cup: null,
           costs: null,
           orders: null,
         },
@@ -323,7 +398,18 @@ describe('sites of a supplier', () => {
     expect((await mine.browser.call('GET', other)).statusCode).toBe(404)
     const foreign = await theirs.browser.call('GET', theirs.url)
     expect(foreign.json()).toEqual({
-      data: [{ site_id: s, code: null, name: 'Loro', status: 'active', costs: null, orders: null }],
+      data: [
+        {
+          site_id: s,
+          code: null,
+          name: 'Loro',
+          status: 'active',
+          cig: null,
+          cup: null,
+          costs: null,
+          orders: null,
+        },
+      ],
     })
     expect((await mine.browser.call('GET', mine.url)).json()).toEqual({ data: [] })
     // A cost of another company on a site of mine with my supplier's id does not count.
@@ -334,7 +420,16 @@ describe('sites of a supplier', () => {
     await cost(theirs.company.id, foreignSite, theirs.supplierId, 999)
     expect((await counted.browser.call('GET', counted.url)).json()).toEqual({
       data: [
-        { site_id: own, code: null, name: 'Mio', status: 'active', costs: '1.00', orders: null },
+        {
+          site_id: own,
+          code: null,
+          name: 'Mio',
+          status: 'active',
+          cig: null,
+          cup: null,
+          costs: '1.00',
+          orders: null,
+        },
       ],
     })
   })

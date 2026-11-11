@@ -14,6 +14,8 @@ import { STATUS_LABELS } from './sites.js'
 type Request = FastifyRequest<{ Params: { company: string; client: string } }>
 
 interface Row extends SupplierSiteRow {
+  cig: string | null
+  cup: string | null
   quoted: string | null
   invoiced: string
   collected: string
@@ -37,7 +39,7 @@ export function clientSiteRoutes(app: FastifyInstance, db: Db): void {
       if (found.rowCount === 0) throw notFound()
       if (!permissions.has('sites.view')) throw forbidden()
       const { rows } = await client.query<Row>(
-        `select s.id, s.code, s.name, s.status,
+        `select s.id, s.code, s.name, s.status, s.cig, s.cup,
            r.invoiced::bigint::text as invoiced, r.collected::bigint::text as collected,
            r.to_collect::bigint::text as to_collect,
          case when s.quote_id is not null then
@@ -77,6 +79,8 @@ export function clientSiteRoutes(app: FastifyInstance, db: Db): void {
           code: r.code,
           name: r.name,
           status: r.status,
+          cig: r.cig,
+          cup: r.cup,
           quoted: quotes && r.quoted !== null ? centsToAmount(r.quoted) : null,
           invoiced: amounts ? centsToAmount(r.invoiced) : null,
           collected: amounts ? centsToAmount(r.collected) : null,
@@ -97,6 +101,8 @@ export function clientSiteRoutes(app: FastifyInstance, db: Db): void {
           'Stato',
           ...(quotes ? ['Preventivo'] : []),
           ...(amounts ? ['Fatturato', 'Incassato', 'Da incassare'] : []),
+          'CIG',
+          'CUP',
         ],
         rows.map((r) => [
           r.code,
@@ -106,6 +112,8 @@ export function clientSiteRoutes(app: FastifyInstance, db: Db): void {
           ...(amounts
             ? [italianAmount(r.invoiced), italianAmount(r.collected), italianAmount(r.to_collect)]
             : []),
+          r.cig,
+          r.cup,
         ]),
       )
       return reply
