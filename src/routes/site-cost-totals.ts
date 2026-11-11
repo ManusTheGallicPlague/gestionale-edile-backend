@@ -90,6 +90,8 @@ interface TotalRow {
   id: string
   name: string
   code: string | null
+  cig: string | null
+  cup: string | null
   status: (typeof SITE_STATUSES)[number]
   labor: string
   vehicles: string
@@ -126,7 +128,12 @@ function totalsQuery(list: List) {
   }
   if (list.search) {
     values.push(`%${escapeLike(list.search)}%`)
-    where.push(`(name ilike $${values.length} or code ilike $${values.length})`)
+    const like = values.length
+    // CIG and CUP are stored upper case without spaces: the same for what the user typed.
+    values.push(list.search.replace(/\s/g, '').toUpperCase())
+    const codes = values.length
+    where.push(`(name ilike $${like} or code ilike $${like}
+      or ($${codes} <> '' and strpos(coalesce(cig, '') || ' ' || coalesce(cup, ''), $${codes}) > 0))`)
   }
   if (list.overBudget === true) where.push('remaining < 0')
   if (list.overBudget === false) where.push('(remaining is null or remaining >= 0)')
@@ -138,7 +145,7 @@ function totalsQuery(list: List) {
         coalesce(sum(cents) filter (where ${inPeriod.join(' and ')}), 0) as period
       from (${COST_LINES}) x group by site_id
     ), totals as (
-      select s.id, s.name, s.code, s.status, s.budget_cents as budget,
+      select s.id, s.name, s.code, s.cig, s.cup, s.status, s.budget_cents as budget,
         coalesce(c.labor, 0) as labor, coalesce(c.vehicles, 0) as vehicles,
         coalesce(c.manual, 0) as manual,
         coalesce(c.labor + c.vehicles + c.manual, 0) as total, coalesce(c.period, 0) as period,
@@ -153,7 +160,7 @@ async function readTotals(client: PoolClient, list: List, limit: number, offset:
   const { sql, values } = totalsQuery(list)
   const filters = values.length
   const { rows } = await client.query<TotalRow>(
-    `select id, name, code, status, labor::bigint::text as labor,
+    `select id, name, code, cig, cup, status, labor::bigint::text as labor,
        vehicles::bigint::text as vehicles, manual::bigint::text as manual,
        total::bigint::text as total, period::bigint::text as period, budget::text as budget,
        remaining::bigint::text as remaining
@@ -197,7 +204,14 @@ export function siteCostTotalRoutes(app: FastifyInstance, db: Db): void {
         )
         return {
           data: rows.map((r) => ({
-            site: { id: r.id, name: r.name, code: r.code, status: r.status },
+            site: {
+              id: r.id,
+              name: r.name,
+              code: r.code,
+              cig: r.cig,
+              cup: r.cup,
+              status: r.status,
+            },
             labor: centsToAmount(r.labor),
             vehicles: centsToAmount(r.vehicles),
             manual: centsToAmount(r.manual),
@@ -237,6 +251,8 @@ export function siteCostTotalRoutes(app: FastifyInstance, db: Db): void {
             'Budget',
             'Residuo',
             'Sopra budget',
+            'CIG',
+            'CUP',
             ...(period ? ['Costo del periodo'] : []),
           ],
           rows.map((r) => [
@@ -250,6 +266,8 @@ export function siteCostTotalRoutes(app: FastifyInstance, db: Db): void {
             r.budget === null ? null : italianAmount(r.budget),
             r.remaining === null ? null : italianAmount(r.remaining),
             overBudget(r) ? 'Sì' : 'No',
+            r.cig,
+            r.cup,
             ...(period ? [italianAmount(r.period)] : []),
           ]),
         )

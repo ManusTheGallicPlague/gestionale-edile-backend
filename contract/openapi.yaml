@@ -2849,7 +2849,8 @@ paths:
         filter[over_budget]=true lascia i cantieri con un budget superato, false gli altri
         (quelli senza budget compresi). total_amount e budget_amount sommano tutti i cantieri
         che rispettano i filtri, non solo la pagina. search cerca nel nome e nel codice del
-        cantiere. Con filter[from] e/o filter[to] (date del rapportino o del costo, estremi
+        cantiere, e nel CIG e nel CUP (anche in parte, in minuscolo o con gli spazi). Con
+        filter[from] e/o filter[to] (date del rapportino o del costo, estremi
         compresi) period_total dà la parte del totale che cade nel periodo e
         period_total_amount la somma sui cantieri filtrati; senza periodo valgono null.
         Budget, residuo e over_budget restano sul totale di sempre; sort=period_total ordina per
@@ -2901,8 +2902,9 @@ paths:
         Permessi: costs.view e sites.view. Stessi filtri, ricerca e ordinamento dell'elenco,
         senza paginazione, nello stesso formato dell'esportazione dei clienti. Importi con la
         virgola decimale (1234,50); budget e residuo vuoti senza budget; «Sopra budget» vale Sì
-        o No. Con filter[from] o filter[to] c'è in fondo la colonna «Costo del periodo». Il
-        file si chiama costi-cantieri.csv.
+        o No. Dopo «Sopra budget» le colonne CIG e CUP del cantiere, vuote se mancano. Con
+        filter[from] o filter[to] c'è in fondo la colonna «Costo del periodo». Il file si
+        chiama costi-cantieri.csv.
       parameters:
         - $ref: '#/components/parameters/Search'
         - name: sort
@@ -15226,11 +15228,17 @@ components:
       properties:
         site:
           type: object
-          required: [id, name, code, status]
+          required: [id, name, code, cig, cup, status]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             name: { type: string }
             code: { type: [string, 'null'] }
+            cig:
+              type: [string, 'null']
+              description: CIG del cantiere (vedi Site), per i lavori pubblici.
+            cup:
+              type: [string, 'null']
+              description: CUP del cantiere (vedi Site), per i lavori pubblici.
             status: { $ref: '#/components/schemas/SiteStatus' }
         labor:
           description: Manodopera dai rapportini approvati.

@@ -14,7 +14,14 @@ afterAll(() => ctx.close())
 const ALL: Permission[] = ['costs.view', 'sites.view']
 
 interface Total {
-  site: { id: string; name: string; code: string | null; status: string }
+  site: {
+    id: string
+    name: string
+    code: string | null
+    cig: string | null
+    cup: string | null
+    status: string
+  }
   labor: string
   vehicles: string
   manual: string
@@ -111,7 +118,14 @@ describe('site cost totals', () => {
       'Villetta',
     ])
     expect(list.data[3]).toEqual({
-      site: { id: s.villetta, name: 'Villetta', code: 'C-1', status: 'active' },
+      site: {
+        id: s.villetta,
+        name: 'Villetta',
+        code: 'C-1',
+        cig: null,
+        cup: null,
+        status: 'active',
+      },
       labor: '213.75',
       vehicles: '101.25',
       manual: '0.30',
@@ -280,11 +294,11 @@ describe('site cost totals', () => {
     )
     expect(csv.statusCode).toBe(200)
     expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Cantiere;Codice;Stato;Manodopera;Mezzi;Costi inseriti;Totale;Budget;Residuo;Sopra budget;Costo del periodo',
-      'Condominio;;In corso;0,00;0,00;1250,00;1250,00;1000,00;-250,00;Sì;1250,00',
-      'Villetta;C-1;In corso;213,75;101,25;0,30;315,30;300,00;-15,30;Sì;0,30',
-      'Capannone;C-3;Chiuso;0,00;0,00;9,99;9,99;;;No;0,00',
-      '"Box; auto";;Da iniziare;0,00;0,00;0,00;0,00;0,00;0,00;No;0,00',
+      'Cantiere;Codice;Stato;Manodopera;Mezzi;Costi inseriti;Totale;Budget;Residuo;Sopra budget;CIG;CUP;Costo del periodo',
+      'Condominio;;In corso;0,00;0,00;1250,00;1250,00;1000,00;-250,00;Sì;;;1250,00',
+      'Villetta;C-1;In corso;213,75;101,25;0,30;315,30;300,00;-15,30;Sì;;;0,30',
+      'Capannone;C-3;Chiuso;0,00;0,00;9,99;9,99;;;No;;;0,00',
+      '"Box; auto";;Da iniziare;0,00;0,00;0,00;0,00;0,00;0,00;No;;;0,00',
     ])
 
     for (const query of [
@@ -312,11 +326,11 @@ describe('site cost totals', () => {
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-disposition']).toBe('attachment; filename="costi-cantieri.csv"')
     expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Cantiere;Codice;Stato;Manodopera;Mezzi;Costi inseriti;Totale;Budget;Residuo;Sopra budget',
-      'Condominio;;In corso;0,00;0,00;1250,00;1250,00;1000,00;-250,00;Sì',
-      'Villetta;C-1;In corso;213,75;101,25;0,30;315,30;300,00;-15,30;Sì',
-      'Capannone;C-3;Chiuso;0,00;0,00;9,99;9,99;;;No',
-      '"Box; auto";;Da iniziare;0,00;0,00;0,00;0,00;0,00;0,00;No',
+      'Cantiere;Codice;Stato;Manodopera;Mezzi;Costi inseriti;Totale;Budget;Residuo;Sopra budget;CIG;CUP',
+      'Condominio;;In corso;0,00;0,00;1250,00;1250,00;1000,00;-250,00;Sì;;',
+      'Villetta;C-1;In corso;213,75;101,25;0,30;315,30;300,00;-15,30;Sì;;',
+      'Capannone;C-3;Chiuso;0,00;0,00;9,99;9,99;;;No;;',
+      '"Box; auto";;Da iniziare;0,00;0,00;0,00;0,00;0,00;0,00;No;;',
     ])
     const filtered = await s.browser.call('GET', `${s.base}/export?filter[over_budget]=false`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(3)
