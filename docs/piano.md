@@ -885,6 +885,12 @@ Aggiunta l'11/11/2026, con il piano tutto spuntato: scadenze e assenze si aggiun
 - [x] `exportHolidaysCalendar` (`GET …/holidays/calendar?year=`): le festività di `listHolidays` come eventi di un giorno intero, senza promemoria, UID fisso per azienda e data, file `festivita-AAAA.ics`; senza permessi come `listHolidays`. Test in `test/holiday-calendar.test.ts`. Nessuna migrazione, tabella o permesso nuovi
   (fatto l'11/11/2026)
 
+### 131. Giorni lavorativi tra due date
+Aggiunta l'11/11/2026, con il piano tutto spuntato: assenze e cronoprogramma restituiscono `working_days` solo dopo il salvataggio, e per l'anteprima nei form (es. «3 giorni lavorativi» mentre si scelgono le date) il frontend doveva ricalcolare Pasquetta e santo patrono.
+
+- [x] `countWorkingDays` (`GET …/working-days?from=&to=`): giorni di calendario, giorni lavorativi con le regole di `workingDays` di `src/holidays.ts` e santo patrono dell'azienda, festività dentro il periodo come in `listHolidays`; senza permessi; periodo al massimo di 731 giorni. Test in `test/working-days.test.ts`. Nessuna migrazione, tabella o permesso nuovi
+  (fatto l'11/11/2026)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -1191,11 +1197,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 11/11/2026: nella dashboard `overdue` delle scadenze resta `due_on < oggi`, come nel riepilogo `getDeadlineSummary` e nei filtri; `working_due_on` è solo l'informazione in più per mostrare lo slittamento.
 - 11/11/2026: nei giorni festivi `missing_today` resta contato com'è (non si cambia il significato di un campo già nel contratto); il backend aggiunge solo `today_holiday` alla dashboard, e il frontend sceglie se non sollecitare i rapportini. Il sabato non è festivo, come nei rapportini.
 - 11/11/2026: il calendario delle festività (`exportHolidaysCalendar`) ha DTSTAMP fisso al 1° gennaio dell'anno e UID `holiday-<id azienda>-<data>`: due esportazioni danno lo stesso file e non duplicano gli eventi; niente promemoria, come per le assenze.
+- 11/11/2026: `countWorkingDays` accetta periodi fino a 731 giorni (due anni, abbastanza per il cronoprogramma di un cantiere) e senza permessi, come `listHolidays`; le festività di sabato e domenica compaiono in `holidays` ma non tolgono giorni lavorativi. from e to sono obbligatori: nessuna data predefinita.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-11 08:22 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Controlli di partenza non lanciati prima delle modifiche (giro completo solo a codice finito, verde). Aggiunta e fatta la sezione 131: `countWorkingDays` (contratto con lo schema `WorkingDays`, `src/routes/holidays.ts`, test in `test/working-days.test.ts`: Natale e Santo Stefano, giorno singolo, sabato, Pasquetta, cambio d'anno, patrono della propria azienda e non di un'altra, date mancanti o sbagliate, periodo rovesciato o troppo lungo, non membro e senza sessione). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1090 test.
 - 2026-11-11 07:26 UTC: main locale era di nuovo staccato, lavorato su `origin/main`; main verde all'inizio (1080 test). Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 130: `exportHolidaysCalendar`, festività dell'anno in .ics (contratto, `src/routes/holidays.ts` con `toICalendar`, test in `test/holiday-calendar.test.ts`: date, intestazioni, evento di Pasquetta, patrono, file uguale a ogni esportazione, anno corrente, patrono e UID di un'altra azienda esclusi, anno sbagliato, non membro e senza sessione). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1085 test.
 - 2026-11-11 06:24 UTC: main locale era di nuovo staccato (e il ramo `main` locale ha una storia scollegata), lavorato su `origin/main`; main verde all'inizio (1078 test). Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 129: `today_holiday` in `getDashboard` (contratto, `src/routes/dashboard.ts`, test in `test/dashboard-today-holiday.test.ts`: regola di `isHoliday` senza permessi, santo patrono di oggi della propria azienda e non di un'altra, `missing_today` invariato). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1080 test.
 - 2026-11-11 05:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`; main verde all'inizio (1076 test). Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 128: `working_due_on` nelle scadenze della dashboard (`DashboardDeadline`, `src/routes/dashboard.ts`, test in `test/dashboard-deadline-working-day.test.ts`: sabato, scaduta, santo patrono della propria azienda e non di un'altra). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1078 test.

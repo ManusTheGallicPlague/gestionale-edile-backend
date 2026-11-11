@@ -3,9 +3,11 @@ import type { Db } from '../db.js'
 import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { requireSession } from '../http/request-context.js'
-import { easter, patronSaintDay } from '../holidays.js'
+import { easter, patronSaintDay, workingDays } from '../holidays.js'
 import { readYear } from './absence-totals.js'
 import { toICalendar } from '../deadlines/ical.js'
+import { isIsoDate } from '../suppliers/documents.js'
+import { ValidationFailed } from '../http/errors.js'
 
 /** National holidays as MM-DD with their Italian names; Easter Monday is added per year. */
 const NATIONAL: [string, string][] = [
@@ -46,7 +48,52 @@ export function holidaysOfYear(year: number, patron: string | null): Holiday[] {
   return list.sort((a, b) => a.date.localeCompare(b.date))
 }
 
+/** The longest period countWorkingDays accepts, in calendar days. */
+const MAX_PERIOD_DAYS = 731
+
+/** Reads from and to of countWorkingDays: real dates, to not before from, at most two years. */
+function readPeriod(query: Record<string, unknown>): { from: string; to: string; days: number } {
+  const errors: Record<string, string[]> = {}
+  const read = (name: 'from' | 'to'): string => {
+    const value = query[name]
+    if (value === undefined || value === '') errors[name] = ['Obbligatorio.']
+    else if (typeof value !== 'string' || !isIsoDate(value)) {
+      errors[name] = ['Data non valida: usa il formato AAAA-MM-GG.']
+    } else return value
+    return ''
+  }
+  const from = read('from')
+  const to = read('to')
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1
+  if (days < 1) throw new ValidationFailed({ to: ['Non può essere prima di from.'] })
+  if (days > MAX_PERIOD_DAYS) {
+    throw new ValidationFailed({ to: [`Al massimo ${MAX_PERIOD_DAYS} giorni da from.`] })
+  }
+  return { from, to, days }
+}
+
 export function holidayRoutes(app: FastifyInstance, db: Db): void {
+  // Any member asks: the previews of the forms need it, like the calendars need the holidays.
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/working-days',
+    async (request) => {
+      const session = requireSession(request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        await enterCompany(client, request.params.company)
+        const { from, to, days } = readPeriod(request.query)
+        const patron = await patronSaintDay(client)
+        const holidays: Holiday[] = []
+        for (let year = Number(from.slice(0, 4)); year <= Number(to.slice(0, 4)); year++) {
+          holidays.push(
+            ...holidaysOfYear(year, patron).filter((h) => h.date >= from && h.date <= to),
+          )
+        }
+        return { from, to, days, working_days: workingDays(from, to, patron), holidays }
+      })
+    },
+  )
+
   // Any member sees them: every calendar of the interface needs them.
   app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
     '/api/companies/:company/holidays',

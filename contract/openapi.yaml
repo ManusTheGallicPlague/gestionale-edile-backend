@@ -6347,6 +6347,42 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/working-days:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: countWorkingDays
+      summary: Giorni lavorativi tra due date
+      description: |
+        Qualsiasi membro dell'azienda lo chiede, senza permessi, come listHolidays: serve alle
+        anteprime dei form (assenze, attività del cronoprogramma, scadenze) senza ricalcolare
+        nell'interfaccia Pasquetta e santo patrono. Conta i giorni da lunedì a venerdì da from
+        a to, entrambi compresi, senza le festività nazionali con il lunedì dell'Angelo e il
+        santo patrono dell'azienda: le stesse regole di working_days nelle assenze e nel
+        cronoprogramma. holidays sono le festività dentro il periodo, in ordine di data, anche
+        quelle che cadono di sabato o di domenica (non tolgono giorni lavorativi). to non può
+        essere prima di from, e il periodo non può superare i 731 giorni (due anni).
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Primo giorno, AAAA-MM-GG.
+          schema: { $ref: '#/components/schemas/Date' }
+        - name: to
+          in: query
+          required: true
+          description: Ultimo giorno, AAAA-MM-GG, compreso.
+          schema: { $ref: '#/components/schemas/Date' }
+      responses:
+        '200':
+          description: I giorni lavorativi del periodo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkingDays' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/holidays/calendar:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -11755,6 +11791,31 @@ components:
               name:
                 type: string
                 description: Nome in italiano, es. «Capodanno», «Lunedì dell'Angelo», «Santo patrono».
+              kind:
+                type: string
+                enum: [national, patron_saint]
+    WorkingDays:
+      type: object
+      required: [from, to, days, working_days, holidays]
+      properties:
+        from: { $ref: '#/components/schemas/Date' }
+        to: { $ref: '#/components/schemas/Date' }
+        days:
+          type: integer
+          description: Giorni di calendario del periodo, from e to compresi.
+        working_days:
+          type: integer
+          description: Giorni da lunedì a venerdì del periodo, senza festività e santo patrono.
+        holidays:
+          type: array
+          items:
+            type: object
+            required: [date, name, kind]
+            properties:
+              date: { $ref: '#/components/schemas/Date' }
+              name:
+                type: string
+                description: Nome in italiano, come in listHolidays.
               kind:
                 type: string
                 enum: [national, patron_saint]
