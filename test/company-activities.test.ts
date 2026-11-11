@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { Permission } from '../src/permissions.js'
+import { workingDays } from '../src/holidays.js'
 import { Browser, Fixtures, startApp, type TestContext } from './helpers.js'
 
 let ctx: TestContext
@@ -287,9 +288,18 @@ describe('schedule activities in CSV', () => {
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(res.headers['content-disposition']).toBe('attachment; filename="cronoprogramma.csv"')
-    const { rows } = await ctx.owner.query<{ s: string; e: string; f: string }>(
+    const { rows } = await ctx.owner.query<{
+      s: string
+      e: string
+      f: string
+      is: string
+      ie: string
+      if10: string
+      if1: string
+    }>(
       `select to_char(d - 20, 'DD/MM/YYYY') as s, to_char(d - 5, 'DD/MM/YYYY') as e,
-         to_char(d - 1, 'DD/MM/YYYY') as f
+         to_char(d - 1, 'DD/MM/YYYY') as f, (d - 20)::text as is, (d - 5)::text as ie,
+         (d - 10)::text as if10, (d - 1)::text as if1
        from (select (now() at time zone 'Europe/Rome')::date as d) x`,
     )
     const r = rows[0]
@@ -297,9 +307,9 @@ describe('schedule activities in CSV', () => {
       "select to_char((now() at time zone 'Europe/Rome')::date - 10, 'DD/MM/YYYY') as v",
     )
     expect(res.body.replace('﻿', '').split('\r\n')).toEqual([
-      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note',
-      `Via Roma;C-active;Scavi;${r?.s};${r?.e};60;5;"'=SOMMA(A1); da sollecitare"`,
-      `Via Roma;C-active;Fondazioni;${fondazioniStart.rows[0]?.v};${r?.f};99;1;`,
+      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi',
+      `Via Roma;C-active;Scavi;${r?.s};${r?.e};60;5;"'=SOMMA(A1); da sollecitare";${workingDays(r?.is ?? '', r?.ie ?? '')}`,
+      `Via Roma;C-active;Fondazioni;${fondazioniStart.rows[0]?.v};${r?.f};99;1;;${workingDays(r?.if10 ?? '', r?.if1 ?? '')}`,
       '',
     ])
     const all = await s.browser.call('GET', `${s.url}/export`)

@@ -849,6 +849,12 @@ Aggiunta l'11/11/2026, con il piano tutto spuntato: il backend sa quali giorni s
 - [x] Festività di un anno (`listHolidays` su `…/holidays?year=2026`): festività nazionali con Pasquetta e santo patrono dell'azienda, con data, nome e tipo (`national`, `patron_saint`), per data; senza permessi, come il logo. Nessuna migrazione, tabella o permesso nuovi
   (fatto l'11/11/2026)
 
+### 125. Durata in giorni lavorativi delle attività del cronoprogramma
+Aggiunta l'11/11/2026, con il piano tutto spuntato: le assenze hanno già `working_days`, ma per il diagramma del cronoprogramma il frontend doveva contare da solo sabati, domeniche, festività e santo patrono per sapere quanto dura davvero un'attività.
+
+- [x] `working_days` in `SiteActivity` (elenco del cantiere, creazione, modifica, `listCompanyActivities`): giorni da lunedì a venerdì tra `start_on` e `end_on`, senza festività nazionali con Pasquetta e santo patrono dell'azienda (`workingDays` di `src/holidays.ts`), e colonna «Giorni lavorativi» in fondo a `cronoprogramma.csv`. Nessuna migrazione, tabella o permesso nuovi
+  (fatto l'11/11/2026)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -1148,11 +1154,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 11/11/2026: nel PDF del rapportino il festivo sta nel titolo («Rapportino del 06/12/2026, festivo»), non in una riga a parte né nel piè di pagina, che resta «Rapportino del GG/MM/AAAA – pagina N di M».
 
 - 11/11/2026: `listHolidays` senza permessi (basta essere membri dell'azienda, come `getCompanyLogo`): sono dati di calendario, non dell'azienda; le domeniche non sono nell'elenco, e un patrono che cade in una festività nazionale compare una volta sola, come nazionale.
+- 11/11/2026: `working_days` delle attività del cronoprogramma si calcola a ogni lettura e non si salva: cambia da sola se cambia il santo patrono nei dati dell'azienda; non si invia nel corpo di creazione e modifica (sta in `SiteActivity`, non in `SiteActivityInput`).
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-11 02:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Controlli di partenza: lint, formattazione e tipi verdi; i test sono partiti mentre già modificavo il cronoprogramma e hanno letto i file a metà (11 rossi, tutti delle attività), poi il giro completo a codice finito è verde. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 125: `working_days` nelle attività del cronoprogramma e colonna «Giorni lavorativi» in `cronoprogramma.csv` (contratto, `src/routes/site-activities.ts`, test in `test/site-activity-working-days.test.ts`: settimana con l'Immacolata, Natale e Capodanno, solo sabato, Pasquetta, modifica delle date, patrono, patrono di domenica, patrono di un'altra azienda, elenco dell'azienda e CSV; aggiornato il CSV in `test/company-activities.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1070 test.
 - 2026-11-11 01:23 UTC: main verde all'inizio; main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 124: `listHolidays` (contratto con lo schema `HolidayList`, `src/routes/holidays.ts`, `readYear` di `src/routes/absence-totals.ts` riusato; test in `test/holiday-list.test.ts`: stessi giorni di `nationalHolidays`, patrono, patrono su una festività nazionale, anno corrente, patrono di un'altra azienda, anno sbagliato, non membro e senza sessione). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1068 test.
 
 - 2026-11-11 00:21 UTC: main verde all'inizio (1060 test); main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 123: «festivo» nel titolo del PDF del rapportino e del giornale dei lavori (`holiday` in `ReportPdfData`, `src/daily-reports/pdf.ts`, `pdfData` in `src/routes/daily-reports.ts`; contratto: descrizioni di `getDailyReportPdf` e `getWorkLogPdf`; test in `test/daily-report-holiday-pdf.test.ts`: sabato, domenica, patrono, Immacolata, approvato, giornale dei lavori, patrono di un'altra azienda). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1062 test.

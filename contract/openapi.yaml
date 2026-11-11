@@ -4863,7 +4863,8 @@ paths:
       description: |
         Permesso: sites.view. Stessi filtri e ordinamento di listCompanyActivities, senza
         paginazione, nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026.
-        Il file si chiama cronoprogramma.csv.
+        In fondo la colonna «Giorni lavorativi» (working_days). Il file si chiama
+        cronoprogramma.csv.
       parameters:
         - name: filter
           in: query
@@ -14638,10 +14639,17 @@ components:
       allOf:
         - $ref: '#/components/schemas/SiteActivityInput'
         - type: object
-          required: [id, site_id, created_at, updated_at]
+          required: [id, site_id, working_days, created_at, updated_at]
           properties:
             id: { $ref: '#/components/schemas/Id' }
             site_id: { $ref: '#/components/schemas/Id' }
+            working_days:
+              type: integer
+              minimum: 0
+              description: |
+                Durata in giorni lavorativi da start_on a end_on, estremi compresi: da lunedì a
+                venerdì, senza le festività nazionali (con Pasquetta) e il santo patrono dei dati
+                dell'azienda, come working_days delle assenze. Si calcola, non si invia.
             created_at:
               type: string
               format: date-time

@@ -16,6 +16,7 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
+import { workingDays } from '../holidays.js'
 
 const MAX_ACTIVITIES = 500
 const MAX_DEPENDENCIES = 50
@@ -31,6 +32,7 @@ interface ActivityRow {
   progress: number
   depends_on: string[]
   notes: string | null
+  patron: string | null
   version: number
   created_at: Date
   updated_at: Date
@@ -48,7 +50,9 @@ interface ActivityInput {
 const SELECT = `select a.id, a.site_id, a.name, a.start_on::text as start_on,
     a.end_on::text as end_on, a.progress, a.notes, a.version, a.created_at, a.updated_at,
     array(select d.depends_on_id::text from public.site_activity_dependencies d
-          where d.activity_id = a.id order by d.depends_on_id) as depends_on
+          where d.activity_id = a.id order by d.depends_on_id) as depends_on,
+    (select p.patron_saint_day from public.company_profiles p
+     where p.company_id = app.current_company_id()) as patron
   from public.site_activities a`
 
 const toContract = (row: ActivityRow) => ({
@@ -60,6 +64,7 @@ const toContract = (row: ActivityRow) => ({
   progress: row.progress,
   depends_on: row.depends_on,
   notes: row.notes,
+  working_days: workingDays(row.start_on, row.end_on, row.patron),
   created_at: row.created_at.toISOString(),
   updated_at: row.updated_at.toISOString(),
 })
@@ -352,6 +357,7 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
             'Avanzamento %',
             'Giorni di ritardo',
             'Note',
+            'Giorni lavorativi',
           ],
           rows.map((r) => [
             r.site_name,
@@ -362,6 +368,7 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
             r.progress,
             r.days_late,
             r.notes,
+            workingDays(r.start_on, r.end_on, r.patron),
           ]),
         )
       })
