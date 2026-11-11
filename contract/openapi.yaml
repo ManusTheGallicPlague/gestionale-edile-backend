@@ -6313,6 +6313,38 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/holidays:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: listHolidays
+      summary: Festività dell'anno
+      description: |
+        Qualsiasi membro dell'azienda le vede, senza permessi: servono ai calendari
+        dell'interfaccia (scadenze, assenze, cronoprogramma, rapportini). Sono le stesse
+        festività di holiday nei rapportini e di working_days nelle assenze: le festività
+        nazionali con il lunedì dell'Angelo (Pasquetta) e, se indicato nei dati dell'azienda
+        (patron_saint_day), il santo patrono, in ordine di data. Le domeniche non ci sono:
+        sono festive sempre. Se il patrono cade in una festività nazionale la data compare una
+        volta sola, come nazionale. year è l'anno in corso (ora italiana) se non indicato.
+      parameters:
+        - name: year
+          in: query
+          description: Anno solare, da 2000 a 2100.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+      responses:
+        '200':
+          description: Le festività dell'anno
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HolidayList' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/absences/close-year:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -11667,6 +11699,24 @@ components:
             type: integer
             description: Giorni lavorativi delle assenze di tutto il giorno, dentro l'anno.
           hours: { $ref: '#/components/schemas/WorkHours' }
+    HolidayList:
+      type: object
+      required: [year, holidays]
+      properties:
+        year: { type: integer }
+        holidays:
+          type: array
+          items:
+            type: object
+            required: [date, name, kind]
+            properties:
+              date: { $ref: '#/components/schemas/Date' }
+              name:
+                type: string
+                description: Nome in italiano, es. «Capodanno», «Lunedì dell'Angelo», «Santo patrono».
+              kind:
+                type: string
+                enum: [national, patron_saint]
     AbsenceTotals:
       type: object
       required: [year, from, to, employees, totals]

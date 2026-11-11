@@ -843,6 +843,12 @@ Aggiunta l'11/11/2026, con il piano tutto spuntato: dopo la sezione 122 un rappo
 - [x] «festivo» nel titolo del PDF del rapportino (`getDailyReportPdf`: «Rapportino del 06/12/2026, festivo», anche in bozza) e di ogni rapportino del giornale dei lavori (`getWorkLogPdf`), con la stessa regola di `holiday` (domenica, festivi nazionali con Pasquetta, santo patrono dell'azienda). Contratto: solo le descrizioni; nessuna migrazione, tabella o permesso nuovi
   (fatto l'11/11/2026)
 
+### 124. Festività dell'anno per i calendari
+Aggiunta l'11/11/2026, con il piano tutto spuntato: il backend sa quali giorni sono festivi (rapportini, ore festive, giorni lavorativi delle assenze), ma i calendari del frontend (scadenze, assenze, cronoprogramma, rapportini) non avevano modo di saperlo senza ricalcolare Pasquetta e leggere il santo patrono.
+
+- [x] Festività di un anno (`listHolidays` su `…/holidays?year=2026`): festività nazionali con Pasquetta e santo patrono dell'azienda, con data, nome e tipo (`national`, `patron_saint`), per data; senza permessi, come il logo. Nessuna migrazione, tabella o permesso nuovi
+  (fatto l'11/11/2026)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -1141,9 +1147,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 10/11/2026: `holiday` del rapportino calcolato a ogni lettura dal santo patrono attuale dei dati dell'azienda (nessuna copia nel rapportino): se il patrono cambia, cambiano anche i rapportini passati, come le ore festive dei fogli ore.
 - 11/11/2026: nel PDF del rapportino il festivo sta nel titolo («Rapportino del 06/12/2026, festivo»), non in una riga a parte né nel piè di pagina, che resta «Rapportino del GG/MM/AAAA – pagina N di M».
 
+- 11/11/2026: `listHolidays` senza permessi (basta essere membri dell'azienda, come `getCompanyLogo`): sono dati di calendario, non dell'azienda; le domeniche non sono nell'elenco, e un patrono che cade in una festività nazionale compare una volta sola, come nazionale.
+
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
+
+- 2026-11-11 01:23 UTC: main verde all'inizio; main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 124: `listHolidays` (contratto con lo schema `HolidayList`, `src/routes/holidays.ts`, `readYear` di `src/routes/absence-totals.ts` riusato; test in `test/holiday-list.test.ts`: stessi giorni di `nationalHolidays`, patrono, patrono su una festività nazionale, anno corrente, patrono di un'altra azienda, anno sbagliato, non membro e senza sessione). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1068 test.
 
 - 2026-11-11 00:21 UTC: main verde all'inizio (1060 test); main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 123: «festivo» nel titolo del PDF del rapportino e del giornale dei lavori (`holiday` in `ReportPdfData`, `src/daily-reports/pdf.ts`, `pdfData` in `src/routes/daily-reports.ts`; contratto: descrizioni di `getDailyReportPdf` e `getWorkLogPdf`; test in `test/daily-report-holiday-pdf.test.ts`: sabato, domenica, patrono, Immacolata, approvato, giornale dei lavori, patrono di un'altra azienda). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1062 test.
 - 2026-11-10 23:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Controlli di partenza su una copia di lavoro separata: lint, formattazione, tipi e build verdi, un test rosso in `test/client-sites.test.ts` (instabile: controllava che la risposta non contenesse «9876», e un UUID casuale lo conteneva); corretto cercando l'importo `9876.54`/`9876,54`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 122: `holiday` nei rapportini (elenco e scheda) e colonna «Festivo» in fondo a `rapportini.csv` (contratto, `isHoliday` in `src/holidays.ts`, `src/routes/daily-reports.ts`, test in `test/daily-report-holiday.test.ts`; aggiornati i CSV in `test/daily-reports.test.ts`, `test/daily-report-travel.test.ts`, `test/daily-report-weather-day.test.ts`, `test/daily-report-overtime.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1060 test.

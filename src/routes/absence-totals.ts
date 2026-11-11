@@ -57,7 +57,10 @@ function present(tally: Tally) {
   }
 }
 
-async function readYear(client: PoolClient, query: Record<string, unknown>): Promise<number> {
+export async function readYear(
+  client: PoolClient,
+  query: Record<string, unknown>,
+): Promise<number> {
   const value = query.year
   if (value === undefined) {
     const { rows } = await client.query<{ year: number }>(

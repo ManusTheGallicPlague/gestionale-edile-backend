@@ -11,6 +11,7 @@ import { supplierRoutes } from './routes/suppliers.js'
 import { supplierDocumentRoutes } from './routes/supplier-documents.js'
 import { employeeAbsenceRoutes } from './routes/employee-absences.js'
 import { absenceTotalsRoutes } from './routes/absence-totals.js'
+import { holidayRoutes } from './routes/holidays.js'
 import { leaveCarryoverRoutes } from './routes/leave-carryovers.js'
 import { vehicleMaintenanceRoutes } from './routes/vehicle-maintenances.js'
 import { vehicleRefuelingRoutes } from './routes/vehicle-refuelings.js'
@@ -136,6 +137,7 @@ export function buildApp(
   supplierDocumentRoutes(app, config, db)
   employeeAbsenceRoutes(app, config, db)
   absenceTotalsRoutes(app, db)
+  holidayRoutes(app, db)
   leaveCarryoverRoutes(app, config, db)
   vehicleMaintenanceRoutes(app, config, db)
   vehicleRefuelingRoutes(app, config, db)
