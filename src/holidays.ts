@@ -160,3 +160,30 @@ export function addWorkingDays(from: string, n: number, patron: string | null): 
   }
   return current
 }
+
+/**
+ * Last working day (Monday to Friday, not a national holiday nor the patron saint day of the
+ * company) on or before a day (AAAA-MM-GG). The day itself if it is already a working day.
+ */
+export function previousWorkingDay(day: string, patron: string | null): string {
+  let current = day
+  for (;;) {
+    const weekday = new Date(`${current}T00:00:00Z`).getUTCDay()
+    if (weekday !== 6 && !isHoliday(current, patron)) return current
+    current = new Date(Date.parse(`${current}T00:00:00Z`) - DAY).toISOString().slice(0, 10)
+  }
+}
+
+/**
+ * Day (AAAA-MM-GG) of the n-th working day counting back from `to`, which counts if it is a
+ * working day: when work that lasts n working days must start to end by `to`. Same rules as
+ * workingDays, so workingDays(result, to, patron) is n and the result is a working day.
+ */
+export function subtractWorkingDays(to: string, n: number, patron: string | null): string {
+  let current = previousWorkingDay(to, patron)
+  for (let left = n - 1; left > 0; left--) {
+    const prev = new Date(Date.parse(`${current}T00:00:00Z`) - DAY).toISOString().slice(0, 10)
+    current = previousWorkingDay(prev, patron)
+  }
+  return current
+}
