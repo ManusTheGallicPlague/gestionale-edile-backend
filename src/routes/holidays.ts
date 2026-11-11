@@ -3,7 +3,7 @@ import type { Db } from '../db.js'
 import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { requireSession } from '../http/request-context.js'
-import { easter, patronSaintDay, workingDays } from '../holidays.js'
+import { addWorkingDays, easter, patronSaintDay, workingDays } from '../holidays.js'
 import { readYear } from './absence-totals.js'
 import { toICalendar } from '../deadlines/ical.js'
 import { isIsoDate } from '../suppliers/documents.js'
@@ -73,7 +73,43 @@ function readPeriod(query: Record<string, unknown>): { from: string; to: string;
   return { from, to, days }
 }
 
+/** The most working days findWorkingDaysEnd counts: about two years, like countWorkingDays. */
+const MAX_WORKING_DAYS = 500
+
+/** Reads from and working_days of findWorkingDaysEnd: a real date and 1 to 500 days. */
+function readEnd(query: Record<string, unknown>): { from: string; n: number } {
+  const errors: Record<string, string[]> = {}
+  const from = query.from
+  if (from === undefined || from === '') errors.from = ['Obbligatorio.']
+  else if (typeof from !== 'string' || !isIsoDate(from)) {
+    errors.from = ['Data non valida: usa il formato AAAA-MM-GG.']
+  }
+  const raw = query.working_days
+  const n = typeof raw === 'string' && /^[0-9]{1,4}$/.test(raw) ? Number(raw) : NaN
+  if (raw === undefined || raw === '') errors.working_days = ['Obbligatorio.']
+  else if (!(n >= 1 && n <= MAX_WORKING_DAYS)) {
+    errors.working_days = [`Deve essere un numero intero da 1 a ${MAX_WORKING_DAYS}.`]
+  }
+  if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
+  return { from: from as string, n }
+}
+
 export function holidayRoutes(app: FastifyInstance, db: Db): void {
+  // Any member asks, like countWorkingDays: the end of an activity from its working days.
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/working-days/end',
+    async (request) => {
+      const session = requireSession(request)
+      return withIdentity(db.app, { userId: session.user.id }, async (client) => {
+        await enterCompany(client, request.params.company)
+        const { from, n } = readEnd(request.query)
+        const to = addWorkingDays(from, n, await patronSaintDay(client))
+        const days = (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000
+        return { from, working_days: n, to, days: days + 1 }
+      })
+    },
+  )
+
   // Any member asks: the previews of the forms need it, like the calendars need the holidays.
   app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
     '/api/companies/:company/working-days',

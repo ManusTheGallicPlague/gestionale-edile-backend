@@ -146,3 +146,17 @@ export function nextWorkingDay(day: string, patron: string | null): string {
     current = new Date(Date.parse(`${current}T00:00:00Z`) + DAY).toISOString().slice(0, 10)
   }
 }
+
+/**
+ * Day (AAAA-MM-GG) of the n-th working day from `from`, which counts if it is a working day:
+ * when an activity that lasts n working days ends. Same rules as workingDays, so
+ * workingDays(from, result, patron) is n and the result is a working day.
+ */
+export function addWorkingDays(from: string, n: number, patron: string | null): string {
+  let current = nextWorkingDay(from, patron)
+  for (let left = n - 1; left > 0; left--) {
+    const next = new Date(Date.parse(`${current}T00:00:00Z`) + DAY).toISOString().slice(0, 10)
+    current = nextWorkingDay(next, patron)
+  }
+  return current
+}

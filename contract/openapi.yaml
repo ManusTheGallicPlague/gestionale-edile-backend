@@ -6383,6 +6383,45 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/working-days/end:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: findWorkingDaysEnd
+      summary: Ultimo giorno dopo un numero di giorni lavorativi
+      description: |
+        Qualsiasi membro dell'azienda lo chiede, senza permessi, come countWorkingDays: serve
+        ai form del cronoprogramma («dura 10 giorni lavorativi, quando finisce?») senza
+        ricalcolare nell'interfaccia Pasquetta e santo patrono. to è il giorno in cui cade il
+        working_days-esimo giorno lavorativo contando da from, che conta se è lavorativo: con le
+        regole di countWorkingDays, il conteggio da from a to dà proprio working_days e to è
+        sempre un giorno lavorativo. Se from cade di sabato, di domenica o in una festività, si
+        comincia dal primo giorno lavorativo successivo. days sono i giorni di calendario da
+        from a to, entrambi compresi. working_days va da 1 a 500 (circa due anni).
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Primo giorno, AAAA-MM-GG.
+          schema: { $ref: '#/components/schemas/Date' }
+        - name: working_days
+          in: query
+          required: true
+          description: Giorni lavorativi da contare, da 1 a 500.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+      responses:
+        '200':
+          description: L'ultimo giorno del periodo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkingDaysEnd' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/holidays/calendar:
     parameters:
       - $ref: '#/components/parameters/Company'
@@ -11819,6 +11858,19 @@ components:
               kind:
                 type: string
                 enum: [national, patron_saint]
+    WorkingDaysEnd:
+      type: object
+      required: [from, working_days, to, days]
+      properties:
+        from: { $ref: '#/components/schemas/Date' }
+        working_days:
+          type: integer
+          description: I giorni lavorativi chiesti.
+        to:
+          $ref: '#/components/schemas/Date'
+        days:
+          type: integer
+          description: Giorni di calendario da from a to, entrambi compresi.
     AbsenceTotals:
       type: object
       required: [year, from, to, employees, totals]
