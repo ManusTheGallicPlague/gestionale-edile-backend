@@ -224,7 +224,7 @@ describe('sites of a client', () => {
     await quote(other.company.id, other.clientId, s)
     const hidden = await other.browser.call('GET', other.url)
     expect(hidden.json()).toEqual({ data: [row(s, 'Tetto', 'active')] })
-    expect(hidden.body).not.toContain('3217')
+    expect(hidden.body).not.toMatch(/3217[.,]20/)
   })
 
   it('exports the same sites in CSV, with the amounts only with invoices.view', async () => {

@@ -119,7 +119,7 @@ describe('documents of the subcontractors of a site', () => {
       `Bianchi Scavi;${vat};Assicurazione;RCT;15/01/2026;${soon};In scadenza;'@polizza;No`,
     ])
     expect(vat).toMatch(/^IT\d+$/)
-    expect(res.body).not.toContain('1234')
+    expect(res.body).not.toMatch(/1234[.,]56/)
   })
 
   it('needs suppliers.view; another company’s site is not found', async () => {
@@ -217,7 +217,7 @@ describe('subcontractors of a site', () => {
       true,
     ])
     expect(body.data[1]?.vat_number).toMatch(/^IT\d+$/)
-    expect(res.body).not.toContain('1234')
+    expect(res.body).not.toMatch(/1234[.,]56/)
   })
 
   it('needs suppliers.view; another company’s site is not found', async () => {

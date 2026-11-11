@@ -131,7 +131,7 @@ describe('sites of a supplier', () => {
         },
       ],
     })
-    expect(res.body).not.toContain('9876')
+    expect(res.body).not.toMatch(/9876[.,]54/)
 
     const empty = await browser.call('GET', url.replace(supplierId, other))
     expect(empty.json()).toEqual({
@@ -247,7 +247,7 @@ describe('sites of a supplier', () => {
     await cost(plain.company.id, c, plain.supplierId)
     const csv = await plain.browser.call('GET', `${plain.url}/export`)
     expect(csv.statusCode).toBe(200)
-    expect(csv.body).not.toContain('9876')
+    expect(csv.body).not.toMatch(/9876[.,]54/)
     expect(csv.body.replace('﻿', '').trim().split('\r\n')).toEqual([
       'Codice;Cantiere;Stato',
       ';Box;Da iniziare',

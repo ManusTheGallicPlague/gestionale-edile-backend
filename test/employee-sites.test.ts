@@ -72,7 +72,9 @@ describe('sites of an employee', () => {
         { site_id: closed, code: null, name: 'Arena', status: 'completed' },
       ],
     })
-    expect(res.body).not.toContain('4567')
+    // The hourly cost (4567.89) must not leak; a bare '4567' can be part of a random uuid.
+    expect(res.body).not.toMatch(/4567[.,]89/)
+    expect(res.body).not.toContain('hourly_cost')
   })
 
   it('works for an inactive employee and for one without sites', async () => {
@@ -146,7 +148,7 @@ describe('sites of an employee', () => {
       ';"Box; ""nord""";Da iniziare',
       ';Arena;Chiuso',
     ])
-    expect(res.body).not.toContain('4567')
+    expect(res.body).not.toMatch(/4567[.,]89/)
 
     const none = await employee(company.id)
     const empty = await browser.call(
