@@ -652,7 +652,10 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.q) {
     add(
       (p) =>
-        `strpos(lower(coalesce(r.work_done, '') || ' ' || coalesce(r.notes, '')), lower(${p})) > 0`,
+        `(strpos(lower(coalesce(r.work_done, '') || ' ' || coalesce(r.notes, '')), lower(${p})) > 0
+          or exists (select 1 from public.sites cs where cs.id = r.site_id
+            and strpos(coalesce(cs.cig, '') || ' ' || coalesce(cs.cup, ''),
+              upper(regexp_replace(${p}, '\\s', '', 'g'))) > 0))`,
       list.q,
     )
   }

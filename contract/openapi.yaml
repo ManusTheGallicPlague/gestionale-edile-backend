@@ -2307,6 +2307,9 @@ paths:
               q:
                 type: string
                 maxLength: 100
+                description: |
+                  Cerca nei lavori svolti e nelle note, e nel CIG e nel CUP del cantiere (anche
+                  in parte, in minuscolo o con gli spazi).
       responses:
         '200':
           description: Una pagina di rapportini
