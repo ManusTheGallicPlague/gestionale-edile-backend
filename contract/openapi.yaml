@@ -14495,11 +14495,18 @@ components:
             stessa pesatura.
     DashboardDeadline:
       type: object
-      required: [id, title, due_on, kind, amount, overdue]
+      required: [id, title, due_on, working_due_on, kind, amount, overdue]
       properties:
         id: { $ref: '#/components/schemas/Id' }
         title: { type: string }
         due_on: { $ref: '#/components/schemas/Date' }
+        working_due_on:
+          description: |
+            Primo giorno lavorativo uguale o successivo a `due_on`, come in Deadline: da lunedì a
+            venerdì, escluse le festività nazionali con Pasquetta e il santo patrono dell'azienda.
+            overdue resta legato a `due_on`.
+          allOf:
+            - $ref: '#/components/schemas/Date'
         kind: { $ref: '#/components/schemas/DeadlineKind' }
         amount:
           oneOf:

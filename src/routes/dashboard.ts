@@ -18,6 +18,7 @@ import { BELOW_MIN, stockValueCents } from './warehouse.js'
 import { DOCUMENTS_SQL } from './vehicles.js'
 import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { readTotals } from './absence-totals.js'
+import { nextWorkingDay, patronSaintDay } from '../holidays.js'
 import { COST_LINES } from './site-costs.js'
 
 async function siteCounts(client: PoolClient) {
@@ -186,10 +187,12 @@ async function nearDeadlines(client: PoolClient, today: string) {
      limit 10`,
     [today],
   )
+  const patron = rows.length > 0 ? await patronSaintDay(client) : null
   return rows.map((r) => ({
     id: r.id,
     title: r.title,
     due_on: r.due_on,
+    working_due_on: nextWorkingDay(r.due_on, patron),
     kind: r.kind,
     amount: r.amount_cents === null ? null : centsToAmount(r.amount_cents),
     overdue: r.due_on < today,
