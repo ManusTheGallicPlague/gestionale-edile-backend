@@ -951,6 +951,18 @@ Aggiunta l'11/11/2026, con il piano tutto spuntato: dopo la sezione 140 CIG e CU
 - [x] Riga «CIG … - CUP …» del cantiere sotto il luogo dei lavori nel PDF del computo (`getEstimatePdf`), solo se il cantiere ne ha almeno uno. Test in `test/site-public-codes-estimate.test.ts` (CIG e CUP, solo CIG, cantiere senza codici, computo senza cantiere, altra azienda, senza `estimates.view`). Nessuna migrazione, tabella o permesso nuovi
   (fatto l'11/11/2026)
 
+### 142. CIG e CUP nel CSV dei SAL
+Aggiunta l'11/11/2026, con il piano tutto spuntato: dopo le sezioni 134-141 CIG e CUP escono in tutti i PDF dell'appalto e nei CSV di fatture, ordini e prima nota, ma non in `sal.csv`, che l'ufficio allega alla contabilità dei lavori pubblici.
+
+- [x] Colonne CIG e CUP del cantiere del computo in fondo a `sal.csv` (`exportCompanyProgressStatements`), vuote se il cantiere non li ha; seguono i filtri dell'elenco, ricerca per codice compresa. Test in `test/site-public-codes-sal-csv.test.ts`; righe attese aggiornate in `test/company-progress-statements.test.ts`. Nessuna migrazione, tabella o permesso nuovi
+  (fatto l'11/11/2026)
+
+### 143. CIG e CUP nell'estratto conto
+Aggiunta l'11/11/2026, con il piano tutto spuntato: il sollecito a una pubblica amministrazione (`getClientAccountPdf`) elencava le fatture aperte senza i codici dell'appalto, che l'ente usa per abbinare il pagamento; lo stesso per la verifica del saldo con un subappaltatore di un appalto pubblico (`getSupplierAccountPdf`).
+
+- [x] Riga «CIG … - CUP …» del cantiere della fattura sotto il suo numero, nei PDF dell'estratto conto del cliente e del fornitore, solo se il cantiere ne ha almeno uno. Test in `test/site-public-codes-accounts.test.ts` (CIG e CUP, solo CUP, cantiere senza codici, fattura senza cantiere, fornitore, altra azienda, senza `invoices.view`). Nessuna migrazione, tabella o permesso nuovi
+  (fatto l'11/11/2026)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -1267,11 +1279,15 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 11/11/2026: negli elenchi di fatture e ordini CIG e CUP si cercano come nella ricerca rapida (testo senza spazi, in maiuscolo) con una sottoquery sul cantiere, così vale anche per il conteggio e i totali; nei CSV di fatture e ordini le due colonne vanno in fondo, come le altre aggiunte dopo, per non spostare quelle che i fogli già usano.
 - 11/11/2026: nel PDF del rapportino e nel giornale dei lavori CIG e CUP vanno in una riga a sé sotto l'indirizzo del cantiere, come nel SAL; il CSV dei rapportini non cambia colonne.
 - 11/11/2026: nel PDF del computo CIG e CUP vanno in una riga a sé sotto il luogo dei lavori, come nel SAL; il CSV del computo non cambia colonne.
+- 11/11/2026: rivista la scelta della sezione 136: CIG e CUP entrano anche in `sal.csv`, come ultime colonne, come già nei CSV di fatture, ordini e prima nota (sezioni 138-139); aggiungere in fondo non sposta le colonne che i fogli già usano.
+- 11/11/2026: nell'estratto conto CIG e CUP vanno in una riga sotto il numero della fattura, sotto la colonna del numero e senza una colonna nuova, perché la tabella in A4 non ha spazio; letti dal cantiere della fattura senza chiedere `sites.view`, come in `Invoice`.
+- 11/11/2026: corretti quattro test instabili (`employee-sites`, `supplier-sites`, `client-sites`, `site-subcontractors`) che controllavano che un importo nascosto non uscisse cercando quattro cifre nude (es. «4567»), presenti a volte negli UUID casuali; ora cercano l'importo con i decimali (`/4567[.,]89/`).
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-11 18:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Controlli di partenza: lint, formattazione e tipi verdi, 1 test rosso su 1140 (`employee-sites.test.ts`: cercava «4567» nel JSON e l'ha trovato in un UUID casuale); corretto con altri tre test con lo stesso difetto. Aggiunte e fatte la sezione 142 (CIG e CUP in fondo a `sal.csv`, `src/routes/progress-statements.ts`, test in `test/site-public-codes-sal-csv.test.ts`) e la sezione 143 (CIG e CUP sotto le fatture nei PDF dell'estratto conto di clienti e fornitori, `src/accounts/pdf.ts`, `src/routes/accounts.ts`, test in `test/site-public-codes-accounts.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1148 test.
 - 2026-11-11 17:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Controlli di partenza: lint, formattazione e tipi verdi; i test di partenza sono girati mentre modificavo i rapportini e sono caduti solo su `daily-reports.test.ts` (18, file letti a metà); giro completo a codice finito verde. Aggiunta e fatta la sezione 140: CIG e CUP del cantiere nel PDF del rapportino e nel giornale dei lavori (descrizioni di `getDailyReportPdf` e `getWorkLogPdf` nel contratto, `src/daily-reports/pdf.ts`, `src/routes/daily-reports.ts`, test in `test/site-public-codes-reports.test.ts`); poi aggiunta e fatta la sezione 141: CIG e CUP nel PDF del computo (`getEstimatePdf`, `src/estimates/pdf.ts`, `src/routes/estimate-structure.ts`, test in `test/site-public-codes-estimate.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1140 test.
 - 2026-11-11 16:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Controlli di partenza verdi prima di ogni modifica (1129 test). Aggiunta e fatta la sezione 139: CIG e CUP del cantiere nella prima nota (contratto `PaymentList` e descrizioni di `listPayments`/`exportPayments`, `src/routes/invoices.ts`, test in `test/site-public-codes-payments.test.ts`; aggiornata l'intestazione attesa del CSV in `test/invoice-payments.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1133 test.
 - 2026-11-11 15:22 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Controlli di partenza: lint, formattazione e tipi verdi; i test di partenza sono partiti mentre il codice era già in modifica e sono caduti su `invoices.test.ts` per una versione a metà (giro completo verde a codice finito). Aggiunta e fatta la sezione 138: CIG e CUP del cantiere in `filter[q]` di elenchi e CSV di fatture e ordini, colonne CIG e CUP in fondo a `fatture.csv` e `ordini.csv` (contratto, `src/routes/invoices.ts`, `src/routes/purchase-orders.ts`, test in `test/site-public-codes-lists.test.ts`, righe attese aggiornate nei test dei CSV). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1129 test.
