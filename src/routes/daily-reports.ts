@@ -456,14 +456,23 @@ async function pdfCommon(client: PoolClient) {
   }
 }
 
+/** Fields of the site printed on the report besides name and code. */
+interface SitePdfFields {
+  address: string | null
+  cig: string | null
+  cup: string | null
+}
+
+const NO_SITE_FIELDS: SitePdfFields = { address: null, cig: null, cup: null }
+
 function pdfData(
   common: Awaited<ReturnType<typeof pdfCommon>>,
   { row, labor, vehicles }: FullReport,
-  address: string | null,
+  site: SitePdfFields,
 ): ReportPdfData {
   return {
     ...common,
-    site: { name: row.site_name, code: row.site_code, address },
+    site: { name: row.site_name, code: row.site_code, ...site },
     date: row.report_date,
     holiday: isHoliday(row.report_date, row.patron_day),
     status: row.status,
@@ -1031,14 +1040,14 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
       const report = await readOne(client, id)
       if (!report) throw notFound()
       const { row } = report
-      const site = await client.query<{ address: string | null }>(
-        'select address from public.sites where id = $1',
+      const site = await client.query<SitePdfFields>(
+        'select address, cig, cup from public.sites where id = $1',
         [row.site_id],
       )
       const common = await pdfCommon(client)
       return {
         name: [row.report_date, row.site_code].filter(Boolean).join('-'),
-        buffer: reportPdf(pdfData(common, report, site.rows[0]?.address ?? null)),
+        buffer: reportPdf(pdfData(common, report, site.rows[0] ?? NO_SITE_FIELDS)),
       }
     })
     return sendPdf(reply, `rapportino-${pdf.name}`, pdf.buffer)
@@ -1061,8 +1070,8 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
       const pdf = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('reports.view')) throw forbidden()
-        const site = await client.query<{ code: string | null; address: string | null }>(
-          'select code, address from public.sites where id = $1',
+        const site = await client.query<SitePdfFields & { code: string | null }>(
+          'select code, address, cig, cup from public.sites where id = $1',
           [list.siteId],
         )
         const found = site.rows[0]
@@ -1091,7 +1100,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
         const reports: ReportPdfData[] = []
         for (const { id } of rows) {
           const report = await readOne(client, id)
-          if (report) reports.push(pdfData(common, report, found.address))
+          if (report) reports.push(pdfData(common, report, found))
         }
         return {
           name: [found.code, list.from, list.to].filter(Boolean).join('-'),

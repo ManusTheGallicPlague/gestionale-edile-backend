@@ -5,7 +5,13 @@ import { companyHeader, italianQuantity, type QuotePdfData } from '../quotes/pdf
 export interface ReportPdfData {
   logo?: PdfImage | undefined
   company: QuotePdfData['company']
-  site: { name: string; code: string | null; address: string | null }
+  site: {
+    name: string
+    code: string | null
+    address: string | null
+    cig: string | null
+    cup: string | null
+  }
   date: string
   /** Sunday, national holiday or patron saint day of the company. */
   holiday: boolean
@@ -155,6 +161,12 @@ function drawReport(pdf: PdfDocument, data: ReportPdfData, labels: string[]): vo
   const site = data.site.code ? `${data.site.code} – ${data.site.name}` : data.site.name
   paragraph(`Cantiere: ${site}`, BOLD)
   if (data.site.address) paragraph(data.site.address, BODY)
+  // Public works: the contract codes go on every document of the contract.
+  const codes = [
+    data.site.cig ? `CIG ${data.site.cig}` : null,
+    data.site.cup ? `CUP ${data.site.cup}` : null,
+  ].filter(Boolean)
+  if (codes.length > 0) paragraph(codes.join(' - '), BODY)
   if (data.weather) paragraph(`Meteo: ${data.weather}`, BODY)
   if (data.created_by) paragraph(`Compilato da: ${data.created_by}`, BODY)
   if (data.status === 'approved' && data.approved_at) {
