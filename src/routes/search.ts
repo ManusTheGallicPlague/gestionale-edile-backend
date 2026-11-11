@@ -18,7 +18,8 @@ const QUOTE_NUMBER = `case when q.number_year is null then null else q.number_ye
 const ORDER_NUMBER = `o.number_year::text || '/' || ${seq('o.number_seq')}`
 
 /**
- * One query per type, filtering on $1 (the contains pattern). Each selects id, title and
+ * One query per type, filtering on $1 (the contains pattern); $3 is the same pattern without
+ * spaces, for codes stored without them (CIG and CUP of the site). Each selects id, title and
  * subtitle, and parent_id when the hit lives inside something else; prefix ordering uses $2.
  */
 const TYPES: { type: string; permission: Permission; sql: string; parent?: true }[] = [
@@ -40,7 +41,7 @@ const TYPES: { type: string; permission: Permission; sql: string; parent?: true 
     type: 'site',
     permission: 'sites.view',
     sql: `select id, name as title, code as subtitle from public.sites
-      where name ilike $1 or code ilike $1 or address ilike $1`,
+      where name ilike $1 or code ilike $1 or address ilike $1 or cig ilike $3 or cup ilike $3`,
   },
   {
     type: 'quote',
@@ -58,15 +59,18 @@ const TYPES: { type: string; permission: Permission; sql: string; parent?: true 
   {
     type: 'invoice',
     permission: 'invoices.view',
-    sql: `select id, number as title, description as subtitle from public.invoices
-      where number ilike $1 or description ilike $1`,
+    sql: `select i.id, i.number as title, i.description as subtitle from public.invoices i
+      left join public.sites s on s.id = i.site_id
+      where i.number ilike $1 or i.description ilike $1 or s.cig ilike $3 or s.cup ilike $3`,
   },
   {
     type: 'purchase_order',
     permission: 'purchases.view',
-    sql: `select * from (select o.id, ${ORDER_NUMBER} as title, s.name as subtitle
-      from public.purchase_orders o join public.suppliers s on s.id = o.supplier_id) x
-      where title ilike $1 or subtitle ilike $1`,
+    sql: `select id, title, subtitle from (select o.id, ${ORDER_NUMBER} as title,
+        s.name as subtitle, w.cig, w.cup
+      from public.purchase_orders o join public.suppliers s on s.id = o.supplier_id
+      left join public.sites w on w.id = o.site_id) x
+      where title ilike $1 or subtitle ilike $1 or cig ilike $3 or cup ilike $3`,
   },
   {
     type: 'employee',
@@ -162,7 +166,12 @@ async function searchType(client: PoolClient, t: (typeof TYPES)[number], q: stri
      from (${t.sql}) x
      order by (title ilike $2) desc, lower(title), id
      limit ${PER_TYPE}`,
-    [`%${escapeLike(q)}%`, `${escapeLike(q)}%`],
+    [
+      `%${escapeLike(q)}%`,
+      `${escapeLike(q)}%`,
+      // Postgres wants every parameter used: only the types that search the codes get $3.
+      ...(t.sql.includes('$3') ? [`%${escapeLike(q.replace(/\s+/g, ''))}%`] : []),
+    ],
   )
   return rows
 }

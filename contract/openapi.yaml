@@ -4675,9 +4675,10 @@ paths:
         testo (da 2 a 100 caratteri, maiuscole e minuscole uguali) e restituisce al massimo 5
         risultati per tipo, solo dei tipi che l'utente può vedere: client (clients.view: nome,
         partita IVA, codice fiscale, email), supplier (suppliers.view, come i clienti), site
-        (sites.view: nome, codice, indirizzo), quote (quotes.view: oggetto e numero, es.
-        2026/001), estimate (estimates.view: titolo), invoice (invoices.view: numero e
-        descrizione), purchase_order (purchases.view: numero e nome del fornitore), employee
+        (sites.view: nome, codice, indirizzo, CIG e CUP), quote (quotes.view: oggetto e
+        numero, es. 2026/001), estimate (estimates.view: titolo), invoice (invoices.view:
+        numero, descrizione, CIG e CUP del cantiere), purchase_order (purchases.view: numero,
+        nome del fornitore, CIG e CUP del cantiere), employee
         (employees.view: nome, cognome e codice fiscale), vehicle (vehicles.view: nome e
         targa), deadline (deadlines.view: titolo), price_list_item (price_lists.view: codice e
         descrizione della voce), site_document (documents.view: titolo e nome del file),
@@ -4689,7 +4690,8 @@ paths:
         subtitle è cognome e nome del dipendente).
         parent_id è il prezzario della voce, il cantiere del documento o dell'attività, il
         mezzo del documento del mezzo o il dipendente del documento del dipendente, null per
-        gli altri tipi. Clienti e fornitori archiviati sono esclusi.
+        gli altri tipi. Clienti e fornitori archiviati sono esclusi. CIG e CUP si trovano anche
+        scritti con gli spazi (es. B12C 3400 0560 007).
         I tipi escono in quest'ordine; dentro un tipo prima i titoli che iniziano con il testo,
         poi gli altri in ordine alfabetico.
       parameters:
