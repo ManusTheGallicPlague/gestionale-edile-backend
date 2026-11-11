@@ -3730,7 +3730,8 @@ paths:
           description: |
             Filtri, ad esempio filter[item]=<id>, filter[site]=<id>, filter[kind]=out,
             filter[from]=2026-11-01 e filter[to]=2026-11-30 e filter[q]=testo (nelle note, nel
-            codice e nel nome dell'articolo, senza distinguere maiuscole e minuscole).
+            codice e nel nome dell'articolo, senza distinguere maiuscole e minuscole, o nel CIG o
+            nel CUP del cantiere, anche in parte, in minuscolo o con gli spazi).
           style: deepObject
           explode: true
           schema:

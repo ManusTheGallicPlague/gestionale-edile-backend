@@ -562,11 +562,15 @@ function movementFilters(q: ReturnType<typeof listQuery>) {
   if (kind) add((p) => `m.kind = ${p}`, kind)
   if (from) add((p) => `m.movement_date >= ${p}`, from)
   if (to) add((p) => `m.movement_date <= ${p}`, to)
-  // Notes, item code and item name: case-insensitive, no wildcards.
+  // Notes, item code and item name: case-insensitive, no wildcards. CIG and CUP of the site:
+  // also without the spaces the user may type.
   if (text) {
     add(
-      (p) => `strpos(lower(coalesce(m.notes, '') || ' ' || (select coalesce(wi.code, '') || ' ' ||
-        wi.name from public.warehouse_items wi where wi.id = m.item_id)), lower(${p})) > 0`,
+      (p) => `(strpos(lower(coalesce(m.notes, '') || ' ' || (select coalesce(wi.code, '') || ' ' ||
+        wi.name from public.warehouse_items wi where wi.id = m.item_id)), lower(${p})) > 0
+        or exists (select 1 from public.sites cs where cs.id = m.site_id
+          and strpos(coalesce(cs.cig, '') || ' ' || coalesce(cs.cup, ''),
+            upper(regexp_replace(${p}, '\\s', '', 'g'))) > 0))`,
       text,
     )
   }
