@@ -157,6 +157,8 @@ interface CompanyStatementRow extends StatementRow {
   site_id: string | null
   site_name: string | null
   site_code: string | null
+  site_cig: string | null
+  site_cup: string | null
 }
 
 /** Filters of listCompanyProgressStatements, on the columns of the `st` CTE and `e`. */
@@ -232,6 +234,7 @@ function readCompanyList(query: Record<string, unknown>) {
     add(
       (p) => `strpos(lower(e.title || ' ' || coalesce(st.notes, '') || ' ' ||
         coalesce(site.name, '') || ' ' || coalesce(site.code, '') || ' ' ||
+        coalesce(site.cig, '') || ' ' || coalesce(site.cup, '') || ' ' ||
         coalesce((select c.name from public.clients c where c.id = e.client_id), '')),
         lower(${p})) > 0`,
       text,
@@ -258,7 +261,7 @@ async function readCompanyStatements(
     `${companyStatements(
       list.where,
       `st.*, e.title as estimate_title, site.id as site_id, site.name as site_name,
-       site.code as site_code`,
+       site.code as site_code, site.cig as site_cig, site.cup as site_cup`,
     )}
      order by st.statement_date desc, st.number desc, st.id
      limit $${n + 1} offset $${n + 2}`,
@@ -512,7 +515,15 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
           data: rows.map((r) => ({
             ...summaryToContract(r),
             estimate: { id: r.estimate_id, title: r.estimate_title },
-            site: r.site_id ? { id: r.site_id, name: r.site_name ?? '', code: r.site_code } : null,
+            site: r.site_id
+              ? {
+                  id: r.site_id,
+                  name: r.site_name ?? '',
+                  code: r.site_code,
+                  cig: r.site_cig,
+                  cup: r.site_cup,
+                }
+              : null,
           })),
           meta: { total: totals?.total ?? 0, page: list.page, per_page: list.perPage },
           total_amount: centsToAmount(totals?.amount ?? '0'),
@@ -663,8 +674,11 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
           client: string | null
           site: string | null
           address: string | null
+          cig: string | null
+          cup: string | null
         }>(
-          `select e.title, c.name as client, s.name as site, e.site_address as address
+          `select e.title, c.name as client, s.name as site, e.site_address as address,
+             s.cig, s.cup
            from public.estimates e
            left join public.clients c on c.id = e.client_id
            left join public.sites s on s.id = e.site_id

@@ -4913,8 +4913,8 @@ paths:
         true i SAL già fatturati, false quelli senza fattura) e sulla data del SAL
         (filter[from], filter[to]). Con filter[status]=approved e filter[invoiced]=false si
         hanno i SAL approvati da fatturare. Con filter[q] solo i SAL con il testo nel titolo del
-        computo, nelle note del SAL, nel nome o nel codice del cantiere o nel nome del cliente
-        del computo, senza distinguere maiuscole e minuscole e senza caratteri jolly; un testo
+        computo, nelle note del SAL, nel nome, nel codice, nel CIG o nel CUP del cantiere o nel
+        nome del cliente del computo, senza distinguere maiuscole e minuscole e senza caratteri jolly; un testo
         di soli spazi è ignorato. total_amount e total_net_amount sommano i SAL che
         rispettano i filtri, non solo quelli della pagina.
       parameters:
@@ -5167,7 +5167,8 @@ paths:
       summary: PDF del SAL
       description: |
         Permesso: estimates.view. Il SAL in A4, pronto da stampare e firmare: intestazione
-        dell'azienda, computo con committente, cantiere e luogo dei lavori, voci con prezzo,
+        dell'azienda, computo con committente, cantiere, luogo dei lavori e, se il cantiere li
+        ha, CIG e CUP dell'appalto (riga «CIG … - CUP …»), voci con prezzo,
         quantità precedenti, di questo SAL e progressive, importo di questo SAL, totali
         (lavori a tutto il SAL, SAL precedenti, importo del SAL, ritenuta di garanzia e netto
         se la ritenuta non è zero), note e spazio per le firme del direttore dei lavori e
@@ -15155,11 +15156,17 @@ components:
                     description: Il cantiere del computo, o null.
                     oneOf:
                       - type: object
-                        required: [id, name, code]
+                        required: [id, name, code, cig, cup]
                         properties:
                           id: { $ref: '#/components/schemas/Id' }
                           name: { type: string }
                           code: { type: [string, 'null'] }
+                          cig:
+                            type: [string, 'null']
+                            description: CIG dell'appalto, letto dal cantiere.
+                          cup:
+                            type: [string, 'null']
+                            description: CUP dell'appalto, letto dal cantiere.
                       - type: 'null'
         meta: { $ref: '#/components/schemas/ListMeta' }
         total_amount:

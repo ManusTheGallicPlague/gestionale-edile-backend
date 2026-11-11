@@ -5,7 +5,14 @@ import { companyHeader, italianAmount, italianQuantity, type QuotePdfData } from
 export interface StatementPdfData {
   logo?: PdfImage | undefined
   company: QuotePdfData['company']
-  estimate: { title: string; client: string | null; site: string | null; address: string | null }
+  estimate: {
+    title: string
+    client: string | null
+    site: string | null
+    address: string | null
+    cig: string | null
+    cup: string | null
+  }
   number: number
   statement_date: string
   status: 'draft' | 'approved'
@@ -88,6 +95,9 @@ export function statementPdf(data: StatementPdfData): Buffer {
   ] as const) {
     if (value) paragraph(`${label}: ${value}`, BODY)
   }
+  // Public works: the contract codes go on every document of the contract.
+  const codes = [e.cig ? `CIG ${e.cig}` : null, e.cup ? `CUP ${e.cup}` : null].filter(Boolean)
+  if (codes.length > 0) paragraph(codes.join(' - '), BODY)
   y -= 6
 
   tableHeader()
