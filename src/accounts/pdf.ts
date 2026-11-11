@@ -19,6 +19,9 @@ export interface AccountPdfData {
     amount_due: string
     settled: string
     remaining: string
+    /** Of the invoice's site, for public works: the public body matches the payment by them. */
+    cig: string | null
+    cup: string | null
   }[]
 }
 
@@ -94,6 +97,11 @@ export function accountPdf(data: AccountPdfData): Buffer {
     tableHeader()
     for (const inv of data.invoices) {
       const rows = wrap(inv.number, COLUMNS.date - MARGIN - 6, BODY)
+      const codes = [inv.cig ? `CIG ${inv.cig}` : null, inv.cup ? `CUP ${inv.cup}` : null]
+        .filter(Boolean)
+        .join(' - ')
+      // Under the number, across the row: the other columns stay on the first line.
+      if (codes) rows.push(codes)
       if (y - rows.length * LEADING < BOTTOM) {
         newPage()
         tableHeader()

@@ -773,8 +773,10 @@ paths:
         dell'azienda, cliente con indirizzo e partita IVA, data di oggi, le fatture emesse non
         ancora pagate dalla scadenza più vecchia (numero, data, scadenza, netto a pagare, già
         incassato, residuo; «scaduta» accanto alla scadenza passata), totale da incassare e parte
-        scaduta, e l'IBAN dell'azienda se c'è. Senza fatture aperte esce la riga «Nessuna
-        fattura da incassare.». Il file si chiama estratto-conto.pdf.
+        scaduta, e l'IBAN dell'azienda se c'è. Sotto il numero di una fattura il cui cantiere
+        ha CIG o CUP esce la riga «CIG … - CUP …», come chiede la pubblica amministrazione per
+        abbinare il pagamento. Senza fatture aperte esce la riga «Nessuna fattura da
+        incassare.». Il file si chiama estratto-conto.pdf.
       responses:
         '200':
           description: Il PDF
@@ -1295,8 +1297,10 @@ paths:
         dell'azienda, fornitore con indirizzo e partita IVA, data di oggi, le fatture ricevute non
         ancora pagate dalla scadenza più vecchia (numero, data, scadenza, netto a pagare, già
         pagato, residuo; «scaduta» accanto alla scadenza passata), totale da pagare e parte
-        scaduta, e la richiesta di segnalare eventuali differenze. Niente IBAN. Senza fatture
-        aperte esce la riga «Nessuna fattura da pagare.». Il file si chiama estratto-conto.pdf.
+        scaduta, e la richiesta di segnalare eventuali differenze. Niente IBAN. Come nel PDF del
+        cliente, sotto il numero di una fattura il cui cantiere ha CIG o CUP esce la riga «CIG …
+        - CUP …». Senza fatture aperte esce la riga «Nessuna fattura da pagare.». Il file si
+        chiama estratto-conto.pdf.
       responses:
         '200':
           description: Il PDF
@@ -4964,6 +4968,9 @@ paths:
         Permesso: estimates.view. Stessi filtri e ordinamento di listCompanyProgressStatements,
         senza paginazione, nello stesso formato dell'esportazione dei clienti. Date come
         30/11/2026, importi con la virgola decimale (1234,50). Il file si chiama sal.csv.
+        Le ultime due colonne sono il CIG e il CUP del cantiere del computo (vuote se il
+        cantiere non li ha, o se il computo non ha cantiere), per la contabilità degli appalti
+        pubblici.
       parameters:
         - name: filter
           in: query

@@ -324,11 +324,15 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
             overdue: boolean
             due_cents: string
             remaining_cents: string
+            cig: string | null
+            cup: string | null
           }>(
             `select i.number, i.invoice_date::text as date, i.due_date::text as due_date,
              coalesce(i.due_date < ${TODAY}, false) as overdue,
-             (${DUE_CENTS})::text as due_cents, (${REMAINING_CENTS})::text as remaining_cents
+             (${DUE_CENTS})::text as due_cents, (${REMAINING_CENTS})::text as remaining_cents,
+             s.cig, s.cup
            from public.invoices i
+           left join public.sites s on s.company_id = i.company_id and s.id = i.site_id
            where i.${subject.column} = $1 and i.direction = $2 and ${REMAINING_CENTS} > 0
            order by i.due_date asc nulls last, i.invoice_date asc, i.number asc`,
             [id, subject.direction],
@@ -362,6 +366,8 @@ export function accountRoutes(app: FastifyInstance, db: Db): void {
               amount_due: centsToAmount(r.due_cents),
               settled: centsToAmount((BigInt(r.due_cents) - BigInt(r.remaining_cents)).toString()),
               remaining: centsToAmount(r.remaining_cents),
+              cig: r.cig,
+              cup: r.cup,
             })),
           })
         })
