@@ -9169,7 +9169,8 @@ paths:
         cliente o sul fornitore della fattura (filter[client], filter[supplier]; uno di un'altra
         azienda dà un elenco vuoto), sulla modalità (filter[method]) e sul testo (filter[q]: nel
         numero della fattura e nelle note del pagamento, senza distinguere maiuscole e
-        minuscole). collected e paid sono le somme di incassi e pagamenti che
+        minuscole, e nel CIG e nel CUP del cantiere della fattura, anche in parte o con gli
+        spazi). collected e paid sono le somme di incassi e pagamenti che
         rispettano i filtri, non solo della pagina. Le fatture segnate pagate senza pagamenti
         registrati non compaiono. I rimborsi registrati sulle note di credito compaiono col
         segno meno, tra gli incassi (emesse) o i pagamenti (ricevute).
@@ -9216,6 +9217,7 @@ paths:
         importi con la virgola decimale (1234,50). Il file si chiama incassi-e-pagamenti.csv.
         Nella colonna Tipo: Incasso, Pagamento, Rimborso fatto (a un cliente) o Rimborso
         ricevuto (da un fornitore), con l'importo dei rimborsi col segno meno.
+        Le ultime colonne sono CIG e CUP del cantiere della fattura, vuote se mancano.
       parameters:
         - name: filter
           in: query
@@ -13438,11 +13440,17 @@ components:
                       site:
                         oneOf:
                           - type: object
-                            required: [id, name, code]
+                            required: [id, name, code, cig, cup]
                             properties:
                               id: { $ref: '#/components/schemas/Id' }
                               name: { type: string }
                               code: { type: [string, 'null'] }
+                              cig:
+                                description: CIG dell'appalto del cantiere, se c'è.
+                                type: [string, 'null']
+                              cup:
+                                description: CUP del progetto del cantiere, se c'è.
+                                type: [string, 'null']
                           - type: 'null'
         meta: { $ref: '#/components/schemas/ListMeta' }
         collected:

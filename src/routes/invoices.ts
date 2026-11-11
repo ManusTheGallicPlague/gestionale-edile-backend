@@ -1103,7 +1103,14 @@ function readPaymentList(query: Record<string, unknown>) {
   const text = single('filter[q]')?.trim()
   if (text !== undefined && text.length > 100) errors['filter[q]'] = ['Al massimo 100 caratteri.']
   else if (text) {
-    add((p) => `strpos(lower(i.number || ' ' || coalesce(ip.notes, '')), lower(${p})) > 0`, text)
+    // Also the CIG and CUP of the invoice's site, stored uppercase without spaces.
+    add(
+      (p) => `(strpos(lower(i.number || ' ' || coalesce(ip.notes, '')), lower(${p})) > 0
+        or exists (select 1 from public.sites cs where cs.id = i.site_id
+          and strpos(coalesce(cs.cig, '') || ' ' || coalesce(cs.cup, ''),
+            upper(regexp_replace(${p}, '\\s', '', 'g'))) > 0))`,
+      text,
+    )
   }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return { page, perPage, where, values }
@@ -1125,6 +1132,8 @@ interface PaymentRow {
   site_id: string | null
   site_name: string | null
   site_code: string | null
+  site_cig: string | null
+  site_cup: string | null
 }
 
 async function readPayments(
@@ -1139,7 +1148,8 @@ async function readPayments(
        (${SIGNED_PAYMENT})::text as amount_cents, ip.method, ip.notes, ip.created_at,
        i.id as invoice_id, i.number, i.direction, i.document_type,
        coalesce(c.id, p.id) as subject_id, coalesce(c.name, p.name, '') as subject_name,
-       s.id as site_id, s.name as site_name, s.code as site_code
+       s.id as site_id, s.name as site_name, s.code as site_code,
+       s.cig as site_cig, s.cup as site_cup
      from public.invoice_payments ip
      join public.invoices i on i.id = ip.invoice_id
      left join public.clients c on c.id = i.client_id
@@ -1192,6 +1202,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             'Importo',
             'Modalità',
             'Note',
+            'CIG',
+            'CUP',
           ],
           rows.map((r) => [
             italianDate(r.payment_date),
@@ -1202,6 +1214,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
             italianAmount(r.amount_cents),
             r.method === null ? null : METHOD_LABELS[r.method],
             r.notes,
+            r.site_cig,
+            r.site_cup,
           ]),
         )
       })
@@ -1252,7 +1266,13 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
               direction: r.direction,
               subject: { id: r.subject_id, name: r.subject_name },
               site: r.site_id
-                ? { id: r.site_id, name: r.site_name ?? '', code: r.site_code }
+                ? {
+                    id: r.site_id,
+                    name: r.site_name ?? '',
+                    code: r.site_code,
+                    cig: r.site_cig,
+                    cup: r.site_cup,
+                  }
                 : null,
             },
           })),

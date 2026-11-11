@@ -310,9 +310,11 @@ describe('invoice payments', () => {
       'attachment; filename="incassi-e-pagamenti.csv"',
     )
     const lines = csv.body.replace('\ufeff', '').trim().split('\r\n')
-    expect(lines[0]).toBe('Data;Tipo;Fattura;Cliente o fornitore;Cantiere;Importo;Modalità;Note')
+    expect(lines[0]).toBe(
+      'Data;Tipo;Fattura;Cliente o fornitore;Cantiere;Importo;Modalità;Note;CIG;CUP',
+    )
     expect(lines).toHaveLength(2)
-    expect(lines[1]).toMatch(/^10\/11\/2026;Pagamento;F-\w+;Calcestruzzi Srl;;50,00;RiBa;$/)
+    expect(lines[1]).toMatch(/^10\/11\/2026;Pagamento;F-\w+;Calcestruzzi Srl;;50,00;RiBa;;;$/)
     expect((await s.browser.call('GET', `${url}/export?filter[to]=x`)).statusCode).toBe(422)
 
     const blind = await scene(['deadlines.view'])
