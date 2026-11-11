@@ -1657,7 +1657,8 @@ paths:
       description: |
         Permesso: deadlines.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
         paginazione, nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026,
-        importi con la virgola decimale (1234,50). Il file si chiama scadenze.csv.
+        importi con la virgola decimale (1234,50). L'ultima colonna, «Primo giorno lavorativo»,
+        è `working_due_on`. Il file si chiama scadenze.csv.
       parameters:
         - $ref: '#/components/parameters/Search'
         - name: sort
@@ -11894,6 +11895,7 @@ components:
         - type: object
           required:
             - id
+            - working_due_on
             - status
             - done_at
             - next_deadline_id
@@ -11914,6 +11916,15 @@ components:
             - updated_at
           properties:
             id: { $ref: '#/components/schemas/Id' }
+            working_due_on:
+              description: |
+                Primo giorno lavorativo uguale o successivo a `due_on`: da lunedì a venerdì,
+                escluse le festività nazionali con Pasquetta e il santo patrono dell'azienda. Una
+                scadenza che cade di sabato o in un giorno festivo slitta qui, come gli adempimenti
+                fiscali; coincide con `due_on` se quel giorno è già lavorativo. Lo calcola il
+                backend, non si invia.
+              allOf:
+                - $ref: '#/components/schemas/Date'
             amount:
               description: In uscita sempre con due decimali.
               oneOf:

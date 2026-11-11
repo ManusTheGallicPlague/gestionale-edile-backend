@@ -855,6 +855,12 @@ Aggiunta l'11/11/2026, con il piano tutto spuntato: le assenze hanno già `worki
 - [x] `working_days` in `SiteActivity` (elenco del cantiere, creazione, modifica, `listCompanyActivities`): giorni da lunedì a venerdì tra `start_on` e `end_on`, senza festività nazionali con Pasquetta e santo patrono dell'azienda (`workingDays` di `src/holidays.ts`), e colonna «Giorni lavorativi» in fondo a `cronoprogramma.csv`. Nessuna migrazione, tabella o permesso nuovi
   (fatto l'11/11/2026)
 
+### 126. Primo giorno lavorativo delle scadenze
+Aggiunta l'11/11/2026, con il piano tutto spuntato: gli adempimenti (F24, versamenti, molte scadenze fiscali) che cadono di sabato, di domenica o in un giorno festivo slittano al primo giorno lavorativo successivo, e il frontend doveva ricalcolarlo da solo per lo scadenzario.
+
+- [x] `working_due_on` in `Deadline` (elenco, scheda, creazione, modifica, completamento e riapertura): primo giorno da lunedì a venerdì uguale o successivo a `due_on`, senza festività nazionali con Pasquetta e santo patrono dell'azienda (`nextWorkingDay` di `src/holidays.ts`), e colonna «Primo giorno lavorativo» in fondo a `scadenze.csv`. Nessuna migrazione, tabella o permesso nuovi
+  (fatto l'11/11/2026)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -1155,11 +1161,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 
 - 11/11/2026: `listHolidays` senza permessi (basta essere membri dell'azienda, come `getCompanyLogo`): sono dati di calendario, non dell'azienda; le domeniche non sono nell'elenco, e un patrono che cade in una festività nazionale compare una volta sola, come nazionale.
 - 11/11/2026: `working_days` delle attività del cronoprogramma si calcola a ogni lettura e non si salva: cambia da sola se cambia il santo patrono nei dati dell'azienda; non si invia nel corpo di creazione e modifica (sta in `SiteActivity`, non in `SiteActivityInput`).
+- 11/11/2026: `working_due_on` delle scadenze vale per tutte, non solo per le fiscali: è un'informazione in più e `due_on` resta la data scritta dall'utente; filtri, ordinamento, riepilogo, calendario iCalendar e promemoria continuano a usare `due_on`. Si calcola a ogni lettura dal santo patrono attuale, non si salva e non si invia.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-11 03:22 UTC: main locale era di nuovo staccato, riportato su `origin/main`; main verde all'inizio (1070 test, controlli su una copia di lavoro separata). Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 126: `working_due_on` nelle scadenze e colonna «Primo giorno lavorativo» in fondo a `scadenze.csv` (contratto, `nextWorkingDay` in `src/holidays.ts`, `src/routes/deadlines.ts`, test in `test/deadline-working-day.test.ts`: sabato, domenica, Immacolata, Natale col fine settimana, Pasquetta, cambio d'anno, patrono, patrono di venerdì, patrono di un'altra azienda, modifica della data, elenco e CSV; aggiornati i CSV in `test/export.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1074 test.
 - 2026-11-11 02:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Controlli di partenza: lint, formattazione e tipi verdi; i test sono partiti mentre già modificavo il cronoprogramma e hanno letto i file a metà (11 rossi, tutti delle attività), poi il giro completo a codice finito è verde. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 125: `working_days` nelle attività del cronoprogramma e colonna «Giorni lavorativi» in `cronoprogramma.csv` (contratto, `src/routes/site-activities.ts`, test in `test/site-activity-working-days.test.ts`: settimana con l'Immacolata, Natale e Capodanno, solo sabato, Pasquetta, modifica delle date, patrono, patrono di domenica, patrono di un'altra azienda, elenco dell'azienda e CSV; aggiornato il CSV in `test/company-activities.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1070 test.
 - 2026-11-11 01:23 UTC: main verde all'inizio; main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Aggiunta e fatta la sezione 124: `listHolidays` (contratto con lo schema `HolidayList`, `src/routes/holidays.ts`, `readYear` di `src/routes/absence-totals.ts` riusato; test in `test/holiday-list.test.ts`: stessi giorni di `nationalHolidays`, patrono, patrono su una festività nazionale, anno corrente, patrono di un'altra azienda, anno sbagliato, non membro e senza sessione). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1068 test.
 

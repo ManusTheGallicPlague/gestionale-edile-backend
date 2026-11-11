@@ -132,3 +132,17 @@ export function isHoliday(day: string, patron: string | null): boolean {
   if (patron !== null && day.slice(5) === patron) return true
   return nationalHolidays(Number(day.slice(0, 4))).has(day)
 }
+
+/**
+ * First working day (Monday to Friday, not a national holiday nor the patron saint day of the
+ * company) on or after a day (AAAA-MM-GG): where a deadline that falls on a Saturday or a
+ * holiday moves to. The day itself if it is already a working day.
+ */
+export function nextWorkingDay(day: string, patron: string | null): string {
+  let current = day
+  for (;;) {
+    const weekday = new Date(`${current}T00:00:00Z`).getUTCDay()
+    if (weekday !== 6 && !isHoliday(current, patron)) return current
+    current = new Date(Date.parse(`${current}T00:00:00Z`) + DAY).toISOString().slice(0, 10)
+  }
+}

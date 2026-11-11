@@ -136,9 +136,9 @@ describe('deadlines export', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="scadenze.csv"')
     const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
     expect(lines).toEqual([
-      'Scadenza;Titolo;Tipo;Importo;Cliente;Fornitore;Cantiere;Dipendente;Mezzo;Stato;Ricorrenza;Note',
-      '30/11/2026;Revisione furgone;Mezzo;;;;;;;Aperta;;',
-      '16/12/2026;F24 IVA;Imposte;1234,50;;;;;;Aperta;Mensile;',
+      'Scadenza;Titolo;Tipo;Importo;Cliente;Fornitore;Cantiere;Dipendente;Mezzo;Stato;Ricorrenza;Note;Primo giorno lavorativo',
+      '30/11/2026;Revisione furgone;Mezzo;;;;;;;Aperta;;;30/11/2026',
+      '16/12/2026;F24 IVA;Imposte;1234,50;;;;;;Aperta;Mensile;;16/12/2026',
     ])
     const ranged = await browser.call('GET', `${url}?filter[from]=2026-12-01`)
     expect(ranged.body.trim().split('\r\n')).toHaveLength(2)
@@ -162,8 +162,8 @@ describe('deadlines export', () => {
     )
     const res = await browser.call('GET', `/api/companies/${company.slug}/deadlines/export`)
     expect(res.body.replace('\uFEFF', '').trim().split('\r\n').slice(1)).toEqual([
-      '01/12/2026;Estintori;Altro;;;;;;;Aperta;Semestrale;',
-      '02/12/2026;Revisione autocarro;Mezzo;;;;;;;Aperta;Biennale;',
+      '01/12/2026;Estintori;Altro;;;;;;;Aperta;Semestrale;;01/12/2026',
+      '02/12/2026;Revisione autocarro;Mezzo;;;;;;;Aperta;Biennale;;02/12/2026',
     ])
   })
 })

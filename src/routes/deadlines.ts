@@ -24,6 +24,7 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { centsToAmount } from '../money.js'
+import { nextWorkingDay } from '../holidays.js'
 import { isIsoDate } from '../suppliers/documents.js'
 import { toICalendar } from '../deadlines/ical.js'
 
@@ -43,6 +44,8 @@ interface DeadlineRow extends Omit<DeadlineInput, 'amount_cents'> {
   site_name: string | null
   employee_name: string | null
   vehicle_name: string | null
+  /** Patron saint day of the company (MM-DD), for the first working day. */
+  patron_day: string | null
   version: number
   created_at: Date
   updated_at: Date
@@ -55,7 +58,9 @@ const SELECT = `select d.id, d.title, d.due_on::text as due_on, d.kind, d.amount
     d.client_id, d.supplier_id, d.site_id, d.employee_id, d.vehicle_id, d.notes, d.recurrence, d.next_deadline_id,
     d.supplier_document_id, d.invoice_id, d.vehicle_maintenance_id, d.vehicle_document_id, d.employee_document_id, d.status, d.done_at, d.version, d.created_at, d.updated_at,
     c.name as client_name, s.name as supplier_name, si.name as site_name,
-    e.last_name || ' ' || e.first_name as employee_name, v.name as vehicle_name
+    e.last_name || ' ' || e.first_name as employee_name, v.name as vehicle_name,
+    (select p.patron_saint_day from public.company_profiles p
+      where p.company_id = d.company_id) as patron_day
   from public.deadlines d
   left join public.clients c on c.id = d.client_id
   left join public.suppliers s on s.id = d.supplier_id
@@ -70,6 +75,7 @@ function toContract(row: DeadlineRow) {
     id: row.id,
     title: row.title,
     due_on: row.due_on,
+    working_due_on: nextWorkingDay(row.due_on, row.patron_day),
     kind: row.kind,
     amount: row.amount_cents === null ? null : centsToAmount(row.amount_cents),
     client_id: row.client_id,
@@ -375,6 +381,7 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
             'Stato',
             'Ricorrenza',
             'Note',
+            'Primo giorno lavorativo',
           ],
           rows.map((r) => [
             italianDate(r.due_on),
@@ -389,6 +396,7 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
             r.status === 'done' ? 'Fatta' : 'Aperta',
             r.recurrence ? (RECURRENCE_LABELS[r.recurrence] ?? r.recurrence) : null,
             r.notes,
+            italianDate(nextWorkingDay(r.due_on, r.patron_day)),
           ]),
         )
       })
