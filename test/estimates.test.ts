@@ -157,7 +157,7 @@ describe('estimates', () => {
     })
     expect(created.statusCode).toBe(201)
     const estimate = created.json<{ id: string; title: string; site: unknown }>()
-    expect(estimate.site).toEqual({ id: site, name: 'Villetta', code: 'C-7' })
+    expect(estimate.site).toEqual({ id: site, name: 'Villetta', code: 'C-7', cig: null, cup: null })
     await mine.browser.call('POST', mine.base, { body: estimateBody({ title: 'Senza cantiere' }) })
     const listed = await mine.browser.call('GET', `${mine.base}?filter[site]=${site}`)
     expect(listed.json<Listed>().data.map((e) => e.id)).toEqual([estimate.id])

@@ -35,6 +35,8 @@ interface EstimateRow extends EstimateInput {
   client_name: string | null
   site_name: string | null
   site_code: string | null
+  site_cig: string | null
+  site_cup: string | null
   total_cents: string
   /** Italian calendar day of the last change, for the export. */
   updated_on: string
@@ -46,7 +48,7 @@ interface EstimateRow extends EstimateInput {
 type Params = { company: string; estimate?: string }
 
 const SELECT = `select e.id, e.title, e.client_id, e.site_id, s.name as site_name,
-    s.code as site_code, e.site_address, e.status, e.notes, e.version,
+    s.code as site_code, s.cig as site_cig, s.cup as site_cup, e.site_address, e.status, e.notes, e.version,
     e.created_at, e.updated_at, c.name as client_name,
     (e.updated_at at time zone 'Europe/Rome')::date::text as updated_on,
     (select coalesce(sum(t.amount_cents), 0)::text from public.estimate_item_totals t
@@ -71,7 +73,15 @@ function toContract(row: EstimateRow) {
     client_id: row.client_id,
     client: row.client_id ? { id: row.client_id, name: row.client_name ?? '' } : null,
     site_id: row.site_id,
-    site: row.site_id ? { id: row.site_id, name: row.site_name ?? '', code: row.site_code } : null,
+    site: row.site_id
+      ? {
+          id: row.site_id,
+          name: row.site_name ?? '',
+          code: row.site_code,
+          cig: row.site_cig,
+          cup: row.site_cup,
+        }
+      : null,
     site_address: row.site_address,
     status: row.status,
     notes: row.notes,
@@ -201,10 +211,14 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.clientId) add((p) => `e.client_id = ${p}`, list.clientId)
   if (list.siteId) add((p) => `e.site_id = ${p}`, list.siteId)
   if (list.search) {
-    add(
-      (p) => `(e.title ilike ${p} or e.site_address ilike ${p} or c.name ilike ${p})`,
-      `%${escapeLike(list.search)}%`,
-    )
+    values.push(`%${escapeLike(list.search)}%`, list.search)
+    const like = `$${values.length - 1}`
+    const code = `$${values.length}`
+    // CIG and CUP are stored uppercase without spaces: compare the search the same way.
+    where.push(`(e.title ilike ${like} or e.site_address ilike ${like} or c.name ilike ${like}
+      or exists (select 1 from public.sites cs where cs.id = e.site_id
+        and strpos(coalesce(cs.cig, '') || ' ' || coalesce(cs.cup, ''),
+          upper(regexp_replace(${code}, '\\s', '', 'g'))) > 0))`)
   }
   return { where, values }
 }
@@ -272,6 +286,8 @@ export function estimateRoutes(app: FastifyInstance, config: Config, db: Db): vo
             'Totale',
             'Ultima modifica',
             'Note',
+            'CIG',
+            'CUP',
           ],
           rows.map((r) => [
             r.title,
@@ -281,6 +297,8 @@ export function estimateRoutes(app: FastifyInstance, config: Config, db: Db): vo
             italianAmount(r.total_cents),
             italianDate(r.updated_on),
             r.notes,
+            r.site_cig,
+            r.site_cup,
           ]),
         )
       })

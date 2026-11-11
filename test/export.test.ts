@@ -212,9 +212,9 @@ describe('estimates export', () => {
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-disposition']).toBe('attachment; filename="computi.csv"')
     expect(res.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Titolo;Cliente;Indirizzo del lavoro;Stato;Totale;Ultima modifica;Note',
-      'Bagno;Mario Bianchi;Via Roma 1;Definitivo;0,00;01/12/2026;',
-      'Detrazioni;;;Bozza;-25,00;01/11/2026;',
+      'Titolo;Cliente;Indirizzo del lavoro;Stato;Totale;Ultima modifica;Note;CIG;CUP',
+      'Bagno;Mario Bianchi;Via Roma 1;Definitivo;0,00;01/12/2026;;;',
+      'Detrazioni;;;Bozza;-25,00;01/11/2026;;;',
     ])
     const drafts = await browser.call('GET', `${url}?filter[status]=draft`)
     expect(drafts.body.trim().split('\r\n')).toHaveLength(2)

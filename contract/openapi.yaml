@@ -7757,7 +7757,9 @@ paths:
     get:
       operationId: listEstimates
       summary: Elenco dei computi metrici
-      description: 'Permesso: estimates.view. La ricerca guarda titolo, indirizzo e cliente.'
+      description: |
+        Permesso: estimates.view. La ricerca guarda titolo, indirizzo e cliente, e il CIG e il
+        CUP del cantiere (anche in parte, in minuscolo o con gli spazi).
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -7824,8 +7826,9 @@ paths:
       description: |
         Permesso: estimates.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
         paginazione, nello stesso formato dell'esportazione dei clienti. Una riga per computo,
-        con il totale (importo con la virgola decimale, anche negativo).
-        Il file si chiama computi.csv.
+        con il totale (importo con la virgola decimale, anche negativo). Le ultime due colonne
+        sono il CIG e il CUP del cantiere, vuote se il computo non ha cantiere o il cantiere
+        non li ha. Il file si chiama computi.csv.
       parameters:
         - $ref: '#/components/parameters/Search'
         - name: sort
@@ -15763,11 +15766,17 @@ components:
             site:
               oneOf:
                 - type: object
-                  required: [id, name, code]
+                  required: [id, name, code, cig, cup]
                   properties:
                     id: { $ref: '#/components/schemas/Id' }
                     name: { type: string }
                     code: { type: [string, 'null'] }
+                    cig:
+                      type: [string, 'null']
+                      description: CIG del cantiere (vedi Site), per i lavori pubblici.
+                    cup:
+                      type: [string, 'null']
+                      description: CUP del cantiere (vedi Site), per i lavori pubblici.
                 - type: 'null'
             total:
               description: Totale del computo, somma degli importi delle voci.
