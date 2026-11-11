@@ -613,8 +613,11 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
           client: string | null
           site: string | null
           address: string | null
+          cig: string | null
+          cup: string | null
         }>(
-          `select e.title, c.name as client, s.name as site, e.site_address as address
+          `select e.title, c.name as client, s.name as site, e.site_address as address,
+           s.cig, s.cup
          from public.estimates e
          left join public.clients c on c.id = e.client_id
          left join public.sites s on s.id = e.site_id

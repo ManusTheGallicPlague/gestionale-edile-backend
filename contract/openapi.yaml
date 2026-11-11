@@ -7985,7 +7985,8 @@ paths:
       summary: PDF del computo metrico estimativo
       description: |
         Permesso: estimates.view. Il computo in A4, da stampare o allegare: intestazione
-        dell'azienda, titolo con committente, cantiere e luogo dei lavori, capitoli
+        dell'azienda, titolo con committente, cantiere e luogo dei lavori (con la riga «CIG … -
+        CUP …» del cantiere, solo se ne ha almeno uno), capitoli
         nell'ordine dell'albero (prima le voci, poi i sottocapitoli), per ogni voce il numero
         progressivo, codice, descrizione, righe di misura (parti uguali, lunghezza,
         larghezza, altezza o peso, quantità), «Sommano» con unità di misura, quantità,

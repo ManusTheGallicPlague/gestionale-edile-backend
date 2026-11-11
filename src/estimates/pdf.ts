@@ -6,7 +6,14 @@ import { companyHeader, italianAmount, italianQuantity, type QuotePdfData } from
 export interface EstimatePdfData extends EstimateTree {
   logo?: PdfImage | undefined
   company: QuotePdfData['company']
-  estimate: { title: string; client: string | null; site: string | null; address: string | null }
+  estimate: {
+    title: string
+    client: string | null
+    site: string | null
+    address: string | null
+    cig: string | null
+    cup: string | null
+  }
   total: string
   /** False: the bill of quantities with empty price and amount columns, to ask for offers. */
   prices: boolean
@@ -87,6 +94,9 @@ export function estimatePdf(data: EstimatePdfData): Buffer {
   ] as const) {
     if (value) paragraph(`${label}: ${value}`, { size: 9 })
   }
+  // Public works: the contract codes go on every document of the contract.
+  const codes = [e.cig ? `CIG ${e.cig}` : null, e.cup ? `CUP ${e.cup}` : null].filter(Boolean)
+  if (codes.length > 0) paragraph(codes.join(' - '), { size: 9 })
   y -= 6
   tableHeader()
 
