@@ -50,6 +50,10 @@ interface Location {
 interface SiteInput extends SiteValues {
   /** undefined: not sent, so unchanged on update and null on create. */
   location: Location | null | undefined
+  /** As location. */
+  cig: string | null | undefined
+  /** As location. */
+  cup: string | null | undefined
 }
 const COLUMNS = [
   'code',
@@ -65,6 +69,8 @@ const COLUMNS = [
 
 interface SiteRow extends SiteValues {
   id: string
+  cig: string | null
+  cup: string | null
   latitude: string | null
   longitude: string | null
   client_name: string | null
@@ -84,7 +90,7 @@ type Params = { company: string; site?: string }
 
 const SELECT = `select s.id, s.code, s.name, s.client_id, s.address, s.status,
     s.start_on::text as start_on, s.end_on::text as end_on, s.budget_cents::text as budget_cents,
-    s.notes, s.latitude::text as latitude, s.longitude::text as longitude, s.version, s.created_at, s.updated_at, c.name as client_name,
+    s.notes, s.cig, s.cup, s.latitude::text as latitude, s.longitude::text as longitude, s.version, s.created_at, s.updated_at, c.name as client_name,
     s.quote_id, q.number_year as quote_year, q.number_seq as quote_seq, q.revision as quote_revision,
     ${teamHas('s.id', EMPLOYEE_DOCUMENTS_SQL.expired)} as team_documents_expired,
     exists (select 1 from public.suppliers
@@ -117,6 +123,8 @@ function toContract(row: SiteRow) {
     end_on: row.end_on,
     budget: row.budget_cents === null ? null : centsToAmount(row.budget_cents),
     notes: row.notes,
+    cig: row.cig,
+    cup: row.cup,
     location:
       row.latitude === null || row.longitude === null
         ? null
@@ -181,6 +189,35 @@ function parseLocation(value: unknown, add: (field: string, message: string) => 
   return latitude === null || longitude === null ? undefined : { latitude, longitude }
 }
 
+/**
+ * An optional public works code (CIG or CUP): undefined when not sent, otherwise null or the
+ * code in capitals without spaces.
+ */
+function publicCode(
+  value: unknown,
+  field: 'cig' | 'cup',
+  add: (field: string, message: string) => void,
+): string | null | undefined {
+  if (value === undefined || value === null) return value
+  const length = field === 'cig' ? 10 : 15
+  const label = field === 'cig' ? 'Il CIG' : 'Il CUP'
+  if (typeof value !== 'string') {
+    add(field, 'Deve essere un testo.')
+    return undefined
+  }
+  if (value.length > 40) {
+    add(field, 'Al massimo 40 caratteri.')
+    return undefined
+  }
+  const code = value.replace(/\s+/g, '').toUpperCase()
+  if (code === '') return null
+  if (code.length !== length || !/^[A-Z0-9]+$/.test(code)) {
+    add(field, `${label} ha ${length} caratteri, lettere e cifre.`)
+    return undefined
+  }
+  return code
+}
+
 export function parseSiteInput(body: unknown): { input: SiteInput } | { errors: FieldErrors } {
   const errors: FieldErrors = {}
   const add = (field: string, message: string) => {
@@ -237,6 +274,8 @@ export function parseSiteInput(body: unknown): { input: SiteInput } | { errors: 
   }
   const notes = text('notes', 2000)
   const location = parseLocation(raw.location, add)
+  const cig = publicCode(raw.cig, 'cig', add)
+  const cup = publicCode(raw.cup, 'cup', add)
   if (Object.keys(errors).length > 0 || !name || !status) return { errors }
   return {
     input: {
@@ -250,6 +289,8 @@ export function parseSiteInput(body: unknown): { input: SiteInput } | { errors: 
       budget_cents,
       notes,
       location,
+      cig,
+      cup,
     },
   }
 }
@@ -368,7 +409,8 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.search) {
     add(
       (p) =>
-        `(s.name ilike ${p} or s.code ilike ${p} or s.address ilike ${p} or c.name ilike ${p})`,
+        `(s.name ilike ${p} or s.code ilike ${p} or s.address ilike ${p} or c.name ilike ${p}
+          or s.cig ilike ${p} or s.cup ilike ${p})`,
       `%${escapeLike(list.search)}%`,
     )
   }
@@ -454,6 +496,8 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             'Note',
             'Documenti squadra scaduti',
             'Subappaltatori con documenti scaduti',
+            'CIG',
+            'CUP',
           ],
           rows.map((r) => [
             r.code,
@@ -467,6 +511,8 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             r.notes,
             r.team_documents_expired ? 'Sì' : 'No',
             suppliers ? (r.subcontractors_expired ? 'Sì' : 'No') : null,
+            r.cig,
+            r.cup,
           ]),
         )
       })
@@ -500,14 +546,18 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
       const { rows } = await client
         .query<{ id: string }>(
-          `insert into public.sites (company_id, ${COLUMNS.join(', ')}, latitude, longitude)
+          `insert into public.sites (company_id, ${COLUMNS.join(', ')}, latitude, longitude,
+             cig, cup)
            values (app.current_company_id(), ${COLUMNS.map((_, i) => `$${i + 1}`).join(', ')},
-             $${COLUMNS.length + 1}, $${COLUMNS.length + 2})
+             $${COLUMNS.length + 1}, $${COLUMNS.length + 2}, $${COLUMNS.length + 3},
+             $${COLUMNS.length + 4})
            returning id`,
           [
             ...COLUMNS.map((f) => parsed.input[f]),
             parsed.input.location?.latitude ?? null,
             parsed.input.location?.longitude ?? null,
+            parsed.input.cig ?? null,
+            parsed.input.cup ?? null,
           ],
         )
         .catch(writeFailed)
@@ -534,6 +584,13 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       if (location !== undefined) {
         columns.push('latitude', 'longitude')
         values.push(location?.latitude ?? null, location?.longitude ?? null)
+      }
+      for (const field of ['cig', 'cup'] as const) {
+        const value = parsed.input[field]
+        if (value !== undefined) {
+          columns.push(field)
+          values.push(value)
+        }
       }
       values.push(id, version)
       const { rowCount } = await client

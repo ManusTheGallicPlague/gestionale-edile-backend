@@ -1901,7 +1901,8 @@ paths:
     get:
       operationId: listSites
       summary: Elenco dei cantieri
-      description: 'Permesso: sites.view. La ricerca guarda nome, codice, indirizzo e cliente.'
+      description: |
+        Permesso: sites.view. La ricerca guarda nome, codice, indirizzo, cliente, CIG e CUP.
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -12295,6 +12296,21 @@ components:
           oneOf:
             - $ref: '#/components/schemas/GeoPoint'
             - type: 'null'
+        cig:
+          type: [string, 'null']
+          description: |
+            CIG (codice identificativo di gara) dei lavori pubblici: 10 lettere e cifre. Si
+            salva in maiuscolo e senza spazi; una stringa vuota vale null. Facoltativo come
+            location.
+          maxLength: 40
+          examples: ['1234567890']
+        cup:
+          type: [string, 'null']
+          description: |
+            CUP (codice unico di progetto) dei lavori pubblici: 15 lettere e cifre, come il CIG.
+            Facoltativo come location.
+          maxLength: 40
+          examples: ['B12C34000560007']
     GeoPoint:
       type: object
       required: [latitude, longitude]
@@ -12320,6 +12336,8 @@ components:
               id,
               client,
               location,
+              cig,
+              cup,
               quote,
               team_documents_expired,
               subcontractors_expired,

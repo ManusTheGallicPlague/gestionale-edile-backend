@@ -700,6 +700,12 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          ) c on true`,
         [companyId],
       )
+      // The facade was public works: invented CIG and CUP, in the right form.
+      await client.query(
+        `update public.sites set cig = 'Z0A1B2C3D4', cup = 'B19J25000120004'
+         where company_id = $1 and code = '2025-07'`,
+        [companyId],
+      )
       // The bathroom site comes from the accepted quote 2026/002 (createSiteFromQuote).
       await client.query(
         `update public.sites s set quote_id = q.id

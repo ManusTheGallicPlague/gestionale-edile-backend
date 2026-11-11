@@ -35,9 +35,9 @@ describe('sites, employees and vehicles export', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="cantieri.csv"')
     expect(lines(res.body)).toEqual([
       'Codice;Nome;Cliente;Indirizzo;Stato;Inizio;Fine prevista;Budget;Note;' +
-        'Documenti squadra scaduti;Subappaltatori con documenti scaduti',
-      ";'=Tetto;;;Da iniziare;;;;;No;",
-      'C-1;Villetta;;;In corso;09/11/2026;31/03/2027;85000,50;;No;',
+        'Documenti squadra scaduti;Subappaltatori con documenti scaduti;CIG;CUP',
+      ";'=Tetto;;;Da iniziare;;;;;No;;;",
+      'C-1;Villetta;;;In corso;09/11/2026;31/03/2027;85000,50;;No;;;',
     ])
     expect(lines((await browser.call('GET', `${url}?filter[status]=active`)).body)).toHaveLength(2)
     expect((await browser.call('GET', `${url}?filter[status]=boh`)).statusCode).toBe(422)
