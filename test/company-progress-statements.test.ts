@@ -336,19 +336,19 @@ describe('progress statements of the whole company in CSV', () => {
     expect(all.headers['content-type']).toBe('text/csv; charset=utf-8')
     expect(all.headers['content-disposition']).toBe('attachment; filename="sal.csv"')
     expect(all.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Data;Cantiere;Computo;SAL n.;Stato;Importo;Ritenuta %;Ritenuta;Netto;Fatturato',
-      '01/11/2026;;Muro;1;Approvato;50,00;0,00;0,00;50,00;No',
-      '31/10/2026;Villetta;Villetta;2;Bozza;300,00;0,00;0,00;300,00;No',
-      '15/10/2026;Box;Box;1;Approvato;100,00;10,00;10,00;90,00;Sì',
-      '30/09/2026;Villetta;Villetta;1;Approvato;1000,00;5,00;50,00;950,00;No',
+      'Data;Cantiere;Computo;SAL n.;Stato;Importo;Ritenuta %;Ritenuta;Netto;Fatturato;CIG;CUP',
+      '01/11/2026;;Muro;1;Approvato;50,00;0,00;0,00;50,00;No;;',
+      '31/10/2026;Villetta;Villetta;2;Bozza;300,00;0,00;0,00;300,00;No;;',
+      '15/10/2026;Box;Box;1;Approvato;100,00;10,00;10,00;90,00;Sì;;',
+      '30/09/2026;Villetta;Villetta;1;Approvato;1000,00;5,00;50,00;950,00;No;;',
     ])
     const toInvoice = await s.browser.call(
       'GET',
       `${s.url}/export?filter[status]=approved&filter[invoiced]=false&filter[from]=2026-10-01`,
     )
     expect(toInvoice.body.replace('﻿', '').trim().split('\r\n')).toEqual([
-      'Data;Cantiere;Computo;SAL n.;Stato;Importo;Ritenuta %;Ritenuta;Netto;Fatturato',
-      '01/11/2026;;Muro;1;Approvato;50,00;0,00;0,00;50,00;No',
+      'Data;Cantiere;Computo;SAL n.;Stato;Importo;Ritenuta %;Ritenuta;Netto;Fatturato;CIG;CUP',
+      '01/11/2026;;Muro;1;Approvato;50,00;0,00;0,00;50,00;No;;',
     ])
     expect((await s.browser.call('GET', `${s.url}/export?filter[invoiced]=1`)).statusCode).toBe(422)
   })

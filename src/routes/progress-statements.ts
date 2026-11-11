@@ -465,6 +465,8 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
             'Ritenuta',
             'Netto',
             'Fatturato',
+            'CIG',
+            'CUP',
           ],
           rows.map((r) => [
             italianDate(r.statement_date),
@@ -477,6 +479,8 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
             italianAmount(r.retention_cents),
             italianAmount((BigInt(r.amount_cents) - BigInt(r.retention_cents)).toString()),
             r.invoice_id ? 'Sì' : 'No',
+            r.site_cig,
+            r.site_cup,
           ]),
         )
       })
