@@ -465,6 +465,7 @@ function pdfData(
     ...common,
     site: { name: row.site_name, code: row.site_code, address },
     date: row.report_date,
+    holiday: isHoliday(row.report_date, row.patron_day),
     status: row.status,
     weather: row.weather,
     work_done: row.work_done,

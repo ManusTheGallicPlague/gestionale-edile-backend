@@ -7,6 +7,8 @@ export interface ReportPdfData {
   company: QuotePdfData['company']
   site: { name: string; code: string | null; address: string | null }
   date: string
+  /** Sunday, national holiday or patron saint day of the company. */
+  holiday: boolean
   status: 'draft' | 'submitted' | 'approved'
   weather: string | null
   work_done: string | null
@@ -145,10 +147,8 @@ function drawReport(pdf: PdfDocument, data: ReportPdfData, labels: string[]): vo
   newPage()
   const header = companyHeader(pdf, data.logo, data.company, y)
   y = header.bottom - 12
-  const title =
-    data.status === 'draft'
-      ? `Rapportino del ${day} (bozza, non ancora inviato)`
-      : `Rapportino del ${day}`
+  const dated = data.holiday ? `Rapportino del ${day}, festivo` : `Rapportino del ${day}`
+  const title = data.status === 'draft' ? `${dated} (bozza, non ancora inviato)` : dated
   pdf.text(MARGIN, y, title, { size: 12, bold: true })
   y -= LEADING + 4
 
