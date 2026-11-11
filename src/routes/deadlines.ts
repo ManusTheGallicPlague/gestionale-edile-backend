@@ -49,6 +49,8 @@ interface DeadlineRow extends Omit<DeadlineInput, 'amount_cents'> {
   version: number
   created_at: Date
   updated_at: Date
+  site_cig: string | null
+  site_cup: string | null
 }
 
 type Params = { company: string; deadline?: string }
@@ -58,6 +60,7 @@ const SELECT = `select d.id, d.title, d.due_on::text as due_on, d.kind, d.amount
     d.client_id, d.supplier_id, d.site_id, d.employee_id, d.vehicle_id, d.notes, d.recurrence, d.next_deadline_id,
     d.supplier_document_id, d.invoice_id, d.vehicle_maintenance_id, d.vehicle_document_id, d.employee_document_id, d.status, d.done_at, d.version, d.created_at, d.updated_at,
     c.name as client_name, s.name as supplier_name, si.name as site_name,
+    si.cig as site_cig, si.cup as site_cup,
     e.last_name || ' ' || e.first_name as employee_name, v.name as vehicle_name,
     (select p.patron_saint_day from public.company_profiles p
       where p.company_id = d.company_id) as patron_day
@@ -120,7 +123,14 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.employeeId) add((p) => `d.employee_id = ${p}`, list.employeeId)
   if (list.vehicleId) add((p) => `d.vehicle_id = ${p}`, list.vehicleId)
   if (list.search) {
-    add((p) => `(d.title ilike ${p} or d.notes ilike ${p})`, `%${escapeLike(list.search)}%`)
+    values.push(`%${escapeLike(list.search)}%`)
+    const like = `$${values.length}`
+    // CIG and CUP are stored upper case without spaces: the same for what the user typed.
+    values.push(list.search.replace(/\s/g, '').toUpperCase())
+    const codes = `$${values.length}`
+    where.push(`(d.title ilike ${like} or d.notes ilike ${like}
+      or exists (select 1 from public.sites cs where cs.id = d.site_id
+        and strpos(coalesce(cs.cig, '') || ' ' || coalesce(cs.cup, ''), ${codes}) > 0))`)
   }
   return { where, values }
 }
@@ -381,6 +391,8 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
             'Stato',
             'Ricorrenza',
             'Note',
+            'CIG',
+            'CUP',
             'Primo giorno lavorativo',
           ],
           rows.map((r) => [
@@ -396,6 +408,8 @@ export function deadlineRoutes(app: FastifyInstance, config: Config, db: Db): vo
             r.status === 'done' ? 'Fatta' : 'Aperta',
             r.recurrence ? (RECURRENCE_LABELS[r.recurrence] ?? r.recurrence) : null,
             r.notes,
+            r.site_cig,
+            r.site_cup,
             italianDate(nextWorkingDay(r.due_on, r.patron_day)),
           ]),
         )

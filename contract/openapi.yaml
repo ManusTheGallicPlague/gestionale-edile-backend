@@ -1585,7 +1585,8 @@ paths:
       summary: Elenco delle scadenze
       description: |
         Permesso: deadlines.view. Per il calendario si chiede un intervallo con filter[from] e
-        filter[to] (compresi) e per_page=100.
+        filter[to] (compresi) e per_page=100. search cerca nel titolo e nelle note, e nel CIG e
+        nel CUP del cantiere (anche in parte, in minuscolo o con gli spazi).
       parameters:
         - $ref: '#/components/parameters/Page'
         - $ref: '#/components/parameters/PerPage'
@@ -1661,8 +1662,9 @@ paths:
       description: |
         Permesso: deadlines.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
         paginazione, nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026,
-        importi con la virgola decimale (1234,50). L'ultima colonna, «Primo giorno lavorativo»,
-        è `working_due_on`. Il file si chiama scadenze.csv.
+        importi con la virgola decimale (1234,50). Dopo «Note» le colonne CIG e CUP del
+        cantiere, vuote se mancano. L'ultima colonna, «Primo giorno lavorativo», è
+        `working_due_on`. Il file si chiama scadenze.csv.
       parameters:
         - $ref: '#/components/parameters/Search'
         - name: sort
