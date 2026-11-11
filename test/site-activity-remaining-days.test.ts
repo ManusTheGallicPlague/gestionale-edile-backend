@@ -94,10 +94,10 @@ describe('remaining working days of the schedule activities', () => {
     expect(csv.statusCode).toBe(200)
     const lines = csv.body.replace('﻿', '').split('\r\n')
     expect(lines[0]).toBe(
-      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi;Giorni lavorativi rimanenti',
+      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi;Giorni lavorativi rimanenti;CIG;CUP',
     )
-    expect(lines.find((l) => l.includes(';Natale;'))?.endsWith(';7;7')).toBe(true)
-    expect(lines.find((l) => l.includes(';Finita;'))?.endsWith(';5;0')).toBe(true)
+    expect(lines.find((l) => l.includes(';Natale;'))?.endsWith(';7;7;;')).toBe(true)
+    expect(lines.find((l) => l.includes(';Finita;'))?.endsWith(';5;0;;')).toBe(true)
   })
 
   it('skips the patron saint day of the company only', async () => {

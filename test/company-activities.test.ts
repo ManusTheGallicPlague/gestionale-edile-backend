@@ -90,6 +90,8 @@ describe('schedule activities of the whole company', () => {
       name: 'Via Roma',
       code: 'C-active',
       status: 'active',
+      cig: null,
+      cup: null,
     })
     expect(body.data[0]?.days_late).toBe(0) // Finished.
     expect(body.data[2]?.days_late).toBe(3) // The list shows it even on a closed site.
@@ -307,9 +309,9 @@ describe('schedule activities in CSV', () => {
       "select to_char((now() at time zone 'Europe/Rome')::date - 10, 'DD/MM/YYYY') as v",
     )
     expect(res.body.replace('﻿', '').split('\r\n')).toEqual([
-      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi;Giorni lavorativi rimanenti',
-      `Via Roma;C-active;Scavi;${r?.s};${r?.e};60;5;"'=SOMMA(A1); da sollecitare";${workingDays(r?.is ?? '', r?.ie ?? '')};0`,
-      `Via Roma;C-active;Fondazioni;${fondazioniStart.rows[0]?.v};${r?.f};99;1;;${workingDays(r?.if10 ?? '', r?.if1 ?? '')};0`,
+      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi;Giorni lavorativi rimanenti;CIG;CUP',
+      `Via Roma;C-active;Scavi;${r?.s};${r?.e};60;5;"'=SOMMA(A1); da sollecitare";${workingDays(r?.is ?? '', r?.ie ?? '')};0;;`,
+      `Via Roma;C-active;Fondazioni;${fondazioniStart.rows[0]?.v};${r?.f};99;1;;${workingDays(r?.if10 ?? '', r?.if1 ?? '')};0;;`,
       '',
     ])
     const all = await s.browser.call('GET', `${s.url}/export`)

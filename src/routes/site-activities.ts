@@ -281,9 +281,12 @@ function readCompanyList(query: Record<string, unknown>) {
   else if (text) {
     values.push(text)
     // strpos, not like: the text has no wildcards.
-    where.push(`strpos(lower(a.name || ' ' || coalesce(a.notes, '') || ' ' ||
+    where.push(`(strpos(lower(a.name || ' ' || coalesce(a.notes, '') || ' ' ||
       (select s.name || ' ' || coalesce(s.code, '') from public.sites s where s.id = a.site_id)),
-      lower($${values.length})) > 0`)
+      lower($${values.length})) > 0
+      or exists (select 1 from public.sites cs where cs.id = a.site_id
+        and strpos(coalesce(cs.cig, '') || ' ' || coalesce(cs.cup, ''),
+          upper(regexp_replace($${values.length}, '\\s', '', 'g'))) > 0))`)
   }
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return { page, perPage, where: where.join(' and '), values }
@@ -293,6 +296,8 @@ interface CompanyActivityRow extends ActivityRow {
   site_name: string
   site_code: string | null
   site_status: string
+  site_cig: string | null
+  site_cup: string | null
   days_late: number
   today: string
 }
@@ -314,7 +319,8 @@ async function readCompanyActivities(
   offset: number,
 ) {
   const { rows } = await client.query<CompanyActivityRow>(
-    `select x.*, s.name as site_name, s.code as site_code, s.status as site_status
+    `select x.*, s.name as site_name, s.code as site_code, s.status as site_status,
+       s.cig as site_cig, s.cup as site_cup
      from (${SELECT.replace(
        'a.created_at, a.updated_at,',
        `a.created_at, a.updated_at,
@@ -369,6 +375,8 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
             'Note',
             'Giorni lavorativi',
             'Giorni lavorativi rimanenti',
+            'CIG',
+            'CUP',
           ],
           rows.map((r) => [
             r.site_name,
@@ -381,6 +389,8 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
             r.notes,
             workingDays(r.start_on, r.end_on, r.patron),
             remainingWorkingDays(r),
+            r.site_cig,
+            r.site_cup,
           ]),
         )
       })
@@ -412,7 +422,14 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
         return {
           data: rows.map((r) => ({
             ...toContract(r),
-            site: { id: r.site_id, name: r.site_name, code: r.site_code, status: r.site_status },
+            site: {
+              id: r.site_id,
+              name: r.site_name,
+              code: r.site_code,
+              status: r.site_status,
+              cig: r.site_cig,
+              cup: r.site_cup,
+            },
             days_late: r.days_late,
             remaining_working_days: remainingWorkingDays(r),
           })),

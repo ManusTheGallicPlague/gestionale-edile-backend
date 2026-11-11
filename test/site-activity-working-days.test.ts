@@ -114,8 +114,8 @@ describe('working days of the schedule activities', () => {
     const csv = await s.browser.call('GET', `${s.companyUrl}/export`)
     expect(csv.statusCode).toBe(200)
     expect(csv.body.replace('﻿', '').split('\r\n')).toEqual([
-      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi;Giorni lavorativi rimanenti',
-      `Villetta;;Intonaci;07/12/2026;11/12/2026;0;0;;3;${workingDays(from, '2026-12-11', '12-07')}`,
+      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi;Giorni lavorativi rimanenti;CIG;CUP',
+      `Villetta;;Intonaci;07/12/2026;11/12/2026;0;0;;3;${workingDays(from, '2026-12-11', '12-07')};;`,
       '',
     ])
   })
