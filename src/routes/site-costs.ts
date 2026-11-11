@@ -64,6 +64,8 @@ interface CostRow extends CostValues {
   id: string
   site_name: string
   site_code: string | null
+  site_cig: string | null
+  site_cup: string | null
   supplier_name: string | null
   version: number
   created_at: Date
@@ -80,6 +82,7 @@ const CATEGORY_LABELS: Record<Category, string> = {
 }
 
 const SELECT = `select k.id, k.site_id, s.name as site_name, s.code as site_code,
+    s.cig as site_cig, s.cup as site_cup,
     k.cost_date::text as cost_date, k.category, k.description, k.supplier_id,
     p.name as supplier_name, k.amount_cents::text as amount_cents, k.notes, k.version,
     k.created_at, k.updated_at
@@ -98,7 +101,13 @@ function toContract(row: CostRow) {
   return {
     id: row.id,
     site_id: row.site_id,
-    site: { id: row.site_id, name: row.site_name, code: row.site_code },
+    site: {
+      id: row.site_id,
+      name: row.site_name,
+      code: row.site_code,
+      cig: row.site_cig,
+      cup: row.site_cup,
+    },
     date: row.cost_date,
     category: row.category,
     description: row.description,
@@ -285,7 +294,10 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.to) add((p) => `k.cost_date <= ${p}`, list.to)
   if (list.q) {
     add(
-      (p) => `strpos(lower(k.description || ' ' || coalesce(k.notes, '')), lower(${p})) > 0`,
+      (p) => `(strpos(lower(k.description || ' ' || coalesce(k.notes, '')), lower(${p})) > 0
+        or exists (select 1 from public.sites cs where cs.id = k.site_id
+          and strpos(coalesce(cs.cig, '') || ' ' || coalesce(cs.cup, ''),
+            upper(regexp_replace(${p}, '\\s', '', 'g'))) > 0))`,
       list.q,
     )
   }
@@ -347,6 +359,8 @@ export function siteCostRoutes(app: FastifyInstance, config: Config, db: Db): vo
             'Fornitore',
             'Importo',
             'Note',
+            'CIG',
+            'CUP',
           ],
           rows.map((r) => [
             italianDate(r.cost_date),
@@ -357,6 +371,8 @@ export function siteCostRoutes(app: FastifyInstance, config: Config, db: Db): vo
             r.supplier_name,
             italianAmount(r.amount_cents),
             r.notes,
+            r.site_cig,
+            r.site_cup,
           ]),
         )
       })

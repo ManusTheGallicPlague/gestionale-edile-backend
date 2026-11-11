@@ -2783,7 +2783,7 @@ paths:
             Filtri, ad esempio filter[site]=<id>, filter[category]=materials,
             filter[supplier]=<id>, filter[from]=2026-11-01 e filter[to]=2026-11-30 e
             filter[q]=testo (nella descrizione e nelle note, senza distinguere maiuscole e
-            minuscole).
+            minuscole, e nel CIG e nel CUP del cantiere, anche in parte o con gli spazi).
           style: deepObject
           explode: true
           schema:
@@ -2948,7 +2948,8 @@ paths:
       description: |
         Permesso: costs.view. Stessi filtri e ordinamento dell'elenco, senza paginazione, nello
         stesso formato dell'esportazione dei clienti. Date come 30/11/2026, importi con la
-        virgola decimale (1234,50). Il file si chiama costi.csv.
+        virgola decimale (1234,50). In fondo le colonne CIG e CUP del cantiere, vuote se
+        mancano. Il file si chiama costi.csv.
       parameters:
         - name: sort
           in: query
@@ -12919,11 +12920,17 @@ components:
             id: { $ref: '#/components/schemas/Id' }
             site:
               type: object
-              required: [id, name, code]
+              required: [id, name, code, cig, cup]
               properties:
                 id: { $ref: '#/components/schemas/Id' }
                 name: { type: string }
                 code: { type: [string, 'null'] }
+                cig:
+                  type: [string, 'null']
+                  description: CIG del cantiere (vedi Site), per i lavori pubblici.
+                cup:
+                  type: [string, 'null']
+                  description: CUP del cantiere (vedi Site), per i lavori pubblici.
             supplier:
               oneOf:
                 - $ref: '#/components/schemas/SubjectRef'

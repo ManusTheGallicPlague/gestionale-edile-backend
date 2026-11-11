@@ -80,9 +80,9 @@ describe('site costs', () => {
     expect(res.headers['content-disposition']).toBe('attachment; filename="costi.csv"')
     const lines = res.body.replace('\uFEFF', '').trim().split('\r\n')
     expect(lines).toEqual([
-      'Data;Cantiere;Codice cantiere;Categoria;Descrizione;Fornitore;Importo;Note',
-      '04/11/2026;Villetta;C-1;Materiali;Calcestruzzo;Calcestruzzi Srl;1560,50;',
-      '05/11/2026;Condominio;;Noli;"Nolo; gru";;20,00;storno',
+      'Data;Cantiere;Codice cantiere;Categoria;Descrizione;Fornitore;Importo;Note;CIG;CUP',
+      '04/11/2026;Villetta;C-1;Materiali;Calcestruzzo;Calcestruzzi Srl;1560,50;;;',
+      '05/11/2026;Condominio;;Noli;"Nolo; gru";;20,00;storno;;',
     ])
     const filtered = await s.browser.call('GET', `${url}?filter[site]=${s.site}`)
     expect(filtered.body.trim().split('\r\n')).toHaveLength(2)
