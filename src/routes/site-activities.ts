@@ -294,7 +294,17 @@ interface CompanyActivityRow extends ActivityRow {
   site_code: string | null
   site_status: string
   days_late: number
+  today: string
 }
+
+/**
+ * Working days left to an unfinished activity: from today, or from its start if later, to its
+ * end. Zero when it is finished or its end has passed.
+ */
+const remainingWorkingDays = (r: CompanyActivityRow) =>
+  r.progress >= 100
+    ? 0
+    : workingDays(r.today > r.start_on ? r.today : r.start_on, r.end_on, r.patron)
 
 /** The company activities matching the list filters, in the list order. */
 async function readCompanyActivities(
@@ -309,7 +319,7 @@ async function readCompanyActivities(
        'a.created_at, a.updated_at,',
        `a.created_at, a.updated_at,
          case when a.progress < 100 and a.end_on < ${TODAY}
-           then ${TODAY} - a.end_on else 0 end as days_late,`,
+           then ${TODAY} - a.end_on else 0 end as days_late, ${TODAY}::text as today,`,
      )} where ${list.where}) x
      join public.sites s on s.id = x.site_id
      order by x.end_on, x.start_on, lower(x.name), x.id
@@ -358,6 +368,7 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
             'Giorni di ritardo',
             'Note',
             'Giorni lavorativi',
+            'Giorni lavorativi rimanenti',
           ],
           rows.map((r) => [
             r.site_name,
@@ -369,6 +380,7 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
             r.days_late,
             r.notes,
             workingDays(r.start_on, r.end_on, r.patron),
+            remainingWorkingDays(r),
           ]),
         )
       })
@@ -402,6 +414,7 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
             ...toContract(r),
             site: { id: r.site_id, name: r.site_name, code: r.site_code, status: r.site_status },
             days_late: r.days_late,
+            remaining_working_days: remainingWorkingDays(r),
           })),
           meta: { total: count.rows[0]?.total ?? 0, page: list.page, per_page: list.perPage },
         }

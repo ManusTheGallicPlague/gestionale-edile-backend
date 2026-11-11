@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Browser, Fixtures, startApp, type TestContext } from './helpers.js'
+import { workingDays } from '../src/holidays.js'
 
 let ctx: TestContext
 let fx: Fixtures
@@ -105,11 +106,16 @@ describe('working days of the schedule activities', () => {
     const otherList = await other.browser.call('GET', other.companyUrl)
     expect(otherList.json<{ data: Activity[] }>().data.map((a) => a.working_days)).toEqual([3])
 
+    // The last column depends on today: the days left from today, or from the start.
+    const today = await ctx.owner.query<{ d: string }>(
+      "select ((now() at time zone 'Europe/Rome')::date)::text as d",
+    )
+    const from = (today.rows[0]?.d ?? '') > '2026-12-07' ? (today.rows[0]?.d ?? '') : '2026-12-07'
     const csv = await s.browser.call('GET', `${s.companyUrl}/export`)
     expect(csv.statusCode).toBe(200)
     expect(csv.body.replace('﻿', '').split('\r\n')).toEqual([
-      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi',
-      'Villetta;;Intonaci;07/12/2026;11/12/2026;0;0;;3',
+      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi;Giorni lavorativi rimanenti',
+      `Villetta;;Intonaci;07/12/2026;11/12/2026;0;0;;3;${workingDays(from, '2026-12-11', '12-07')}`,
       '',
     ])
   })

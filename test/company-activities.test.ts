@@ -307,9 +307,9 @@ describe('schedule activities in CSV', () => {
       "select to_char((now() at time zone 'Europe/Rome')::date - 10, 'DD/MM/YYYY') as v",
     )
     expect(res.body.replace('﻿', '').split('\r\n')).toEqual([
-      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi',
-      `Via Roma;C-active;Scavi;${r?.s};${r?.e};60;5;"'=SOMMA(A1); da sollecitare";${workingDays(r?.is ?? '', r?.ie ?? '')}`,
-      `Via Roma;C-active;Fondazioni;${fondazioniStart.rows[0]?.v};${r?.f};99;1;;${workingDays(r?.if10 ?? '', r?.if1 ?? '')}`,
+      'Cantiere;Codice cantiere;Attività;Inizio;Fine;Avanzamento %;Giorni di ritardo;Note;Giorni lavorativi;Giorni lavorativi rimanenti',
+      `Via Roma;C-active;Scavi;${r?.s};${r?.e};60;5;"'=SOMMA(A1); da sollecitare";${workingDays(r?.is ?? '', r?.ie ?? '')};0`,
+      `Via Roma;C-active;Fondazioni;${fondazioniStart.rows[0]?.v};${r?.f};99;1;;${workingDays(r?.if10 ?? '', r?.if1 ?? '')};0`,
       '',
     ])
     const all = await s.browser.call('GET', `${s.url}/export`)

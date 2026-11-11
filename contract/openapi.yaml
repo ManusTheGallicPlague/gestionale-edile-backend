@@ -4864,8 +4864,8 @@ paths:
       description: |
         Permesso: sites.view. Stessi filtri e ordinamento di listCompanyActivities, senza
         paginazione, nello stesso formato dell'esportazione dei clienti. Date come 30/11/2026.
-        In fondo la colonna «Giorni lavorativi» (working_days). Il file si chiama
-        cronoprogramma.csv.
+        In fondo le colonne «Giorni lavorativi» (working_days) e «Giorni lavorativi rimanenti»
+        (remaining_working_days). Il file si chiama cronoprogramma.csv.
       parameters:
         - name: filter
           in: query
@@ -14684,7 +14684,7 @@ components:
             allOf:
               - $ref: '#/components/schemas/SiteActivity'
               - type: object
-                required: [site, days_late]
+                required: [site, days_late, remaining_working_days]
                 properties:
                   site:
                     type: object
@@ -14700,6 +14700,15 @@ components:
                     description: |
                       Giorni passati dalla fine prevista per un'attività non finita; 0 se è
                       finita o la fine non è ancora passata.
+                  remaining_working_days:
+                    type: integer
+                    minimum: 0
+                    description: |
+                      Giorni lavorativi che restano a un'attività non finita (avanzamento sotto
+                      100): da oggi, o dall'inizio se è più avanti, alla fine prevista, estremi
+                      compresi, con le stesse regole di working_days (da lunedì a venerdì, senza
+                      festività nazionali con Pasquetta e santo patrono dell'azienda), sulla data
+                      italiana. 0 se l'attività è finita o la fine è già passata.
         meta: { $ref: '#/components/schemas/ListMeta' }
     DashboardActivities:
       type: object
