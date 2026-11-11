@@ -18,7 +18,7 @@ import { BELOW_MIN, stockValueCents } from './warehouse.js'
 import { DOCUMENTS_SQL } from './vehicles.js'
 import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { readTotals } from './absence-totals.js'
-import { nextWorkingDay, patronSaintDay } from '../holidays.js'
+import { isHoliday, nextWorkingDay, patronSaintDay } from '../holidays.js'
 import { COST_LINES } from './site-costs.js'
 
 async function siteCounts(client: PoolClient) {
@@ -477,6 +477,7 @@ export function dashboardRoutes(app: FastifyInstance, db: Db): void {
       const can = (p: Parameters<typeof permissions.has>[0]) => permissions.has(p)
       return {
         today,
+        today_holiday: isHoliday(today, await patronSaintDay(client)),
         sites: can('sites.view') ? await siteCounts(client) : null,
         over_budget: can('sites.view') && can('costs.view') ? await overBudget(client) : null,
         costs_this_month: can('costs.view') ? await costsThisMonth(client, today) : null,

@@ -13780,6 +13780,7 @@ components:
       required:
         [
           today,
+          today_holiday,
           sites,
           over_budget,
           costs_this_month,
@@ -13801,6 +13802,13 @@ components:
         ]
       properties:
         today: { $ref: '#/components/schemas/Date' }
+        today_holiday:
+          type: boolean
+          description: |
+            Oggi è festivo, con la regola di holiday dei rapportini: domenica, festivo nazionale
+            (Pasquetta compresa) o santo patrono dei dati dell'azienda (patron_saint_day). Senza
+            permessi, come listHolidays. Serve al frontend per non sollecitare reports.missing_today
+            nei giorni in cui non si lavora.
         sites:
           description: Numero di cantieri per stato.
           oneOf:
@@ -13859,7 +13867,8 @@ components:
                   description: |
                     Cantieri attivi senza un rapportino (in qualunque stato) con la data di oggi,
                     da sollecitare al capo cantiere. Si conta ogni giorno, sabato e domenica
-                    compresi: è il frontend a decidere se mostrarlo. null senza sites.view.
+                    compresi: è il frontend a decidere se mostrarlo, ad esempio non nei giorni con
+                    today_holiday. null senza sites.view.
                   oneOf:
                     - type: integer
                       minimum: 0
