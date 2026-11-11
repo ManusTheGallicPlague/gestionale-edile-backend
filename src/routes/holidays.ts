@@ -5,6 +5,7 @@ import { enterCompany } from '../company.js'
 import { requireSession } from '../http/request-context.js'
 import { easter, patronSaintDay } from '../holidays.js'
 import { readYear } from './absence-totals.js'
+import { toICalendar } from '../deadlines/ical.js'
 
 /** National holidays as MM-DD with their Italian names; Easter Monday is added per year. */
 const NATIONAL: [string, string][] = [
@@ -56,6 +57,47 @@ export function holidayRoutes(app: FastifyInstance, db: Db): void {
         const year = await readYear(client, request.query)
         return { year, holidays: holidaysOfYear(year, await patronSaintDay(client)) }
       })
+    },
+  )
+
+  app.get<{ Params: { company: string }; Querystring: Record<string, unknown> }>(
+    '/api/companies/:company/holidays/calendar',
+    async (request, reply) => {
+      const session = requireSession(request)
+      const { year, ics } = await withIdentity(
+        db.app,
+        { userId: session.user.id },
+        async (client) => {
+          await enterCompany(client, request.params.company)
+          const year = await readYear(client, request.query)
+          const { rows } = await client.query<{ id: string }>(
+            'select app.current_company_id() as id',
+          )
+          const companyId = rows[0]?.id ?? ''
+          // A fixed stamp: the events only change with the patron saint day of the company.
+          const stamp = new Date(Date.UTC(year, 0, 1))
+          const holidays = holidaysOfYear(year, await patronSaintDay(client))
+          const ics = toICalendar(
+            `Festività ${year}`,
+            holidays.map((h) => ({
+              // Company and date only: a new export updates the events instead of adding them.
+              uid: `holiday-${companyId}-${h.date}`,
+              date: h.date,
+              summary: h.name,
+              description:
+                h.kind === 'national' ? 'Festività nazionale' : "Santo patrono dell'azienda",
+              stamp,
+              alarm: false,
+            })),
+            'Festività',
+          )
+          return { year, ics }
+        },
+      )
+      return reply
+        .header('Content-Type', 'text/calendar; charset=utf-8')
+        .header('Content-Disposition', `attachment; filename="festivita-${year}.ics"`)
+        .send(ics)
     },
   )
 }

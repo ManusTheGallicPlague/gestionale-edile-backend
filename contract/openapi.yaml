@@ -6347,6 +6347,45 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
 
+  /api/companies/{company}/holidays/calendar:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+    get:
+      operationId: exportHolidaysCalendar
+      summary: Festività dell'anno in formato calendario (iCalendar)
+      description: |
+        Qualsiasi membro dell'azienda lo scarica, senza permessi, come listHolidays. Le stesse
+        festività di listHolidays come file .ics (RFC 5545), da aggiungere al calendario del
+        telefono o del computer: ogni festività è un evento di un giorno intero, senza
+        promemoria e segnato come libero. Il titolo è il nome della festività (es. «Natale»,
+        «Santo patrono»); la descrizione dice se è nazionale o il santo patrono dell'azienda.
+        L'UID dell'evento dipende solo da azienda e data, così una nuova esportazione aggiorna
+        gli eventi invece di duplicarli. year è l'anno in corso (ora italiana) se non indicato.
+        Il file si chiama festivita-AAAA.ics (es. festivita-2026.ics).
+      parameters:
+        - name: year
+          in: query
+          description: Anno solare, da 2000 a 2100.
+          schema:
+            type: integer
+            minimum: 2000
+            maximum: 2100
+      responses:
+        '200':
+          description: Il file iCalendar
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            text/calendar:
+              schema:
+                type: string
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationFailed' }
+
   /api/companies/{company}/absences/close-year:
     parameters:
       - $ref: '#/components/parameters/Company'
