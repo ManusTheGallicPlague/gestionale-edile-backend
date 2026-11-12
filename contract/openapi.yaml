@@ -1996,6 +1996,13 @@ paths:
                   stessi contati in sites.without_budget di getDashboard: senza budget i costi
                   non si confrontano e il cantiere non compare in over_budget. false: cantieri,
                   in qualunque stato, con il budget (anche zero).
+              location_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza la posizione
+                  (location), gli stessi contati in sites.without_location di getDashboard: senza
+                  posizione il cantiere non compare sulla mappa. false: cantieri, in qualunque
+                  stato, con la posizione.
               past_end:
                 type: boolean
                 description: |
@@ -2163,6 +2170,13 @@ paths:
                   stessi contati in sites.without_budget di getDashboard: senza budget i costi
                   non si confrontano e il cantiere non compare in over_budget. false: cantieri,
                   in qualunque stato, con il budget (anche zero).
+              location_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza la posizione
+                  (location), gli stessi contati in sites.without_location di getDashboard: senza
+                  posizione il cantiere non compare sulla mappa. false: cantieri, in qualunque
+                  stato, con la posizione.
               past_end:
                 type: boolean
                 description: |
@@ -14345,7 +14359,8 @@ components:
             prossimi 14 giorni, cantieri da iniziare con l'inizio previsto già arrivato,
             cantieri da iniziare o in corso senza squadra, cantieri non chiusi senza titolo
             edilizio, cantieri non chiusi senza coordinatore per la sicurezza, cantieri non
-            chiusi senza direttore dei lavori e cantieri non chiusi senza budget.
+            chiusi senza direttore dei lavori, cantieri non chiusi senza budget e cantieri
+            non chiusi senza posizione sulla mappa.
           oneOf:
             - type: object
               required:
@@ -14363,6 +14378,7 @@ components:
                   without_safety_coordinator,
                   without_works_director,
                   without_budget,
+                  without_location,
                 ]
               properties:
                 planned: { type: integer, minimum: 0 }
@@ -14423,6 +14439,12 @@ components:
                   description: |
                     Cantieri non chiusi senza il budget, come filter[budget_missing]=true di
                     listSites.
+                without_location:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri non chiusi senza la posizione sulla mappa, come
+                    filter[location_missing]=true di listSites.
             - type: 'null'
         over_budget:
           oneOf:

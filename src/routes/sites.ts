@@ -443,6 +443,11 @@ function readList(query: Record<string, unknown>) {
     errors['filter[budget_missing]'] = ['Indica true o false.']
   }
   const budgetMissing = budgetValue === undefined ? undefined : budgetValue === 'true'
+  const locationValue = single('filter[location_missing]')
+  if (locationValue !== undefined && locationValue !== 'true' && locationValue !== 'false') {
+    errors['filter[location_missing]'] = ['Indica true o false.']
+  }
+  const locationMissing = locationValue === undefined ? undefined : locationValue === 'true'
   const pastEndValue = single('filter[past_end]')
   if (pastEndValue !== undefined && pastEndValue !== 'true' && pastEndValue !== 'false') {
     errors['filter[past_end]'] = ['Indica true o false.']
@@ -493,6 +498,7 @@ function readList(query: Record<string, unknown>) {
     safetyCoordinatorMissing,
     worksDirectorMissing,
     budgetMissing,
+    locationMissing,
     pastEnd,
     endingSoon,
     withoutRecentReports,
@@ -515,6 +521,9 @@ export const WORKS_DIRECTOR_MISSING_SQL = `s.status <> 'completed' and s.works_d
 
 /** Open sites without a budget: also sites.without_budget. */
 export const BUDGET_MISSING_SQL = `s.status <> 'completed' and s.budget_cents is null`
+
+/** Open sites without a map position: also sites.without_location. */
+export const LOCATION_MISSING_SQL = `s.status <> 'completed' and s.latitude is null`
 
 /** Open sites whose planned end is before today in Italy: also sites.past_end. */
 export const PAST_END_SQL = `s.status <> 'completed' and s.end_on < (now() at time zone 'Europe/Rome')::date`
@@ -588,6 +597,9 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.budgetMissing !== undefined) {
     where.push(list.budgetMissing ? BUDGET_MISSING_SQL : 's.budget_cents is not null')
+  }
+  if (list.locationMissing !== undefined) {
+    where.push(list.locationMissing ? LOCATION_MISSING_SQL : 's.latitude is not null')
   }
   if (list.pastEnd !== undefined) {
     where.push(list.pastEnd ? PAST_END_SQL : `not coalesce(${PAST_END_SQL}, false)`)

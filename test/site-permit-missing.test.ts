@@ -128,6 +128,7 @@ describe('sites without the building permit', () => {
       without_safety_coordinator: 4,
       without_works_director: 4,
       without_budget: 4,
+      without_location: 4,
     })
     const fromOther = await other.browser.call('GET', `${other.base}?filter[permit_missing]=true`)
     expect(fromOther.json<{ data: { name: string }[] }>().data.map((x) => x.name)).toEqual([

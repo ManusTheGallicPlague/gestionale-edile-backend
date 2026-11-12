@@ -125,6 +125,7 @@ describe('sites without the prior notice', () => {
       without_safety_coordinator: 4,
       without_works_director: 4,
       without_budget: 4,
+      without_location: 4,
     })
     const fromOther = await other.browser.call(
       'GET',
