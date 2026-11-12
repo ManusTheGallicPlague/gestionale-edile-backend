@@ -414,6 +414,11 @@ function readList(query: Record<string, unknown>) {
     errors['filter[past_end]'] = ['Indica true o false.']
   }
   const pastEnd = pastEndValue === undefined ? undefined : pastEndValue === 'true'
+  const endingSoonValue = single('filter[ending_soon]')
+  if (endingSoonValue !== undefined && endingSoonValue !== 'true' && endingSoonValue !== 'false') {
+    errors['filter[ending_soon]'] = ['Indica true o false.']
+  }
+  const endingSoon = endingSoonValue === undefined ? undefined : endingSoonValue === 'true'
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     page,
@@ -427,6 +432,7 @@ function readList(query: Record<string, unknown>) {
     teamDocuments,
     priorNoticeMissing,
     pastEnd,
+    endingSoon,
   }
 }
 
@@ -435,6 +441,9 @@ export const PRIOR_NOTICE_MISSING_SQL = `s.status <> 'completed' and s.prior_not
 
 /** Open sites whose planned end is before today in Italy: also sites.past_end. */
 export const PAST_END_SQL = `s.status <> 'completed' and s.end_on < (now() at time zone 'Europe/Rome')::date`
+
+/** Open sites whose planned end falls from today to 14 days ahead in Italy: also sites.ending_soon. */
+export const ENDING_SOON_SQL = `s.status <> 'completed' and s.end_on between (now() at time zone 'Europe/Rome')::date and (now() at time zone 'Europe/Rome')::date + 14`
 
 export const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
@@ -472,6 +481,9 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.pastEnd !== undefined) {
     where.push(list.pastEnd ? PAST_END_SQL : `not coalesce(${PAST_END_SQL}, false)`)
+  }
+  if (list.endingSoon !== undefined) {
+    where.push(list.endingSoon ? ENDING_SOON_SQL : `not coalesce(${ENDING_SOON_SQL}, false)`)
   }
   if (list.search) {
     add(
