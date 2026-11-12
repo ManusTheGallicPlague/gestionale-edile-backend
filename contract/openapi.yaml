@@ -1983,6 +1983,12 @@ paths:
                   la sicurezza in esecuzione (safety_coordinator), gli stessi contati in
                   sites.without_safety_coordinator di getDashboard. false: cantieri, in qualunque
                   stato, con il coordinatore.
+              works_director_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il direttore dei
+                  lavori (works_director), gli stessi contati in sites.without_works_director di
+                  getDashboard. false: cantieri, in qualunque stato, con il direttore dei lavori.
               past_end:
                 type: boolean
                 description: |
@@ -2137,6 +2143,12 @@ paths:
                   la sicurezza in esecuzione (safety_coordinator), gli stessi contati in
                   sites.without_safety_coordinator di getDashboard. false: cantieri, in qualunque
                   stato, con il coordinatore.
+              works_director_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il direttore dei
+                  lavori (works_director), gli stessi contati in sites.without_works_director di
+                  getDashboard. false: cantieri, in qualunque stato, con il direttore dei lavori.
               past_end:
                 type: boolean
                 description: |
@@ -14318,7 +14330,8 @@ components:
             non chiusi oltre la fine prevista, cantieri non chiusi con la fine prevista nei
             prossimi 14 giorni, cantieri da iniziare con l'inizio previsto già arrivato,
             cantieri da iniziare o in corso senza squadra, cantieri non chiusi senza titolo
-            edilizio e cantieri non chiusi senza coordinatore per la sicurezza.
+            edilizio, cantieri non chiusi senza coordinatore per la sicurezza e cantieri non
+            chiusi senza direttore dei lavori.
           oneOf:
             - type: object
               required:
@@ -14334,6 +14347,7 @@ components:
                   without_team,
                   without_permit,
                   without_safety_coordinator,
+                  without_works_director,
                 ]
               properties:
                 planned: { type: integer, minimum: 0 }
@@ -14382,6 +14396,12 @@ components:
                   description: |
                     Cantieri non chiusi senza il coordinatore per la sicurezza in esecuzione,
                     come filter[safety_coordinator_missing]=true di listSites.
+                without_works_director:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri non chiusi senza il direttore dei lavori, come
+                    filter[works_director_missing]=true di listSites.
             - type: 'null'
         over_budget:
           oneOf:

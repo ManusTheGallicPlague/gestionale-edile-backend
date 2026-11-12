@@ -126,6 +126,7 @@ describe('sites without the safety coordinator', () => {
       without_team: 3,
       without_permit: 4,
       without_safety_coordinator: 3,
+      without_works_director: 4,
     })
     const fromOther = await other.browser.call(
       'GET',

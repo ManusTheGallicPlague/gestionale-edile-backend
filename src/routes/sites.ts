@@ -433,6 +433,11 @@ function readList(query: Record<string, unknown>) {
   }
   const safetyCoordinatorMissing =
     coordinatorValue === undefined ? undefined : coordinatorValue === 'true'
+  const directorValue = single('filter[works_director_missing]')
+  if (directorValue !== undefined && directorValue !== 'true' && directorValue !== 'false') {
+    errors['filter[works_director_missing]'] = ['Indica true o false.']
+  }
+  const worksDirectorMissing = directorValue === undefined ? undefined : directorValue === 'true'
   const pastEndValue = single('filter[past_end]')
   if (pastEndValue !== undefined && pastEndValue !== 'true' && pastEndValue !== 'false') {
     errors['filter[past_end]'] = ['Indica true o false.']
@@ -481,6 +486,7 @@ function readList(query: Record<string, unknown>) {
     priorNoticeMissing,
     permitMissing,
     safetyCoordinatorMissing,
+    worksDirectorMissing,
     pastEnd,
     endingSoon,
     withoutRecentReports,
@@ -497,6 +503,9 @@ export const PERMIT_MISSING_SQL = `s.status <> 'completed' and s.permit is null`
 
 /** Open sites without the safety coordinator: also sites.without_safety_coordinator. */
 export const SAFETY_COORDINATOR_MISSING_SQL = `s.status <> 'completed' and s.safety_coordinator is null`
+
+/** Open sites without the works director: also sites.without_works_director. */
+export const WORKS_DIRECTOR_MISSING_SQL = `s.status <> 'completed' and s.works_director is null`
 
 /** Open sites whose planned end is before today in Italy: also sites.past_end. */
 export const PAST_END_SQL = `s.status <> 'completed' and s.end_on < (now() at time zone 'Europe/Rome')::date`
@@ -561,6 +570,11 @@ function listFilter(list: ReturnType<typeof readList>) {
       list.safetyCoordinatorMissing
         ? SAFETY_COORDINATOR_MISSING_SQL
         : 's.safety_coordinator is not null',
+    )
+  }
+  if (list.worksDirectorMissing !== undefined) {
+    where.push(
+      list.worksDirectorMissing ? WORKS_DIRECTOR_MISSING_SQL : 's.works_director is not null',
     )
   }
   if (list.pastEnd !== undefined) {
