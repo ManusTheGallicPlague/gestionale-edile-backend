@@ -399,6 +399,16 @@ function readList(query: Record<string, unknown>) {
   if (teamDocumentsValue !== undefined && !teamDocuments) {
     errors['filter[team_documents]'] = ['Vale expired oppure expiring.']
   }
+  const priorNoticeValue = single('filter[prior_notice_missing]')
+  if (
+    priorNoticeValue !== undefined &&
+    priorNoticeValue !== 'true' &&
+    priorNoticeValue !== 'false'
+  ) {
+    errors['filter[prior_notice_missing]'] = ['Indica true o false.']
+  }
+  const priorNoticeMissing =
+    priorNoticeValue === undefined ? undefined : priorNoticeValue === 'true'
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     page,
@@ -410,8 +420,12 @@ function readList(query: Record<string, unknown>) {
     reportMissing,
     subcontractorCompliance,
     teamDocuments,
+    priorNoticeMissing,
   }
 }
+
+/** Open sites without the date of the prior notice: also sites.without_prior_notice. */
+export const PRIOR_NOTICE_MISSING_SQL = `s.status <> 'completed' and s.prior_notice_on is null`
 
 export const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
@@ -443,6 +457,9 @@ function listFilter(list: ReturnType<typeof readList>) {
   if (list.teamDocuments) {
     // Sites with a team member in that state, as documents_expired in getSiteTeam.
     where.push(teamHas('s.id', EMPLOYEE_DOCUMENTS_SQL[list.teamDocuments]))
+  }
+  if (list.priorNoticeMissing !== undefined) {
+    where.push(list.priorNoticeMissing ? PRIOR_NOTICE_MISSING_SQL : 's.prior_notice_on is not null')
   }
   if (list.search) {
     add(

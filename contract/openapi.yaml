@@ -1951,6 +1951,13 @@ paths:
                   nella condizione indicata, come filter[documents] dei dipendenti. expired basta
                   sites.view, come documents_expired della squadra; expiring vuole anche
                   employees.view, altrimenti 403.
+              prior_notice_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza la data della
+                  notifica preliminare (prior_notice_on), gli stessi contati in
+                  sites.without_prior_notice di getDashboard. false: cantieri, in qualunque
+                  stato, con la data della notifica preliminare.
       responses:
         '200':
           description: Una pagina di cantieri
@@ -2039,6 +2046,13 @@ paths:
                   nella condizione indicata, come filter[documents] dei dipendenti. expired basta
                   sites.view, come documents_expired della squadra; expiring vuole anche
                   employees.view, altrimenti 403.
+              prior_notice_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza la data della
+                  notifica preliminare (prior_notice_on), gli stessi contati in
+                  sites.without_prior_notice di getDashboard. false: cantieri, in qualunque
+                  stato, con la data della notifica preliminare.
       responses:
         '200':
           description: Il file CSV
@@ -14171,15 +14185,21 @@ components:
             permessi, come listHolidays. Serve al frontend per non sollecitare reports.missing_today
             nei giorni in cui non si lavora.
         sites:
-          description: Numero di cantieri per stato.
+          description: Numero di cantieri per stato e cantieri non chiusi senza notifica preliminare.
           oneOf:
             - type: object
-              required: [planned, active, suspended, completed]
+              required: [planned, active, suspended, completed, without_prior_notice]
               properties:
                 planned: { type: integer, minimum: 0 }
                 active: { type: integer, minimum: 0 }
                 suspended: { type: integer, minimum: 0 }
                 completed: { type: integer, minimum: 0 }
+                without_prior_notice:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri non chiusi senza la data della notifica preliminare, come
+                    filter[prior_notice_missing]=true di listSites.
             - type: 'null'
         over_budget:
           oneOf:
