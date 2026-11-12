@@ -2127,6 +2127,40 @@ paths:
         '412': { $ref: '#/components/responses/StaleRecord' }
         '428': { $ref: '#/components/responses/PreconditionRequired' }
 
+  /api/companies/{company}/sites/{site}/sign/pdf:
+    parameters:
+      - $ref: '#/components/parameters/Company'
+      - $ref: '#/components/parameters/SiteId'
+    get:
+      operationId: getSiteSignPdf
+      summary: PDF del cartello di cantiere
+      description: |
+        Permesso: sites.view. Senza permesso risponde 404, non 403. Il cartello di cantiere in A4
+        verticale, da ingrandire e appendere all'ingresso: lavori (nome del cantiere),
+        ubicazione, committente, titolo edilizio, CIG e CUP, impresa esecutrice (ragione
+        sociale, sede e partita IVA dell'azienda), direttore dei lavori, coordinatore per la
+        sicurezza in fase di esecuzione, data della notifica preliminare, inizio dei lavori e
+        fine prevista. Una voce non indicata esce con una riga vuota, da compilare a mano; CIG e
+        CUP escono solo se indicati. Con suppliers.view anche le imprese subappaltatrici (gli
+        stessi fornitori di listSiteSubcontractors, con partita IVA), senza importi. Il file
+        si chiama cartello-<codice del cantiere>.pdf (caratteri diversi da lettere, cifre e
+        trattino diventano un trattino), o cartello-cantiere.pdf se il cantiere non ha codice.
+      responses:
+        '200':
+          description: Il PDF
+          headers:
+            Content-Disposition:
+              description: attachment, con il nome del file.
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+
   /api/companies/{company}/sites/{site}/team:
     parameters:
       - $ref: '#/components/parameters/Company'
