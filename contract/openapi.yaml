@@ -1976,6 +1976,13 @@ paths:
                   true: cantieri non chiusi (planned, active, suspended) senza il titolo edilizio
                   (permit), gli stessi contati in sites.without_permit di getDashboard. false:
                   cantieri, in qualunque stato, con il titolo edilizio.
+              safety_coordinator_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il coordinatore per
+                  la sicurezza in esecuzione (safety_coordinator), gli stessi contati in
+                  sites.without_safety_coordinator di getDashboard. false: cantieri, in qualunque
+                  stato, con il coordinatore.
               past_end:
                 type: boolean
                 description: |
@@ -2123,6 +2130,13 @@ paths:
                   true: cantieri non chiusi (planned, active, suspended) senza il titolo edilizio
                   (permit), gli stessi contati in sites.without_permit di getDashboard. false:
                   cantieri, in qualunque stato, con il titolo edilizio.
+              safety_coordinator_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il coordinatore per
+                  la sicurezza in esecuzione (safety_coordinator), gli stessi contati in
+                  sites.without_safety_coordinator di getDashboard. false: cantieri, in qualunque
+                  stato, con il coordinatore.
               past_end:
                 type: boolean
                 description: |
@@ -14303,8 +14317,8 @@ components:
             Numero di cantieri per stato, cantieri non chiusi senza notifica preliminare, cantieri
             non chiusi oltre la fine prevista, cantieri non chiusi con la fine prevista nei
             prossimi 14 giorni, cantieri da iniziare con l'inizio previsto già arrivato,
-            cantieri da iniziare o in corso senza squadra e cantieri non chiusi senza titolo
-            edilizio.
+            cantieri da iniziare o in corso senza squadra, cantieri non chiusi senza titolo
+            edilizio e cantieri non chiusi senza coordinatore per la sicurezza.
           oneOf:
             - type: object
               required:
@@ -14319,6 +14333,7 @@ components:
                   start_due,
                   without_team,
                   without_permit,
+                  without_safety_coordinator,
                 ]
               properties:
                 planned: { type: integer, minimum: 0 }
@@ -14361,6 +14376,12 @@ components:
                   description: |
                     Cantieri non chiusi senza il titolo edilizio, come
                     filter[permit_missing]=true di listSites.
+                without_safety_coordinator:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri non chiusi senza il coordinatore per la sicurezza in esecuzione,
+                    come filter[safety_coordinator_missing]=true di listSites.
             - type: 'null'
         over_budget:
           oneOf:

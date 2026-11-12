@@ -423,6 +423,16 @@ function readList(query: Record<string, unknown>) {
     errors['filter[permit_missing]'] = ['Indica true o false.']
   }
   const permitMissing = permitValue === undefined ? undefined : permitValue === 'true'
+  const coordinatorValue = single('filter[safety_coordinator_missing]')
+  if (
+    coordinatorValue !== undefined &&
+    coordinatorValue !== 'true' &&
+    coordinatorValue !== 'false'
+  ) {
+    errors['filter[safety_coordinator_missing]'] = ['Indica true o false.']
+  }
+  const safetyCoordinatorMissing =
+    coordinatorValue === undefined ? undefined : coordinatorValue === 'true'
   const pastEndValue = single('filter[past_end]')
   if (pastEndValue !== undefined && pastEndValue !== 'true' && pastEndValue !== 'false') {
     errors['filter[past_end]'] = ['Indica true o false.']
@@ -470,6 +480,7 @@ function readList(query: Record<string, unknown>) {
     teamDocuments,
     priorNoticeMissing,
     permitMissing,
+    safetyCoordinatorMissing,
     pastEnd,
     endingSoon,
     withoutRecentReports,
@@ -483,6 +494,9 @@ export const PRIOR_NOTICE_MISSING_SQL = `s.status <> 'completed' and s.prior_not
 
 /** Open sites without the building permit: also sites.without_permit. */
 export const PERMIT_MISSING_SQL = `s.status <> 'completed' and s.permit is null`
+
+/** Open sites without the safety coordinator: also sites.without_safety_coordinator. */
+export const SAFETY_COORDINATOR_MISSING_SQL = `s.status <> 'completed' and s.safety_coordinator is null`
 
 /** Open sites whose planned end is before today in Italy: also sites.past_end. */
 export const PAST_END_SQL = `s.status <> 'completed' and s.end_on < (now() at time zone 'Europe/Rome')::date`
@@ -541,6 +555,13 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.permitMissing !== undefined) {
     where.push(list.permitMissing ? PERMIT_MISSING_SQL : 's.permit is not null')
+  }
+  if (list.safetyCoordinatorMissing !== undefined) {
+    where.push(
+      list.safetyCoordinatorMissing
+        ? SAFETY_COORDINATOR_MISSING_SQL
+        : 's.safety_coordinator is not null',
+    )
   }
   if (list.pastEnd !== undefined) {
     where.push(list.pastEnd ? PAST_END_SQL : `not coalesce(${PAST_END_SQL}, false)`)

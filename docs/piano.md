@@ -1077,6 +1077,12 @@ Aggiunta il 12/11/2026, con il piano tutto spuntato: con il titolo edilizio nel 
 - [x] `filter[permit_missing]=true|false` in `listSites` ed `exportSites`: true i cantieri non chiusi (da iniziare, in corso, sospesi) senza `permit`, false quelli con il titolo in qualunque stato; si combina con gli altri filtri. Contatore `without_permit` in `sites` di `getDashboard` (con `sites.view`), con la stessa condizione. Test in `test/site-permit-missing.test.ts`; attese aggiornate in `test/dashboard.test.ts` e `test/site-prior-notice.test.ts`. Nessuna migrazione, tabella o permesso nuovi
   (fatto il 12/11/2026)
 
+### 162. Cantieri senza coordinatore per la sicurezza
+Aggiunta il 12/11/2026, con il piano tutto spuntato: con le figure del cantiere salvate (sezione 152), l'ufficio vuole ritrovare i cantieri aperti in cui manca ancora il coordinatore per la sicurezza in esecuzione, che va nominato e indicato nella notifica preliminare e nel cartello, senza scorrere l'elenco.
+
+- [x] `filter[safety_coordinator_missing]=true|false` in `listSites` ed `exportSites`: true i cantieri non chiusi (da iniziare, in corso, sospesi) senza `safety_coordinator`, false quelli con il coordinatore in qualunque stato; si combina con gli altri filtri. Contatore `without_safety_coordinator` in `sites` di `getDashboard` (con `sites.view`), con la stessa condizione. Test in `test/site-safety-coordinator-missing.test.ts`; attese aggiornate in `test/dashboard.test.ts`, `test/site-prior-notice.test.ts` e `test/site-permit-missing.test.ts`. Nessuna migrazione, tabella o permesso nuovi
+  (fatto il 12/11/2026)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -1413,11 +1419,13 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 12/11/2026: «cantiere da avviare» è un cantiere `planned` con `start_on` da oggi in giù (fuso Europe/Rome): il giorno d'inizio conta già, perché è il giorno in cui va messo in corso; i cantieri sospesi non contano (sono già partiti), quelli senza data d'inizio nemmeno.
 - 12/11/2026: «cantieri senza squadra» sono solo quelli da iniziare o in corso: un cantiere sospeso o chiuso senza squadra è normale. Un ex dipendente rimasto nella squadra non la rende tale.
 - 12/11/2026: «cantiere senza titolo edilizio» è un cantiere non chiuso con `permit` vuoto, come la notifica preliminare: non si distingue tra lavori in edilizia libera e titolo dimenticato, perché il campo è testo libero; chi non ne ha bisogno ignora il contatore.
+- 12/11/2026: il filtro dei cantieri senza coordinatore per la sicurezza vale per tutti i cantieri non chiusi, senza guardare se ci sono subappaltatori (l'obbligo dipende anche da imprese che il gestionale non conosce): decide l'ufficio caso per caso.
 
 ## Registro dei giri
 
 Una riga per giro, la più recente in alto: data e ora UTC, cosa è stato fatto, cosa resta a metà.
 
+- 2026-11-12 10:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Controlli di partenza verdi da soli prima di ogni modifica (1239 test). Aggiunta e fatta la sezione 162: cantieri senza coordinatore per la sicurezza (`filter[safety_coordinator_missing]` in `listSites`/`exportSites`, `without_safety_coordinator` in `sites` di `getDashboard`, test in `test/site-safety-coordinator-missing.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1245 test.
 - 2026-11-12 09:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Controlli di partenza verdi da soli prima di ogni modifica (1233 test). Aggiunta e fatta la sezione 161: cantieri senza titolo edilizio (`filter[permit_missing]` in `listSites`/`exportSites`, `without_permit` in `sites` di `getDashboard`, test in `test/site-permit-missing.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1239 test.
 - 2026-11-12 08:21 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Controlli di partenza non lanciati da soli prima delle modifiche (main era verde all'ultimo giro, nessun commit nuovo); giro completo a codice finito verde. Aggiunta e fatta la sezione 160: cantieri senza squadra (`filter[without_team]` in `listSites`/`exportSites`, `without_team` in `sites` di `getDashboard`, test in `test/site-without-team.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1233 test.
 - 2026-11-12 07:22 UTC: main locale era di nuovo staccato, riportato su `origin/main`. Piano tutto spuntato; il frontend non ha ancora `api/openapi.yaml` né `src/mocks/`. Controlli di partenza: lint, formattazione e tipi verdi; i test di partenza sono girati mentre cambiavo contratto e dashboard e sono caduti solo sulle chiamate a `getDashboard` (18); giro completo a codice finito verde. Aggiunta e fatta la sezione 159: cantieri da avviare (`filter[start_due]` in `listSites`/`exportSites`, `start_due` in `sites` di `getDashboard`, test in `test/site-start-due.test.ts`). Nessuna migrazione, tabella o permesso nuovi. Niente a metà. 1228 test.

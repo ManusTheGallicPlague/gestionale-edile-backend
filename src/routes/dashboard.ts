@@ -25,6 +25,7 @@ import {
   PAST_END_SQL,
   PERMIT_MISSING_SQL,
   PRIOR_NOTICE_MISSING_SQL,
+  SAFETY_COORDINATOR_MISSING_SQL,
   START_DUE_SQL,
   WITHOUT_RECENT_REPORTS_SQL,
   WITHOUT_TEAM_SQL,
@@ -42,13 +43,15 @@ async function siteCounts(client: PoolClient) {
     start_due: number
     without_team: number
     without_permit: number
+    without_safety_coordinator: number
   }>(
     `select count(*) filter (where ${PRIOR_NOTICE_MISSING_SQL})::int as n,
        count(*) filter (where ${PAST_END_SQL})::int as past_end,
        count(*) filter (where ${ENDING_SOON_SQL})::int as ending_soon,
        count(*) filter (where ${START_DUE_SQL})::int as start_due,
        count(*) filter (where ${WITHOUT_TEAM_SQL})::int as without_team,
-       count(*) filter (where ${PERMIT_MISSING_SQL})::int as without_permit
+       count(*) filter (where ${PERMIT_MISSING_SQL})::int as without_permit,
+       count(*) filter (where ${SAFETY_COORDINATOR_MISSING_SQL})::int as without_safety_coordinator
      from public.sites s`,
   )
   return {
@@ -62,6 +65,7 @@ async function siteCounts(client: PoolClient) {
     start_due: notice.rows[0]?.start_due ?? 0,
     without_team: notice.rows[0]?.without_team ?? 0,
     without_permit: notice.rows[0]?.without_permit ?? 0,
+    without_safety_coordinator: notice.rows[0]?.without_safety_coordinator ?? 0,
   }
 }
 
