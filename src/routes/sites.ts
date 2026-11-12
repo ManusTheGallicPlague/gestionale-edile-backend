@@ -536,6 +536,10 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             'Subappaltatori con documenti scaduti',
             'CIG',
             'CUP',
+            'Titolo edilizio',
+            'Direttore dei lavori',
+            'Coordinatore sicurezza',
+            'Notifica preliminare',
           ],
           rows.map((r) => [
             r.code,
@@ -551,6 +555,10 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             suppliers ? (r.subcontractors_expired ? 'Sì' : 'No') : null,
             r.cig,
             r.cup,
+            r.permit,
+            r.works_director,
+            r.safety_coordinator,
+            r.prior_notice_on && italianDate(r.prior_notice_on),
           ]),
         )
       })
