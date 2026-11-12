@@ -438,6 +438,11 @@ function readList(query: Record<string, unknown>) {
     errors['filter[works_director_missing]'] = ['Indica true o false.']
   }
   const worksDirectorMissing = directorValue === undefined ? undefined : directorValue === 'true'
+  const budgetValue = single('filter[budget_missing]')
+  if (budgetValue !== undefined && budgetValue !== 'true' && budgetValue !== 'false') {
+    errors['filter[budget_missing]'] = ['Indica true o false.']
+  }
+  const budgetMissing = budgetValue === undefined ? undefined : budgetValue === 'true'
   const pastEndValue = single('filter[past_end]')
   if (pastEndValue !== undefined && pastEndValue !== 'true' && pastEndValue !== 'false') {
     errors['filter[past_end]'] = ['Indica true o false.']
@@ -487,6 +492,7 @@ function readList(query: Record<string, unknown>) {
     permitMissing,
     safetyCoordinatorMissing,
     worksDirectorMissing,
+    budgetMissing,
     pastEnd,
     endingSoon,
     withoutRecentReports,
@@ -506,6 +512,9 @@ export const SAFETY_COORDINATOR_MISSING_SQL = `s.status <> 'completed' and s.saf
 
 /** Open sites without the works director: also sites.without_works_director. */
 export const WORKS_DIRECTOR_MISSING_SQL = `s.status <> 'completed' and s.works_director is null`
+
+/** Open sites without a budget: also sites.without_budget. */
+export const BUDGET_MISSING_SQL = `s.status <> 'completed' and s.budget_cents is null`
 
 /** Open sites whose planned end is before today in Italy: also sites.past_end. */
 export const PAST_END_SQL = `s.status <> 'completed' and s.end_on < (now() at time zone 'Europe/Rome')::date`
@@ -576,6 +585,9 @@ function listFilter(list: ReturnType<typeof readList>) {
     where.push(
       list.worksDirectorMissing ? WORKS_DIRECTOR_MISSING_SQL : 's.works_director is not null',
     )
+  }
+  if (list.budgetMissing !== undefined) {
+    where.push(list.budgetMissing ? BUDGET_MISSING_SQL : 's.budget_cents is not null')
   }
   if (list.pastEnd !== undefined) {
     where.push(list.pastEnd ? PAST_END_SQL : `not coalesce(${PAST_END_SQL}, false)`)

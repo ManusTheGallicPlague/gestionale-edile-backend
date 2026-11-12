@@ -127,6 +127,7 @@ describe('sites without the works director', () => {
       without_permit: 4,
       without_safety_coordinator: 4,
       without_works_director: 3,
+      without_budget: 4,
     })
     const fromOther = await other.browser.call(
       'GET',

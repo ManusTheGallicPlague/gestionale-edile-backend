@@ -1989,6 +1989,13 @@ paths:
                   true: cantieri non chiusi (planned, active, suspended) senza il direttore dei
                   lavori (works_director), gli stessi contati in sites.without_works_director di
                   getDashboard. false: cantieri, in qualunque stato, con il direttore dei lavori.
+              budget_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il budget, gli
+                  stessi contati in sites.without_budget di getDashboard: senza budget i costi
+                  non si confrontano e il cantiere non compare in over_budget. false: cantieri,
+                  in qualunque stato, con il budget (anche zero).
               past_end:
                 type: boolean
                 description: |
@@ -2149,6 +2156,13 @@ paths:
                   true: cantieri non chiusi (planned, active, suspended) senza il direttore dei
                   lavori (works_director), gli stessi contati in sites.without_works_director di
                   getDashboard. false: cantieri, in qualunque stato, con il direttore dei lavori.
+              budget_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il budget, gli
+                  stessi contati in sites.without_budget di getDashboard: senza budget i costi
+                  non si confrontano e il cantiere non compare in over_budget. false: cantieri,
+                  in qualunque stato, con il budget (anche zero).
               past_end:
                 type: boolean
                 description: |
@@ -14330,8 +14344,8 @@ components:
             non chiusi oltre la fine prevista, cantieri non chiusi con la fine prevista nei
             prossimi 14 giorni, cantieri da iniziare con l'inizio previsto già arrivato,
             cantieri da iniziare o in corso senza squadra, cantieri non chiusi senza titolo
-            edilizio, cantieri non chiusi senza coordinatore per la sicurezza e cantieri non
-            chiusi senza direttore dei lavori.
+            edilizio, cantieri non chiusi senza coordinatore per la sicurezza, cantieri non
+            chiusi senza direttore dei lavori e cantieri non chiusi senza budget.
           oneOf:
             - type: object
               required:
@@ -14348,6 +14362,7 @@ components:
                   without_permit,
                   without_safety_coordinator,
                   without_works_director,
+                  without_budget,
                 ]
               properties:
                 planned: { type: integer, minimum: 0 }
@@ -14402,6 +14417,12 @@ components:
                   description: |
                     Cantieri non chiusi senza il direttore dei lavori, come
                     filter[works_director_missing]=true di listSites.
+                without_budget:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri non chiusi senza il budget, come filter[budget_missing]=true di
+                    listSites.
             - type: 'null'
         over_budget:
           oneOf:

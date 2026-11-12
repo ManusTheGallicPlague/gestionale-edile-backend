@@ -21,6 +21,7 @@ import { readTotals } from './absence-totals.js'
 import { isHoliday, nextWorkingDay, patronSaintDay } from '../holidays.js'
 import { COST_LINES } from './site-costs.js'
 import {
+  BUDGET_MISSING_SQL,
   ENDING_SOON_SQL,
   PAST_END_SQL,
   PERMIT_MISSING_SQL,
@@ -46,6 +47,7 @@ async function siteCounts(client: PoolClient) {
     without_permit: number
     without_safety_coordinator: number
     without_works_director: number
+    without_budget: number
   }>(
     `select count(*) filter (where ${PRIOR_NOTICE_MISSING_SQL})::int as n,
        count(*) filter (where ${PAST_END_SQL})::int as past_end,
@@ -54,7 +56,8 @@ async function siteCounts(client: PoolClient) {
        count(*) filter (where ${WITHOUT_TEAM_SQL})::int as without_team,
        count(*) filter (where ${PERMIT_MISSING_SQL})::int as without_permit,
        count(*) filter (where ${SAFETY_COORDINATOR_MISSING_SQL})::int as without_safety_coordinator,
-       count(*) filter (where ${WORKS_DIRECTOR_MISSING_SQL})::int as without_works_director
+       count(*) filter (where ${WORKS_DIRECTOR_MISSING_SQL})::int as without_works_director,
+       count(*) filter (where ${BUDGET_MISSING_SQL})::int as without_budget
      from public.sites s`,
   )
   return {
@@ -70,6 +73,7 @@ async function siteCounts(client: PoolClient) {
     without_permit: notice.rows[0]?.without_permit ?? 0,
     without_safety_coordinator: notice.rows[0]?.without_safety_coordinator ?? 0,
     without_works_director: notice.rows[0]?.without_works_director ?? 0,
+    without_budget: notice.rows[0]?.without_budget ?? 0,
   }
 }
 
