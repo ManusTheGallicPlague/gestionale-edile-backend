@@ -20,15 +20,17 @@ import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { readTotals } from './absence-totals.js'
 import { isHoliday, nextWorkingDay, patronSaintDay } from '../holidays.js'
 import { COST_LINES } from './site-costs.js'
-import { PRIOR_NOTICE_MISSING_SQL } from './sites.js'
+import { PAST_END_SQL, PRIOR_NOTICE_MISSING_SQL } from './sites.js'
 
 async function siteCounts(client: PoolClient) {
   const { rows } = await client.query<{ status: string; n: number }>(
     'select status, count(*)::int as n from public.sites group by status',
   )
   const count = (status: string) => rows.find((r) => r.status === status)?.n ?? 0
-  const notice = await client.query<{ n: number }>(
-    `select count(*)::int as n from public.sites s where ${PRIOR_NOTICE_MISSING_SQL}`,
+  const notice = await client.query<{ n: number; past_end: number }>(
+    `select count(*) filter (where ${PRIOR_NOTICE_MISSING_SQL})::int as n,
+       count(*) filter (where ${PAST_END_SQL})::int as past_end
+     from public.sites s`,
   )
   return {
     planned: count('planned'),
@@ -36,6 +38,7 @@ async function siteCounts(client: PoolClient) {
     suspended: count('suspended'),
     completed: count('completed'),
     without_prior_notice: notice.rows[0]?.n ?? 0,
+    past_end: notice.rows[0]?.past_end ?? 0,
   }
 }
 

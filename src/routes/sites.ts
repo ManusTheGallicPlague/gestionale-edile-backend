@@ -409,6 +409,11 @@ function readList(query: Record<string, unknown>) {
   }
   const priorNoticeMissing =
     priorNoticeValue === undefined ? undefined : priorNoticeValue === 'true'
+  const pastEndValue = single('filter[past_end]')
+  if (pastEndValue !== undefined && pastEndValue !== 'true' && pastEndValue !== 'false') {
+    errors['filter[past_end]'] = ['Indica true o false.']
+  }
+  const pastEnd = pastEndValue === undefined ? undefined : pastEndValue === 'true'
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     page,
@@ -421,11 +426,15 @@ function readList(query: Record<string, unknown>) {
     subcontractorCompliance,
     teamDocuments,
     priorNoticeMissing,
+    pastEnd,
   }
 }
 
 /** Open sites without the date of the prior notice: also sites.without_prior_notice. */
 export const PRIOR_NOTICE_MISSING_SQL = `s.status <> 'completed' and s.prior_notice_on is null`
+
+/** Open sites whose planned end is before today in Italy: also sites.past_end. */
+export const PAST_END_SQL = `s.status <> 'completed' and s.end_on < (now() at time zone 'Europe/Rome')::date`
 
 export const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
@@ -460,6 +469,9 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.priorNoticeMissing !== undefined) {
     where.push(list.priorNoticeMissing ? PRIOR_NOTICE_MISSING_SQL : 's.prior_notice_on is not null')
+  }
+  if (list.pastEnd !== undefined) {
+    where.push(list.pastEnd ? PAST_END_SQL : `not coalesce(${PAST_END_SQL}, false)`)
   }
   if (list.search) {
     add(

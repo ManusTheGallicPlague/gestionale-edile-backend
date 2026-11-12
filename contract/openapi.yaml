@@ -1958,6 +1958,13 @@ paths:
                   notifica preliminare (prior_notice_on), gli stessi contati in
                   sites.without_prior_notice di getDashboard. false: cantieri, in qualunque
                   stato, con la data della notifica preliminare.
+              past_end:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) con la fine prevista
+                  (end_on) prima di oggi in Italia, gli stessi contati in sites.past_end di
+                  getDashboard. false: tutti gli altri (chiusi, senza fine prevista o con la
+                  fine da oggi in poi).
       responses:
         '200':
           description: Una pagina di cantieri
@@ -2053,6 +2060,13 @@ paths:
                   notifica preliminare (prior_notice_on), gli stessi contati in
                   sites.without_prior_notice di getDashboard. false: cantieri, in qualunque
                   stato, con la data della notifica preliminare.
+              past_end:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) con la fine prevista
+                  (end_on) prima di oggi in Italia, gli stessi contati in sites.past_end di
+                  getDashboard. false: tutti gli altri (chiusi, senza fine prevista o con la
+                  fine da oggi in poi).
       responses:
         '200':
           description: Il file CSV
@@ -14185,10 +14199,12 @@ components:
             permessi, come listHolidays. Serve al frontend per non sollecitare reports.missing_today
             nei giorni in cui non si lavora.
         sites:
-          description: Numero di cantieri per stato e cantieri non chiusi senza notifica preliminare.
+          description: |
+            Numero di cantieri per stato, cantieri non chiusi senza notifica preliminare e cantieri
+            non chiusi oltre la fine prevista.
           oneOf:
             - type: object
-              required: [planned, active, suspended, completed, without_prior_notice]
+              required: [planned, active, suspended, completed, without_prior_notice, past_end]
               properties:
                 planned: { type: integer, minimum: 0 }
                 active: { type: integer, minimum: 0 }
@@ -14200,6 +14216,12 @@ components:
                   description: |
                     Cantieri non chiusi senza la data della notifica preliminare, come
                     filter[prior_notice_missing]=true di listSites.
+                past_end:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri non chiusi con la fine prevista già passata, come
+                    filter[past_end]=true di listSites.
             - type: 'null'
         over_budget:
           oneOf:

@@ -117,6 +117,7 @@ describe('sites without the prior notice', () => {
       suspended: 1,
       completed: 2,
       without_prior_notice: 3,
+      past_end: 0,
     })
     const fromOther = await other.browser.call(
       'GET',
