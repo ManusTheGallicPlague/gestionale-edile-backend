@@ -26,6 +26,7 @@ import {
   PRIOR_NOTICE_MISSING_SQL,
   START_DUE_SQL,
   WITHOUT_RECENT_REPORTS_SQL,
+  WITHOUT_TEAM_SQL,
 } from './sites.js'
 
 async function siteCounts(client: PoolClient) {
@@ -38,11 +39,13 @@ async function siteCounts(client: PoolClient) {
     past_end: number
     ending_soon: number
     start_due: number
+    without_team: number
   }>(
     `select count(*) filter (where ${PRIOR_NOTICE_MISSING_SQL})::int as n,
        count(*) filter (where ${PAST_END_SQL})::int as past_end,
        count(*) filter (where ${ENDING_SOON_SQL})::int as ending_soon,
-       count(*) filter (where ${START_DUE_SQL})::int as start_due
+       count(*) filter (where ${START_DUE_SQL})::int as start_due,
+       count(*) filter (where ${WITHOUT_TEAM_SQL})::int as without_team
      from public.sites s`,
   )
   return {
@@ -54,6 +57,7 @@ async function siteCounts(client: PoolClient) {
     past_end: notice.rows[0]?.past_end ?? 0,
     ending_soon: notice.rows[0]?.ending_soon ?? 0,
     start_due: notice.rows[0]?.start_due ?? 0,
+    without_team: notice.rows[0]?.without_team ?? 0,
   }
 }
 

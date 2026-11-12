@@ -443,6 +443,15 @@ function readList(query: Record<string, unknown>) {
     errors['filter[start_due]'] = ['Indica true o false.']
   }
   const startDue = startDueValue === undefined ? undefined : startDueValue === 'true'
+  const withoutTeamValue = single('filter[without_team]')
+  if (
+    withoutTeamValue !== undefined &&
+    withoutTeamValue !== 'true' &&
+    withoutTeamValue !== 'false'
+  ) {
+    errors['filter[without_team]'] = ['Indica true o false.']
+  }
+  const withoutTeam = withoutTeamValue === undefined ? undefined : withoutTeamValue === 'true'
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     page,
@@ -459,6 +468,7 @@ function readList(query: Record<string, unknown>) {
     endingSoon,
     withoutRecentReports,
     startDue,
+    withoutTeam,
   }
 }
 
@@ -479,6 +489,12 @@ export const WITHOUT_RECENT_REPORTS_SQL = `s.status = 'active' and not exists (s
 
 /** Planned sites whose planned start is today or earlier in Italy: also sites.start_due. */
 export const START_DUE_SQL = `s.status = 'planned' and s.start_on <= (now() at time zone 'Europe/Rome')::date`
+
+/**
+ * Planned or active sites without an active employee in the team: also sites.without_team.
+ * Former employees (active false) still listed in the team do not count.
+ */
+export const WITHOUT_TEAM_SQL = `s.status in ('planned', 'active') and not ${teamHas('s.id', 'e.active')}`
 
 export const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
@@ -529,6 +545,9 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.startDue !== undefined) {
     where.push(list.startDue ? START_DUE_SQL : `not coalesce(${START_DUE_SQL}, false)`)
+  }
+  if (list.withoutTeam !== undefined) {
+    where.push(list.withoutTeam ? WITHOUT_TEAM_SQL : `not coalesce(${WITHOUT_TEAM_SQL}, false)`)
   }
   if (list.search) {
     add(

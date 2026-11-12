@@ -126,6 +126,7 @@ describe('dashboard', () => {
       past_end: 0,
       ending_soon: 0,
       start_due: 0,
+      without_team: 3,
     })
     expect(d.over_budget?.map((r) => [r.site.name, r.budget, r.total, r.overrun])).toEqual([
       ['Sforato tanto', '100.00', '110.00', '10.00'],
@@ -408,6 +409,7 @@ describe('dashboard', () => {
       past_end: 0,
       ending_soon: 0,
       start_due: 0,
+      without_team: 0,
     })
     const mineNow = (await mine.browser.call('GET', mine.url)).json<Dashboard>()
     expect(mineNow.site_progress).toEqual([])

@@ -1997,6 +1997,12 @@ paths:
                   da oggi in giù, in Italia, gli stessi contati in sites.start_due di
                   getDashboard. false: tutti gli altri (in un altro stato, senza inizio previsto
                   o con l'inizio da domani in poi).
+              without_team:
+                type: boolean
+                description: |
+                  true: cantieri da iniziare o in corso (planned, active) senza nessun dipendente
+                  in servizio nella squadra (getSiteTeam; gli ex dipendenti non contano), gli
+                  stessi contati in sites.without_team di getDashboard. false: tutti gli altri.
       responses:
         '200':
           description: Una pagina di cantieri
@@ -2132,6 +2138,12 @@ paths:
                   da oggi in giù, in Italia, gli stessi contati in sites.start_due di
                   getDashboard. false: tutti gli altri (in un altro stato, senza inizio previsto
                   o con l'inizio da domani in poi).
+              without_team:
+                type: boolean
+                description: |
+                  true: cantieri da iniziare o in corso (planned, active) senza nessun dipendente
+                  in servizio nella squadra (getSiteTeam; gli ex dipendenti non contano), gli
+                  stessi contati in sites.without_team di getDashboard. false: tutti gli altri.
       responses:
         '200':
           description: Il file CSV
@@ -14278,7 +14290,8 @@ components:
           description: |
             Numero di cantieri per stato, cantieri non chiusi senza notifica preliminare, cantieri
             non chiusi oltre la fine prevista, cantieri non chiusi con la fine prevista nei
-            prossimi 14 giorni e cantieri da iniziare con l'inizio previsto già arrivato.
+            prossimi 14 giorni, cantieri da iniziare con l'inizio previsto già arrivato e
+            cantieri da iniziare o in corso senza squadra.
           oneOf:
             - type: object
               required:
@@ -14291,6 +14304,7 @@ components:
                   past_end,
                   ending_soon,
                   start_due,
+                  without_team,
                 ]
               properties:
                 planned: { type: integer, minimum: 0 }
@@ -14321,6 +14335,12 @@ components:
                   description: |
                     Cantieri da iniziare con l'inizio previsto oggi o già passato, da avviare o
                     riprogrammare, come filter[start_due]=true di listSites.
+                without_team:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri da iniziare o in corso senza nessun dipendente in servizio nella
+                    squadra, come filter[without_team]=true di listSites.
             - type: 'null'
         over_budget:
           oneOf:
