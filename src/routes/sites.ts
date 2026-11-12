@@ -438,6 +438,11 @@ function readList(query: Record<string, unknown>) {
   }
   const withoutRecentReports =
     withoutReportsValue === undefined ? undefined : withoutReportsValue === 'true'
+  const startDueValue = single('filter[start_due]')
+  if (startDueValue !== undefined && startDueValue !== 'true' && startDueValue !== 'false') {
+    errors['filter[start_due]'] = ['Indica true o false.']
+  }
+  const startDue = startDueValue === undefined ? undefined : startDueValue === 'true'
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     page,
@@ -453,6 +458,7 @@ function readList(query: Record<string, unknown>) {
     pastEnd,
     endingSoon,
     withoutRecentReports,
+    startDue,
   }
 }
 
@@ -470,6 +476,9 @@ export const ENDING_SOON_SQL = `s.status <> 'completed' and s.end_on between (no
  * also sites.without_recent_reports.
  */
 export const WITHOUT_RECENT_REPORTS_SQL = `s.status = 'active' and not exists (select 1 from public.daily_reports dr where dr.site_id = s.id and dr.report_date between (now() at time zone 'Europe/Rome')::date - 6 and (now() at time zone 'Europe/Rome')::date)`
+
+/** Planned sites whose planned start is today or earlier in Italy: also sites.start_due. */
+export const START_DUE_SQL = `s.status = 'planned' and s.start_on <= (now() at time zone 'Europe/Rome')::date`
 
 export const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
@@ -517,6 +526,9 @@ function listFilter(list: ReturnType<typeof readList>) {
         ? WITHOUT_RECENT_REPORTS_SQL
         : `not coalesce(${WITHOUT_RECENT_REPORTS_SQL}, false)`,
     )
+  }
+  if (list.startDue !== undefined) {
+    where.push(list.startDue ? START_DUE_SQL : `not coalesce(${START_DUE_SQL}, false)`)
   }
   if (list.search) {
     add(

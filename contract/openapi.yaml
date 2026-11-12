@@ -1990,6 +1990,13 @@ paths:
                   true: cantieri attivi senza un rapportino (in qualunque stato) con la data
                   negli ultimi 7 giorni, oggi compreso, in Italia, gli stessi contati in
                   reports.missing_week di getDashboard. false: tutti gli altri.
+              start_due:
+                type: boolean
+                description: |
+                  true: cantieri ancora da iniziare (planned) con l'inizio previsto (start_on)
+                  da oggi in giù, in Italia, gli stessi contati in sites.start_due di
+                  getDashboard. false: tutti gli altri (in un altro stato, senza inizio previsto
+                  o con l'inizio da domani in poi).
       responses:
         '200':
           description: Una pagina di cantieri
@@ -2118,6 +2125,13 @@ paths:
                   true: cantieri attivi senza un rapportino (in qualunque stato) con la data
                   negli ultimi 7 giorni, oggi compreso, in Italia, gli stessi contati in
                   reports.missing_week di getDashboard. false: tutti gli altri.
+              start_due:
+                type: boolean
+                description: |
+                  true: cantieri ancora da iniziare (planned) con l'inizio previsto (start_on)
+                  da oggi in giù, in Italia, gli stessi contati in sites.start_due di
+                  getDashboard. false: tutti gli altri (in un altro stato, senza inizio previsto
+                  o con l'inizio da domani in poi).
       responses:
         '200':
           description: Il file CSV
@@ -14263,12 +14277,21 @@ components:
         sites:
           description: |
             Numero di cantieri per stato, cantieri non chiusi senza notifica preliminare, cantieri
-            non chiusi oltre la fine prevista e cantieri non chiusi con la fine prevista nei
-            prossimi 14 giorni.
+            non chiusi oltre la fine prevista, cantieri non chiusi con la fine prevista nei
+            prossimi 14 giorni e cantieri da iniziare con l'inizio previsto già arrivato.
           oneOf:
             - type: object
               required:
-                [planned, active, suspended, completed, without_prior_notice, past_end, ending_soon]
+                [
+                  planned,
+                  active,
+                  suspended,
+                  completed,
+                  without_prior_notice,
+                  past_end,
+                  ending_soon,
+                  start_due,
+                ]
               properties:
                 planned: { type: integer, minimum: 0 }
                 active: { type: integer, minimum: 0 }
@@ -14292,6 +14315,12 @@ components:
                   description: |
                     Cantieri non chiusi con la fine prevista da oggi ai prossimi 14 giorni, come
                     filter[ending_soon]=true di listSites.
+                start_due:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri da iniziare con l'inizio previsto oggi o già passato, da avviare o
+                    riprogrammare, come filter[start_due]=true di listSites.
             - type: 'null'
         over_budget:
           oneOf:
