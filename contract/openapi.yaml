@@ -2003,6 +2003,13 @@ paths:
                   (location), gli stessi contati in sites.without_location di getDashboard: senza
                   posizione il cantiere non compare sulla mappa. false: cantieri, in qualunque
                   stato, con la posizione.
+              client_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il cliente
+                  (client_id), gli stessi contati in sites.without_client di getDashboard: senza
+                  cliente il cantiere non si fattura. false: cantieri, in qualunque stato, con il
+                  cliente.
               past_end:
                 type: boolean
                 description: |
@@ -2177,6 +2184,13 @@ paths:
                   (location), gli stessi contati in sites.without_location di getDashboard: senza
                   posizione il cantiere non compare sulla mappa. false: cantieri, in qualunque
                   stato, con la posizione.
+              client_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il cliente
+                  (client_id), gli stessi contati in sites.without_client di getDashboard: senza
+                  cliente il cantiere non si fattura. false: cantieri, in qualunque stato, con il
+                  cliente.
               past_end:
                 type: boolean
                 description: |
@@ -14359,8 +14373,8 @@ components:
             prossimi 14 giorni, cantieri da iniziare con l'inizio previsto già arrivato,
             cantieri da iniziare o in corso senza squadra, cantieri non chiusi senza titolo
             edilizio, cantieri non chiusi senza coordinatore per la sicurezza, cantieri non
-            chiusi senza direttore dei lavori, cantieri non chiusi senza budget e cantieri
-            non chiusi senza posizione sulla mappa.
+            chiusi senza direttore dei lavori, cantieri non chiusi senza budget, cantieri
+            non chiusi senza posizione sulla mappa e cantieri non chiusi senza cliente.
           oneOf:
             - type: object
               required:
@@ -14379,6 +14393,7 @@ components:
                   without_works_director,
                   without_budget,
                   without_location,
+                  without_client,
                 ]
               properties:
                 planned: { type: integer, minimum: 0 }
@@ -14445,6 +14460,12 @@ components:
                   description: |
                     Cantieri non chiusi senza la posizione sulla mappa, come
                     filter[location_missing]=true di listSites.
+                without_client:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri non chiusi senza il cliente, come filter[client_missing]=true di
+                    listSites.
             - type: 'null'
         over_budget:
           oneOf:

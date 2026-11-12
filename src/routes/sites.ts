@@ -448,6 +448,11 @@ function readList(query: Record<string, unknown>) {
     errors['filter[location_missing]'] = ['Indica true o false.']
   }
   const locationMissing = locationValue === undefined ? undefined : locationValue === 'true'
+  const clientValue = single('filter[client_missing]')
+  if (clientValue !== undefined && clientValue !== 'true' && clientValue !== 'false') {
+    errors['filter[client_missing]'] = ['Indica true o false.']
+  }
+  const clientMissing = clientValue === undefined ? undefined : clientValue === 'true'
   const pastEndValue = single('filter[past_end]')
   if (pastEndValue !== undefined && pastEndValue !== 'true' && pastEndValue !== 'false') {
     errors['filter[past_end]'] = ['Indica true o false.']
@@ -499,6 +504,7 @@ function readList(query: Record<string, unknown>) {
     worksDirectorMissing,
     budgetMissing,
     locationMissing,
+    clientMissing,
     pastEnd,
     endingSoon,
     withoutRecentReports,
@@ -524,6 +530,9 @@ export const BUDGET_MISSING_SQL = `s.status <> 'completed' and s.budget_cents is
 
 /** Open sites without a map position: also sites.without_location. */
 export const LOCATION_MISSING_SQL = `s.status <> 'completed' and s.latitude is null`
+
+/** Open sites without a client to invoice: also sites.without_client. */
+export const CLIENT_MISSING_SQL = `s.status <> 'completed' and s.client_id is null`
 
 /** Open sites whose planned end is before today in Italy: also sites.past_end. */
 export const PAST_END_SQL = `s.status <> 'completed' and s.end_on < (now() at time zone 'Europe/Rome')::date`
@@ -600,6 +609,9 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.locationMissing !== undefined) {
     where.push(list.locationMissing ? LOCATION_MISSING_SQL : 's.latitude is not null')
+  }
+  if (list.clientMissing !== undefined) {
+    where.push(list.clientMissing ? CLIENT_MISSING_SQL : 's.client_id is not null')
   }
   if (list.pastEnd !== undefined) {
     where.push(list.pastEnd ? PAST_END_SQL : `not coalesce(${PAST_END_SQL}, false)`)
