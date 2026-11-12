@@ -103,12 +103,17 @@ interface SiteRow extends SiteValues {
   team_documents_expired: boolean
   /** Null when the user cannot see suppliers (see readSite). */
   subcontractors_expired: boolean | null
+  last_report_on: string | null
   version: number
   created_at: Date
   updated_at: Date
 }
 
 type Params = { company: string; site?: string }
+
+/** Date of the latest daily report of the site up to today in Italy (future ones do not count). */
+const LAST_REPORT_SQL = `(select max(dr.report_date) from public.daily_reports dr
+    where dr.site_id = s.id and dr.report_date <= (now() at time zone 'Europe/Rome')::date)`
 
 const SELECT = `select s.id, s.code, s.name, s.client_id, s.address, s.status,
     s.start_on::text as start_on, s.end_on::text as end_on, s.budget_cents::text as budget_cents,
@@ -117,7 +122,8 @@ const SELECT = `select s.id, s.code, s.name, s.client_id, s.address, s.status,
     s.quote_id, q.number_year as quote_year, q.number_seq as quote_seq, q.revision as quote_revision,
     ${teamHas('s.id', EMPLOYEE_DOCUMENTS_SQL.expired)} as team_documents_expired,
     exists (select 1 from public.suppliers
-      where ${onSite('s.id')} and ${COMPLIANCE_SQL.expired}) as subcontractors_expired
+      where ${onSite('s.id')} and ${COMPLIANCE_SQL.expired}) as subcontractors_expired,
+    ${LAST_REPORT_SQL}::text as last_report_on
   from public.sites s
   left join public.clients c on c.id = s.client_id
   left join public.quotes q on q.id = s.quote_id`
@@ -131,6 +137,8 @@ const SORTS = {
   '-start_on': 's.start_on desc nulls last, s.id desc',
   updated_at: 's.updated_at asc, s.id asc',
   '-updated_at': 's.updated_at desc, s.id desc',
+  last_report_on: `${LAST_REPORT_SQL} asc nulls first, s.id asc`,
+  '-last_report_on': `${LAST_REPORT_SQL} desc nulls last, s.id desc`,
 } as const
 
 function toContract(row: SiteRow) {
@@ -164,6 +172,7 @@ function toContract(row: SiteRow) {
       : null,
     team_documents_expired: row.team_documents_expired,
     subcontractors_expired: row.subcontractors_expired,
+    last_report_on: row.last_report_on,
     created_at: row.created_at.toISOString(),
     updated_at: row.updated_at.toISOString(),
   }
@@ -605,6 +614,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             'Direttore dei lavori',
             'Coordinatore sicurezza',
             'Notifica preliminare',
+            'Ultimo rapportino',
           ],
           rows.map((r) => [
             r.code,
@@ -624,6 +634,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
             r.works_director,
             r.safety_coordinator,
             r.prior_notice_on && italianDate(r.prior_notice_on),
+            r.last_report_on && italianDate(r.last_report_on),
           ]),
         )
       })

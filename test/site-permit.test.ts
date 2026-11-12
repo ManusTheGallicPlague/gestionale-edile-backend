@@ -132,12 +132,12 @@ describe('permit and people of a site', () => {
     expect(csv.statusCode).toBe(200)
     const rows = csv.body.trim().split('\r\n')
     expect(rows[0]).toMatch(
-      /;CIG;CUP;Titolo edilizio;Direttore dei lavori;Coordinatore sicurezza;Notifica preliminare$/,
+      /;CIG;CUP;Titolo edilizio;Direttore dei lavori;Coordinatore sicurezza;Notifica preliminare;Ultimo rapportino$/,
     )
     expect(rows[1]).toMatch(
-      /^;Con titolo;.*;;;Permesso di costruire n\. 45\/2026 del 12\/03\/2026;Ing\. Mario Rossi, Ordine degli ingegneri n\. 1234;Geom\. Anna Bianchi;20\/03\/2026$/,
+      /^;Con titolo;.*;;;Permesso di costruire n\. 45\/2026 del 12\/03\/2026;Ing\. Mario Rossi, Ordine degli ingegneri n\. 1234;Geom\. Anna Bianchi;20\/03\/2026;$/,
     )
-    expect(rows[2]).toMatch(/^;Senza titolo;.*;;;;;;$/)
+    expect(rows[2]).toMatch(/^;Senza titolo;.*;;;;;;;$/)
   })
 
   it('the database refuses a text too long', async () => {

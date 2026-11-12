@@ -368,10 +368,10 @@ describe('subcontractors_expired in a site', () => {
     expect(csv.statusCode).toBe(200)
     const rows = csv.body.trim().split('\r\n')
     expect(rows[0]).toMatch(
-      /;Subappaltatori con documenti scaduti;CIG;CUP;Titolo edilizio;Direttore dei lavori;Coordinatore sicurezza;Notifica preliminare$/,
+      /;Subappaltatori con documenti scaduti;CIG;CUP;Titolo edilizio;Direttore dei lavori;Coordinatore sicurezza;Notifica preliminare;Ultimo rapportino$/,
     )
-    expect(rows[1]).toMatch(/^;Altro;.*;No;;;;;;$/)
-    expect(rows[2]).toMatch(/^;Villetta;.*;Sì;;;;;;$/)
+    expect(rows[1]).toMatch(/^;Altro;.*;No;;;;;;;$/)
+    expect(rows[2]).toMatch(/^;Villetta;.*;Sì;;;;;;;$/)
     // Sent back in the body it is ignored, and stays computed.
     const updated = await browser.call('PUT', site, {
       body: {
@@ -423,9 +423,9 @@ describe('subcontractors_expired in a site', () => {
     expect(created.json<Flag>().subcontractors_expired).toBeNull()
     const chiefCsv = await chief.browser.call('GET', `${chiefBase}/export?sort=name`)
     expect(chiefCsv.body.trim().split('\r\n').slice(1)).toEqual([
-      expect.stringMatching(/;No;;;;;;;$/),
-      expect.stringMatching(/;No;;;;;;;$/),
-      expect.stringMatching(/;No;;;;;;;$/),
+      expect.stringMatching(/;No;;;;;;;;$/),
+      expect.stringMatching(/;No;;;;;;;;$/),
+      expect.stringMatching(/;No;;;;;;;;$/),
     ])
 
     // The other company now has an irregular subcontractor: our Altro stays false.

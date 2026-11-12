@@ -1918,7 +1918,19 @@ paths:
           description: Campo di ordinamento; il segno meno vuol dire ordine decrescente.
           schema:
             type: string
-            enum: [name, -name, code, -code, start_on, -start_on, updated_at, -updated_at]
+            enum:
+              [
+                name,
+                -name,
+                code,
+                -code,
+                start_on,
+                -start_on,
+                updated_at,
+                -updated_at,
+                last_report_on,
+                -last_report_on,
+              ]
             default: -updated_at
         - name: filter
           in: query
@@ -2026,7 +2038,8 @@ paths:
         «Subappaltatori con documenti scaduti» vale Sì o No come subcontractors_expired
         ed è vuota senza suppliers.view. Seguono CIG, CUP e, in fondo, titolo edilizio,
         direttore dei lavori, coordinatore sicurezza e data della notifica preliminare
-        (permit, works_director, safety_coordinator, prior_notice_on).
+        (permit, works_director, safety_coordinator, prior_notice_on). In fondo la colonna
+        «Ultimo rapportino» con la data di last_report_on, vuota se non ce ne sono.
         Il file si chiama cantieri.csv.
       parameters:
         - $ref: '#/components/parameters/Search'
@@ -2034,7 +2047,19 @@ paths:
           in: query
           schema:
             type: string
-            enum: [name, -name, code, -code, start_on, -start_on, updated_at, -updated_at]
+            enum:
+              [
+                name,
+                -name,
+                code,
+                -code,
+                start_on,
+                -start_on,
+                updated_at,
+                -updated_at,
+                last_report_on,
+                -last_report_on,
+              ]
             default: -updated_at
         - name: filter
           in: query
@@ -12497,6 +12522,7 @@ components:
               quote,
               team_documents_expired,
               subcontractors_expired,
+              last_report_on,
               created_at,
               updated_at,
             ]
@@ -12518,6 +12544,16 @@ components:
                 Vero se almeno un subappaltatore del cantiere ha un documento scaduto, come
                 listSiteSubcontractors e filter[subcontractor_compliance]=expired. Null senza
                 suppliers.view. Calcolato: non cambia l'ETag e si ignora se arriva nel corpo.
+            last_report_on:
+              description: |
+                Data dell'ultimo rapportino del cantiere (in qualunque stato) fino a oggi in
+                Italia compreso, o null se non ce ne sono; i rapportini con una data futura non
+                contano. Serve a vedere da quanto un cantiere è fermo (filter[without_recent_reports]);
+                con sort=last_report_on prima i cantieri senza rapportini, poi dal più vecchio.
+                Visibile con sites.view. Calcolato: non cambia l'ETag e si ignora se arriva nel corpo.
+              oneOf:
+                - $ref: '#/components/schemas/Date'
+                - type: 'null'
             quote:
               description: Il preventivo da cui è nato il cantiere (createSiteFromQuote), o null.
               oneOf:
