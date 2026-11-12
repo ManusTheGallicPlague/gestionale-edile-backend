@@ -5196,7 +5196,8 @@ paths:
       description: |
         Permesso: estimates.view. Il SAL in A4, pronto da stampare e firmare: intestazione
         dell'azienda, computo con committente, cantiere, luogo dei lavori e, se il cantiere li
-        ha, CIG e CUP dell'appalto (riga «CIG … - CUP …»), voci con prezzo,
+        ha, CIG e CUP dell'appalto (riga «CIG … - CUP …») e le righe «Titolo edilizio: …»,
+        «Direttore dei lavori: …» e «Coordinatore sicurezza: …», voci con prezzo,
         quantità precedenti, di questo SAL e progressive, importo di questo SAL, totali
         (lavori a tutto il SAL, SAL precedenti, importo del SAL, ritenuta di garanzia e netto
         se la ritenuta non è zero), note e spazio per le firme del direttore dei lavori e

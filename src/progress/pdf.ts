@@ -12,6 +12,9 @@ export interface StatementPdfData {
     address: string | null
     cig: string | null
     cup: string | null
+    permit: string | null
+    works_director: string | null
+    safety_coordinator: string | null
   }
   number: number
   statement_date: string
@@ -98,6 +101,14 @@ export function statementPdf(data: StatementPdfData): Buffer {
   // Public works: the contract codes go on every document of the contract.
   const codes = [e.cig ? `CIG ${e.cig}` : null, e.cup ? `CUP ${e.cup}` : null].filter(Boolean)
   if (codes.length > 0) paragraph(codes.join(' - '), BODY)
+  // Permit and people of the site, as in the daily report: the works director signs the SAL.
+  for (const [label, value] of [
+    ['Titolo edilizio', e.permit],
+    ['Direttore dei lavori', e.works_director],
+    ['Coordinatore sicurezza', e.safety_coordinator],
+  ] as const) {
+    if (value) paragraph(`${label}: ${value}`, BODY)
+  }
   y -= 6
 
   tableHeader()

@@ -680,9 +680,12 @@ export function progressStatementRoutes(app: FastifyInstance, config: Config, db
           address: string | null
           cig: string | null
           cup: string | null
+          permit: string | null
+          works_director: string | null
+          safety_coordinator: string | null
         }>(
           `select e.title, c.name as client, s.name as site, e.site_address as address,
-             s.cig, s.cup
+             s.cig, s.cup, s.permit, s.works_director, s.safety_coordinator
            from public.estimates e
            left join public.clients c on c.id = e.client_id
            left join public.sites s on s.id = e.site_id
