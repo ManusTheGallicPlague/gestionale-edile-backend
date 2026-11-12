@@ -20,7 +20,12 @@ import { EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { readTotals } from './absence-totals.js'
 import { isHoliday, nextWorkingDay, patronSaintDay } from '../holidays.js'
 import { COST_LINES } from './site-costs.js'
-import { ENDING_SOON_SQL, PAST_END_SQL, PRIOR_NOTICE_MISSING_SQL } from './sites.js'
+import {
+  ENDING_SOON_SQL,
+  PAST_END_SQL,
+  PRIOR_NOTICE_MISSING_SQL,
+  WITHOUT_RECENT_REPORTS_SQL,
+} from './sites.js'
 
 async function siteCounts(client: PoolClient) {
   const { rows } = await client.query<{ status: string; n: number }>(
@@ -165,7 +170,16 @@ async function reportCounts(client: PoolClient, today: string, withSites: boolea
     to_approve: rows[0]?.to_approve ?? 0,
     drafts: rows[0]?.drafts ?? 0,
     missing_today: withSites ? await sitesWithoutReport(client, today) : null,
+    missing_week: withSites ? await sitesWithoutRecentReport(client) : null,
   }
+}
+
+/** Active sites with no daily report dated in the last 7 days, as filter[without_recent_reports]. */
+async function sitesWithoutRecentReport(client: PoolClient) {
+  const { rows } = await client.query<{ n: number }>(
+    `select count(*)::int as n from public.sites s where ${WITHOUT_RECENT_REPORTS_SQL}`,
+  )
+  return rows[0]?.n ?? 0
 }
 
 /** Active sites with no daily report (in any status) dated today. */

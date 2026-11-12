@@ -419,6 +419,16 @@ function readList(query: Record<string, unknown>) {
     errors['filter[ending_soon]'] = ['Indica true o false.']
   }
   const endingSoon = endingSoonValue === undefined ? undefined : endingSoonValue === 'true'
+  const withoutReportsValue = single('filter[without_recent_reports]')
+  if (
+    withoutReportsValue !== undefined &&
+    withoutReportsValue !== 'true' &&
+    withoutReportsValue !== 'false'
+  ) {
+    errors['filter[without_recent_reports]'] = ['Indica true o false.']
+  }
+  const withoutRecentReports =
+    withoutReportsValue === undefined ? undefined : withoutReportsValue === 'true'
   if (Object.keys(errors).length > 0) throw new ValidationFailed(errors)
   return {
     page,
@@ -433,6 +443,7 @@ function readList(query: Record<string, unknown>) {
     priorNoticeMissing,
     pastEnd,
     endingSoon,
+    withoutRecentReports,
   }
 }
 
@@ -444,6 +455,12 @@ export const PAST_END_SQL = `s.status <> 'completed' and s.end_on < (now() at ti
 
 /** Open sites whose planned end falls from today to 14 days ahead in Italy: also sites.ending_soon. */
 export const ENDING_SOON_SQL = `s.status <> 'completed' and s.end_on between (now() at time zone 'Europe/Rome')::date and (now() at time zone 'Europe/Rome')::date + 14`
+
+/**
+ * Active sites without a daily report dated in the last 7 days (today included) in Italy:
+ * also sites.without_recent_reports.
+ */
+export const WITHOUT_RECENT_REPORTS_SQL = `s.status = 'active' and not exists (select 1 from public.daily_reports dr where dr.site_id = s.id and dr.report_date between (now() at time zone 'Europe/Rome')::date - 6 and (now() at time zone 'Europe/Rome')::date)`
 
 export const escapeLike = (value: string) => value.replace(/[\\%_]/g, (c) => `\\${c}`)
 
@@ -484,6 +501,13 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.endingSoon !== undefined) {
     where.push(list.endingSoon ? ENDING_SOON_SQL : `not coalesce(${ENDING_SOON_SQL}, false)`)
+  }
+  if (list.withoutRecentReports !== undefined) {
+    where.push(
+      list.withoutRecentReports
+        ? WITHOUT_RECENT_REPORTS_SQL
+        : `not coalesce(${WITHOUT_RECENT_REPORTS_SQL}, false)`,
+    )
   }
   if (list.search) {
     add(

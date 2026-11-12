@@ -1972,6 +1972,12 @@ paths:
                   (end_on) da oggi ai prossimi 14 giorni compresi, in Italia, gli stessi contati
                   in sites.ending_soon di getDashboard. false: tutti gli altri (chiusi, senza
                   fine prevista, con la fine già passata o più lontana).
+              without_recent_reports:
+                type: boolean
+                description: |
+                  true: cantieri attivi senza un rapportino (in qualunque stato) con la data
+                  negli ultimi 7 giorni, oggi compreso, in Italia, gli stessi contati in
+                  reports.missing_week di getDashboard. false: tutti gli altri.
       responses:
         '200':
           description: Una pagina di cantieri
@@ -2081,6 +2087,12 @@ paths:
                   (end_on) da oggi ai prossimi 14 giorni compresi, in Italia, gli stessi contati
                   in sites.ending_soon di getDashboard. false: tutti gli altri (chiusi, senza
                   fine prevista, con la fine già passata o più lontana).
+              without_recent_reports:
+                type: boolean
+                description: |
+                  true: cantieri attivi senza un rapportino (in qualunque stato) con la data
+                  negli ultimi 7 giorni, oggi compreso, in Italia, gli stessi contati in
+                  reports.missing_week di getDashboard. false: tutti gli altri.
       responses:
         '200':
           description: Il file CSV
@@ -14278,7 +14290,7 @@ components:
         reports:
           oneOf:
             - type: object
-              required: [to_approve, drafts, missing_today]
+              required: [to_approve, drafts, missing_today, missing_week]
               properties:
                 to_approve:
                   type: integer
@@ -14294,6 +14306,16 @@ components:
                     da sollecitare al capo cantiere. Si conta ogni giorno, sabato e domenica
                     compresi: è il frontend a decidere se mostrarlo, ad esempio non nei giorni con
                     today_holiday. null senza sites.view.
+                  oneOf:
+                    - type: integer
+                      minimum: 0
+                    - type: 'null'
+                missing_week:
+                  description: |
+                    Cantieri attivi senza nessun rapportino (in qualunque stato) con la data negli
+                    ultimi 7 giorni, oggi compreso: lavori fermi o rapportini dimenticati. Gli
+                    stessi di filter[without_recent_reports]=true di listSites. null senza
+                    sites.view.
                   oneOf:
                     - type: integer
                       minimum: 0

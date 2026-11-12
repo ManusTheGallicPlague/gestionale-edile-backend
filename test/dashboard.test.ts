@@ -29,7 +29,12 @@ interface Dashboard {
     { month: string; labor: string; vehicles: string; other: string; total: string }[] | null
   site_progress:
     { site: { name: string }; activities: number; progress: number; planned: number }[] | null
-  reports: { to_approve: number; drafts: number; missing_today: number | null } | null
+  reports: {
+    to_approve: number
+    drafts: number
+    missing_today: number | null
+    missing_week: number | null
+  } | null
   deadlines: { title: string; due_on: string; overdue: boolean; amount: string | null }[] | null
   invoices: Record<string, string> | null
 }
@@ -128,7 +133,7 @@ describe('dashboard', () => {
     // This month: 50 + 9.99 + 50 + 70 by hand, 60 of labour; not the 2020 cost.
     expect(d.costs_this_month).toEqual({ month: today.slice(0, 7), total: '239.99' })
     // Active: «Sforato poco» (no report) and «Nel budget» (a draft today): one is missing.
-    expect(d.reports).toEqual({ to_approve: 1, drafts: 1, missing_today: 1 })
+    expect(d.reports).toEqual({ to_approve: 1, drafts: 1, missing_today: 1, missing_week: 1 })
     expect(d.deadlines?.map((x) => [x.title, x.overdue, x.amount])).toEqual([
       ['Scaduta', true, '123.45'],
       ['Oggi', false, null],
@@ -349,12 +354,17 @@ describe('dashboard', () => {
     const res = await s.browser.call('GET', s.url)
     expect(res.statusCode).toBe(200)
     // Senza, Ieri and Domani: suspended, planned and completed sites do not count.
-    expect(res.json<Dashboard>().reports).toEqual({ to_approve: 1, drafts: 1, missing_today: 3 })
+    expect(res.json<Dashboard>().reports).toEqual({
+      to_approve: 1,
+      drafts: 1,
+      missing_today: 3,
+      missing_week: 2,
+    })
 
     // Without sites.view the count of sites stays hidden; the reports do not.
     const reportsOnly = await scene(['reports.view'])
     const r = (await reportsOnly.browser.call('GET', reportsOnly.url)).json<Dashboard>()
-    expect(r.reports).toEqual({ to_approve: 0, drafts: 0, missing_today: null })
+    expect(r.reports).toEqual({ to_approve: 0, drafts: 0, missing_today: null, missing_week: null })
   })
 
   it('leaves out the sections the user may not see, and other companies', async () => {
