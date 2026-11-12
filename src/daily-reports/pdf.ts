@@ -11,6 +11,9 @@ export interface ReportPdfData {
     address: string | null
     cig: string | null
     cup: string | null
+    permit: string | null
+    works_director: string | null
+    safety_coordinator: string | null
   }
   date: string
   /** Sunday, national holiday or patron saint day of the company. */
@@ -167,6 +170,14 @@ function drawReport(pdf: PdfDocument, data: ReportPdfData, labels: string[]): vo
     data.site.cup ? `CUP ${data.site.cup}` : null,
   ].filter(Boolean)
   if (codes.length > 0) paragraph(codes.join(' - '), BODY)
+  // Permit and people of the site, as on the site sign: the work log is read by both.
+  if (data.site.permit) paragraph(`Titolo edilizio: ${data.site.permit}`, BODY)
+  if (data.site.works_director) {
+    paragraph(`Direttore dei lavori: ${data.site.works_director}`, BODY)
+  }
+  if (data.site.safety_coordinator) {
+    paragraph(`Coordinatore sicurezza: ${data.site.safety_coordinator}`, BODY)
+  }
   if (data.weather) paragraph(`Meteo: ${data.weather}`, BODY)
   if (data.created_by) paragraph(`Compilato da: ${data.created_by}`, BODY)
   if (data.status === 'approved' && data.approved_at) {

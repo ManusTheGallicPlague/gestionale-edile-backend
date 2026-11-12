@@ -2568,8 +2568,8 @@ paths:
       description: |
         Permesso: reports.view. I rapportini di un cantiere in un periodo, per data, in un solo
         PDF da archiviare o consegnare alla direzione lavori: ognuno comincia su una pagina
-        nuova, come in getDailyReportPdf (anche con «festivo» nel titolo e con il CIG e il CUP
-        del cantiere). Cantiere, inizio e fine sono obbligatori; si possono
+        nuova, come in getDailyReportPdf (anche con «festivo» nel titolo, con il CIG e il CUP,
+        il titolo edilizio, il direttore dei lavori e il coordinatore sicurezza del cantiere). Cantiere, inizio e fine sono obbligatori; si possono
         tenere solo i rapportini di uno stato (per esempio solo gli approvati). Al massimo 200
         rapportini: oltre, 422 sotto filter[to] e si accorcia il periodo. Senza rapportini nel
         periodo, 422 sotto filter[from]. Un cantiere che non c'è o di un'altra azienda risponde
@@ -2695,7 +2695,9 @@ paths:
       description: |
         Permesso: reports.view. Il rapportino in A4, da archiviare o da far firmare al
         committente o al direttore dei lavori: intestazione dell'azienda, cantiere (con la riga
-        «CIG … - CUP …» sotto l'indirizzo, solo se il cantiere ne ha almeno uno), data, meteo,
+        «CIG … - CUP …» sotto l'indirizzo, solo se il cantiere ne ha almeno uno, e poi le righe
+        «Titolo edilizio: …», «Direttore dei lavori: …» e «Coordinatore sicurezza: …», solo se
+        indicati nel cantiere), data, meteo,
         lavori eseguiti, ore dei dipendenti e dei mezzi con i totali, note e spazi per le firme.
         Lo straordinario compare accanto al dipendente («straordinario 2») e sotto il totale
         delle ore («di cui straordinario»), solo se c'è. Di domenica, nei festivi nazionali

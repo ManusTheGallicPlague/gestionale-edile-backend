@@ -461,9 +461,20 @@ interface SitePdfFields {
   address: string | null
   cig: string | null
   cup: string | null
+  permit: string | null
+  works_director: string | null
+  safety_coordinator: string | null
 }
 
-const NO_SITE_FIELDS: SitePdfFields = { address: null, cig: null, cup: null }
+const NO_SITE_FIELDS: SitePdfFields = {
+  address: null,
+  cig: null,
+  cup: null,
+  permit: null,
+  works_director: null,
+  safety_coordinator: null,
+}
+const SITE_PDF_COLUMNS = 'address, cig, cup, permit, works_director, safety_coordinator'
 
 function pdfData(
   common: Awaited<ReturnType<typeof pdfCommon>>,
@@ -1044,7 +1055,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
       if (!report) throw notFound()
       const { row } = report
       const site = await client.query<SitePdfFields>(
-        'select address, cig, cup from public.sites where id = $1',
+        `select ${SITE_PDF_COLUMNS} from public.sites where id = $1`,
         [row.site_id],
       )
       const common = await pdfCommon(client)
@@ -1074,7 +1085,7 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('reports.view')) throw forbidden()
         const site = await client.query<SitePdfFields & { code: string | null }>(
-          'select code, address, cig, cup from public.sites where id = $1',
+          `select code, ${SITE_PDF_COLUMNS} from public.sites where id = $1`,
           [list.siteId],
         )
         const found = site.rows[0]
