@@ -418,6 +418,11 @@ function readList(query: Record<string, unknown>) {
   }
   const priorNoticeMissing =
     priorNoticeValue === undefined ? undefined : priorNoticeValue === 'true'
+  const permitValue = single('filter[permit_missing]')
+  if (permitValue !== undefined && permitValue !== 'true' && permitValue !== 'false') {
+    errors['filter[permit_missing]'] = ['Indica true o false.']
+  }
+  const permitMissing = permitValue === undefined ? undefined : permitValue === 'true'
   const pastEndValue = single('filter[past_end]')
   if (pastEndValue !== undefined && pastEndValue !== 'true' && pastEndValue !== 'false') {
     errors['filter[past_end]'] = ['Indica true o false.']
@@ -464,6 +469,7 @@ function readList(query: Record<string, unknown>) {
     subcontractorCompliance,
     teamDocuments,
     priorNoticeMissing,
+    permitMissing,
     pastEnd,
     endingSoon,
     withoutRecentReports,
@@ -474,6 +480,9 @@ function readList(query: Record<string, unknown>) {
 
 /** Open sites without the date of the prior notice: also sites.without_prior_notice. */
 export const PRIOR_NOTICE_MISSING_SQL = `s.status <> 'completed' and s.prior_notice_on is null`
+
+/** Open sites without the building permit: also sites.without_permit. */
+export const PERMIT_MISSING_SQL = `s.status <> 'completed' and s.permit is null`
 
 /** Open sites whose planned end is before today in Italy: also sites.past_end. */
 export const PAST_END_SQL = `s.status <> 'completed' and s.end_on < (now() at time zone 'Europe/Rome')::date`
@@ -529,6 +538,9 @@ function listFilter(list: ReturnType<typeof readList>) {
   }
   if (list.priorNoticeMissing !== undefined) {
     where.push(list.priorNoticeMissing ? PRIOR_NOTICE_MISSING_SQL : 's.prior_notice_on is not null')
+  }
+  if (list.permitMissing !== undefined) {
+    where.push(list.permitMissing ? PERMIT_MISSING_SQL : 's.permit is not null')
   }
   if (list.pastEnd !== undefined) {
     where.push(list.pastEnd ? PAST_END_SQL : `not coalesce(${PAST_END_SQL}, false)`)

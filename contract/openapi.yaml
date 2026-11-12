@@ -1970,6 +1970,12 @@ paths:
                   notifica preliminare (prior_notice_on), gli stessi contati in
                   sites.without_prior_notice di getDashboard. false: cantieri, in qualunque
                   stato, con la data della notifica preliminare.
+              permit_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il titolo edilizio
+                  (permit), gli stessi contati in sites.without_permit di getDashboard. false:
+                  cantieri, in qualunque stato, con il titolo edilizio.
               past_end:
                 type: boolean
                 description: |
@@ -2111,6 +2117,12 @@ paths:
                   notifica preliminare (prior_notice_on), gli stessi contati in
                   sites.without_prior_notice di getDashboard. false: cantieri, in qualunque
                   stato, con la data della notifica preliminare.
+              permit_missing:
+                type: boolean
+                description: |
+                  true: cantieri non chiusi (planned, active, suspended) senza il titolo edilizio
+                  (permit), gli stessi contati in sites.without_permit di getDashboard. false:
+                  cantieri, in qualunque stato, con il titolo edilizio.
               past_end:
                 type: boolean
                 description: |
@@ -14290,8 +14302,9 @@ components:
           description: |
             Numero di cantieri per stato, cantieri non chiusi senza notifica preliminare, cantieri
             non chiusi oltre la fine prevista, cantieri non chiusi con la fine prevista nei
-            prossimi 14 giorni, cantieri da iniziare con l'inizio previsto già arrivato e
-            cantieri da iniziare o in corso senza squadra.
+            prossimi 14 giorni, cantieri da iniziare con l'inizio previsto già arrivato,
+            cantieri da iniziare o in corso senza squadra e cantieri non chiusi senza titolo
+            edilizio.
           oneOf:
             - type: object
               required:
@@ -14305,6 +14318,7 @@ components:
                   ending_soon,
                   start_due,
                   without_team,
+                  without_permit,
                 ]
               properties:
                 planned: { type: integer, minimum: 0 }
@@ -14341,6 +14355,12 @@ components:
                   description: |
                     Cantieri da iniziare o in corso senza nessun dipendente in servizio nella
                     squadra, come filter[without_team]=true di listSites.
+                without_permit:
+                  type: integer
+                  minimum: 0
+                  description: |
+                    Cantieri non chiusi senza il titolo edilizio, come
+                    filter[permit_missing]=true di listSites.
             - type: 'null'
         over_budget:
           oneOf:
