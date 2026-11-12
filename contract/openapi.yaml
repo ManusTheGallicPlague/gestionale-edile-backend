@@ -12343,6 +12343,33 @@ components:
             Facoltativo come location.
           maxLength: 40
           examples: ['B12C34000560007']
+        permit:
+          type: [string, 'null']
+          description: |
+            Titolo edilizio dei lavori, in una riga (tipo, numero e data: permesso di
+            costruire, SCIA, CILA…), come va sul cartello di cantiere. Una stringa vuota vale
+            null. Facoltativo come location.
+          maxLength: 200
+          examples: ['Permesso di costruire n. 45/2026 del 12/03/2026']
+        works_director:
+          type: [string, 'null']
+          description: |
+            Direttore dei lavori (nome, titolo e ordine professionale), in una riga. Facoltativo
+            come location.
+          maxLength: 200
+        safety_coordinator:
+          type: [string, 'null']
+          description: |
+            Coordinatore per la sicurezza in fase di esecuzione (CSE), in una riga. Facoltativo
+            come location.
+          maxLength: 200
+        prior_notice_on:
+          description: |
+            Data di invio della notifica preliminare all'ASL e all'Ispettorato del lavoro, o
+            null. Facoltativo come location.
+          oneOf:
+            - $ref: '#/components/schemas/Date'
+            - type: 'null'
     GeoPoint:
       type: object
       required: [latitude, longitude]
@@ -12370,6 +12397,10 @@ components:
               location,
               cig,
               cup,
+              permit,
+              works_director,
+              safety_coordinator,
+              prior_notice_on,
               quote,
               team_documents_expired,
               subcontractors_expired,

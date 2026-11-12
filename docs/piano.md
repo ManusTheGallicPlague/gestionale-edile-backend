@@ -1011,6 +1011,13 @@ Aggiunta l'11/11/2026, con il piano tutto spuntato: il materiale scaricato dal m
 - [x] `filter[q]` di `listWarehouseMovements` ed `exportWarehouseMovements` trova anche il CIG e il CUP del cantiere del movimento (anche in parte, in minuscolo o con gli spazi), con il conteggio che segue il filtro; JSON e colonne di `movimenti-magazzino.csv` invariati. Test in `test/site-public-codes-warehouse.test.ts`. Nessuna migrazione, tabella o permesso nuovi
   (fatto l'11/11/2026)
 
+### 152. Titolo edilizio e figure del cantiere
+Aggiunta il 12/11/2026, con il piano tutto spuntato: il cartello di cantiere, la notifica preliminare e i documenti per il committente riportano il titolo edilizio, il direttore dei lavori e il coordinatore per la sicurezza in fase di esecuzione. Oggi l'ufficio li tiene nelle note, dove non si ritrovano.
+
+- [x] `permit`, `works_director`, `safety_coordinator` (testi di una riga, al massimo 200 caratteri) e `prior_notice_on` (data della notifica preliminare) nel cantiere (`createSite`, `updateSite`, `getSite`, `listSites`): facoltativi come `location`, `cig` e `cup` (se mancano, null alla creazione e invariati alla modifica; stringa vuota vale null). Migrazione 0103 con i vincoli di lunghezza (la tabella ha già RLS e privilegi); dati di sviluppo sul cantiere 2025-07. Test in `test/site-permit.test.ts`. Nessuna tabella o permesso nuovi
+  (fatto il 12/11/2026)
+- [ ] Le stesse informazioni nel CSV dei cantieri (in fondo, dopo CIG e CUP) e nei PDF che hanno già l'intestazione del cantiere (rapportino, giornale dei lavori, SAL)
+
 ## Decisioni prese
 
 Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così si possono rivedere.
@@ -1337,6 +1344,7 @@ Le scelte fatte senza poter chiedere vanno scritte qui, una riga ciascuna, così
 - 11/11/2026: nei rapportini CIG e CUP entrano solo nella ricerca (`filter[q]`), non nel JSON né in `rapportini.csv`: il rapportino ha già il cantiere, e la scelta della sezione 140 sulle colonne del CSV resta.
 - 11/11/2026: nel cronoprogramma di tutti i cantieri CIG e CUP entrano anche nel JSON (`site` dell'attività ha già codice e stato del cantiere, come `SiteCost`) e in fondo a `cronoprogramma.csv`, dopo «Giorni lavorativi rimanenti»; il cronoprogramma del singolo cantiere non cambia, perché il cantiere è già aperto.
 - 11/11/2026: nei movimenti di magazzino CIG e CUP entrano solo nella ricerca (`filter[q]`), come nei rapportini: `site` del movimento resta `{id, name, code}`, uguale in tutte le risposte del magazzino, e `movimenti-magazzino.csv` non cambia colonne.
+- 12/11/2026: titolo edilizio, direttore dei lavori e coordinatore per la sicurezza sono testi liberi di una riga sul cantiere, non anagrafiche né un elenco di tipi di titolo: cambiano da cantiere a cantiere, spesso sono professionisti esterni senza altri dati nel gestionale, e sul cartello vanno scritti per intero. Il coordinatore è solo quello in fase di esecuzione (CSE), che segue il cantiere; quello in fase di progettazione, se diverso, va nelle note. Entrano per ora solo nel JSON, non nel CSV né nella ricerca.
 
 ## Registro dei giri
 

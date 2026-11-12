@@ -706,6 +706,14 @@ export async function seedDev(ownerUrl: string, { force = false } = {}) {
          where company_id = $1 and code = '2025-07'`,
         [companyId],
       )
+      // Permit and people of the facade site, as on the site sign: invented names.
+      await client.query(
+        `update public.sites set permit = 'SCIA n. 118/2025 del 04/06/2025',
+           works_director = 'Arch. Paola Verdi', safety_coordinator = 'Geom. Luca Neri',
+           prior_notice_on = '2025-06-20'
+         where company_id = $1 and code = '2025-07'`,
+        [companyId],
+      )
       // The bathroom site comes from the accepted quote 2026/002 (createSiteFromQuote).
       await client.query(
         `update public.sites s set quote_id = q.id

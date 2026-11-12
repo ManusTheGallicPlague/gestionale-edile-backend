@@ -54,7 +54,24 @@ interface SiteInput extends SiteValues {
   cig: string | null | undefined
   /** As location. */
   cup: string | null | undefined
+  /** As location. */
+  permit: string | null | undefined
+  /** As location. */
+  works_director: string | null | undefined
+  /** As location. */
+  safety_coordinator: string | null | undefined
+  /** As location. */
+  prior_notice_on: string | null | undefined
 }
+/** Optional columns of the site: not sent means null on create and unchanged on update. */
+const OPTIONAL = [
+  'cig',
+  'cup',
+  'permit',
+  'works_director',
+  'safety_coordinator',
+  'prior_notice_on',
+] as const
 const COLUMNS = [
   'code',
   'name',
@@ -66,11 +83,16 @@ const COLUMNS = [
   'budget_cents',
   'notes',
 ] as const
+const INSERT_COLUMNS = [...COLUMNS, 'latitude', 'longitude', ...OPTIONAL]
 
 interface SiteRow extends SiteValues {
   id: string
   cig: string | null
   cup: string | null
+  permit: string | null
+  works_director: string | null
+  safety_coordinator: string | null
+  prior_notice_on: string | null
   latitude: string | null
   longitude: string | null
   client_name: string | null
@@ -90,7 +112,8 @@ type Params = { company: string; site?: string }
 
 const SELECT = `select s.id, s.code, s.name, s.client_id, s.address, s.status,
     s.start_on::text as start_on, s.end_on::text as end_on, s.budget_cents::text as budget_cents,
-    s.notes, s.cig, s.cup, s.latitude::text as latitude, s.longitude::text as longitude, s.version, s.created_at, s.updated_at, c.name as client_name,
+    s.notes, s.cig, s.cup, s.permit, s.works_director, s.safety_coordinator,
+    s.prior_notice_on::text as prior_notice_on, s.latitude::text as latitude, s.longitude::text as longitude, s.version, s.created_at, s.updated_at, c.name as client_name,
     s.quote_id, q.number_year as quote_year, q.number_seq as quote_seq, q.revision as quote_revision,
     ${teamHas('s.id', EMPLOYEE_DOCUMENTS_SQL.expired)} as team_documents_expired,
     exists (select 1 from public.suppliers
@@ -125,6 +148,10 @@ function toContract(row: SiteRow) {
     notes: row.notes,
     cig: row.cig,
     cup: row.cup,
+    permit: row.permit,
+    works_director: row.works_director,
+    safety_coordinator: row.safety_coordinator,
+    prior_notice_on: row.prior_notice_on,
     location:
       row.latitude === null || row.longitude === null
         ? null
@@ -276,6 +303,13 @@ export function parseSiteInput(body: unknown): { input: SiteInput } | { errors: 
   const location = parseLocation(raw.location, add)
   const cig = publicCode(raw.cig, 'cig', add)
   const cup = publicCode(raw.cup, 'cup', add)
+  /** An optional one-line text, as location: undefined when not sent. */
+  const optionalText = (field: string, max: number): string | null | undefined =>
+    raw[field] === undefined ? undefined : text(field, max)
+  const permit = optionalText('permit', 200)
+  const works_director = optionalText('works_director', 200)
+  const safety_coordinator = optionalText('safety_coordinator', 200)
+  const prior_notice_on = raw.prior_notice_on === undefined ? undefined : date('prior_notice_on')
   if (Object.keys(errors).length > 0 || !name || !status) return { errors }
   return {
     input: {
@@ -291,6 +325,10 @@ export function parseSiteInput(body: unknown): { input: SiteInput } | { errors: 
       location,
       cig,
       cup,
+      permit,
+      works_director,
+      safety_coordinator,
+      prior_notice_on,
     },
   }
 }
@@ -546,18 +584,14 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
       const { rows } = await client
         .query<{ id: string }>(
-          `insert into public.sites (company_id, ${COLUMNS.join(', ')}, latitude, longitude,
-             cig, cup)
-           values (app.current_company_id(), ${COLUMNS.map((_, i) => `$${i + 1}`).join(', ')},
-             $${COLUMNS.length + 1}, $${COLUMNS.length + 2}, $${COLUMNS.length + 3},
-             $${COLUMNS.length + 4})
+          `insert into public.sites (company_id, ${INSERT_COLUMNS.join(', ')})
+           values (app.current_company_id(), ${INSERT_COLUMNS.map((_, i) => `$${i + 1}`).join(', ')})
            returning id`,
           [
             ...COLUMNS.map((f) => parsed.input[f]),
             parsed.input.location?.latitude ?? null,
             parsed.input.location?.longitude ?? null,
-            parsed.input.cig ?? null,
-            parsed.input.cup ?? null,
+            ...OPTIONAL.map((f) => parsed.input[f] ?? null),
           ],
         )
         .catch(writeFailed)
@@ -585,7 +619,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
         columns.push('latitude', 'longitude')
         values.push(location?.latitude ?? null, location?.longitude ?? null)
       }
-      for (const field of ['cig', 'cup'] as const) {
+      for (const field of OPTIONAL) {
         const value = parsed.input[field]
         if (value !== undefined) {
           columns.push(field)
