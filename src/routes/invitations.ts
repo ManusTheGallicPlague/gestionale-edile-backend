@@ -15,7 +15,7 @@ import { UUID } from '../deadlines/input.js'
 import { ApiError, ValidationFailed, forbidden, messages, notFound } from '../http/errors.js'
 import type { FieldErrors } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
-import type { Mailer } from '../mail/mailer.js'
+import { sendOrFail, type Mailer } from '../mail/mailer.js'
 import { startSession } from './auth.js'
 
 const TOKEN = /^[A-Za-z0-9_-]{20,100}$/
@@ -150,7 +150,8 @@ export function invitationRoutes(
         const { rows: company } = await client.query<{ name: string }>(
           'select name from public.companies where id = app.current_company_id()',
         )
-        await mailer.send({
+        // Inside the transaction: if the email does not leave, the invitation is not created.
+        await sendOrFail(mailer, request.log, {
           to: row.email,
           subject: `Invito a ${company[0]?.name ?? 'un’azienda'}`,
           text:

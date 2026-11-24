@@ -11,7 +11,7 @@ import {
 import { verifyPassword } from '../auth/password.js'
 import { ApiError, ValidationFailed, messages, type FieldErrors } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
-import type { Mailer } from '../mail/mailer.js'
+import { sendOrFail, type Mailer } from '../mail/mailer.js'
 
 const TOKEN = /^[A-Za-z0-9_-]{20,100}$/
 const EMAIL = /^[^\s@]+@[^\s@]+$/
@@ -96,6 +96,17 @@ export function emailChangeRoutes(
       await client.query(
         "delete from auth.email_changes where created_at < now() - interval '7 days'",
       )
+      // Before the commit: if the link does not leave, nothing changes and the earlier links
+      // still work.
+      await sendOrFail(mailer, request.log, {
+        to: next,
+        subject: "Conferma dell'email",
+        text:
+          `Ciao ${user.name},\n\n` +
+          `per usare questo indirizzo nel gestionale apri questo link entro 24 ore:\n` +
+          `${config.appUrl}/conferma-email/${token}\n\n` +
+          `Se non hai chiesto tu il cambio, ignora questo messaggio.\n`,
+      })
       await client.query('commit')
     } catch (error) {
       await client.query('rollback').catch(() => {})
@@ -103,24 +114,20 @@ export function emailChangeRoutes(
     } finally {
       client.release()
     }
-    await mailer.send({
-      to: next,
-      subject: "Conferma dell'email",
-      text:
-        `Ciao ${user.name},\n\n` +
-        `per usare questo indirizzo nel gestionale apri questo link entro 24 ore:\n` +
-        `${config.appUrl}/conferma-email/${token}\n\n` +
-        `Se non hai chiesto tu il cambio, ignora questo messaggio.\n`,
-    })
-    await mailer.send({
-      to: user.email,
-      subject: "Richiesta di cambio dell'email",
-      text:
-        `Ciao ${user.name},\n\n` +
-        `è stato chiesto di cambiare l'email del tuo account in ${next}. ` +
-        `Il cambio avviene solo quando si apre il link inviato al nuovo indirizzo.\n\n` +
-        `Se non sei stato tu, cambia subito la password: chiude gli altri accessi.\n`,
-    })
+    // The link has left: a failed warning only goes to the log.
+    await mailer
+      .send({
+        to: user.email,
+        subject: "Richiesta di cambio dell'email",
+        text:
+          `Ciao ${user.name},\n\n` +
+          `è stato chiesto di cambiare l'email del tuo account in ${next}. ` +
+          `Il cambio avviene solo quando si apre il link inviato al nuovo indirizzo.\n\n` +
+          `Se non sei stato tu, cambia subito la password: chiude gli altri accessi.\n`,
+      })
+      .catch((error: unknown) => {
+        request.log.error({ err: error }, "avviso del cambio dell'email non inviato")
+      })
     return reply.code(204).send()
   })
 

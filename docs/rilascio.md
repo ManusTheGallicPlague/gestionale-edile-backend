@@ -30,6 +30,9 @@ Nessun segreto sta nel repository o nell'immagine: si passano all'avvio.
 | `APP_URL` | API | indirizzo pubblico del frontend, senza `/` finale: è la base dei link nelle email |
 | `HOST`, `PORT` | API | nell'immagine `0.0.0.0` e `3100` |
 | `LOG_LEVEL` | API | `info` |
+| `BREVO_API_KEY` | API | chiave API di Brevo per le email (vedi «Email»). Senza, le email finiscono solo nel log |
+| `MAIL_FROM` | API | mittente delle email, un indirizzo del dominio verificato in Brevo. Obbligatoria con `BREVO_API_KEY` |
+| `MAIL_FROM_NAME` | API | nome del mittente, facoltativo (ad esempio `Gestionale edile`) |
 | `DATABASE_URL_OWNER` | migrazioni | `postgres://gestionale_owner:<password>@<host>:5432/<db>` |
 | `DB_APP_PASSWORD`, `DB_AUTH_PASSWORD` | migrazioni | le password che le migrazioni danno a `gestionale_app` e `gestionale_auth`: le stesse degli URL sopra |
 
@@ -55,6 +58,7 @@ Ogni migrazione si applica una volta sola e in una transazione; rilanciarle non 
 docker run -d --name gestionale-api -p 127.0.0.1:3100:3100 \
   -e DATABASE_URL_APP -e DATABASE_URL_AUTH -e CSRF_SECRET \
   -e COOKIE_SECURE=true -e TRUST_PROXY=true -e APP_URL \
+  -e BREVO_API_KEY -e MAIL_FROM -e MAIL_FROM_NAME \
   gestionale-edile-backend
 ```
 
@@ -66,4 +70,18 @@ Senza Docker: `npm ci && npm run build && npm start` (legge `.env` se c'è). L'A
 
 ## Email
 
-Per ora le email (password dimenticata, inviti) sono scritte nel log dell'API (`LogMailer`): finché non si sceglie un fornitore SMTP, i link vanno presi da lì. Un fornitore vero si aggiunge come nuova implementazione di `Mailer` in `src/mail/mailer.ts`.
+Le email (password dimenticata, inviti, cambio dell'email) partono con l'API transazionale di Brevo (`POST https://api.brevo.com/v3/smtp/email`), se c'è `BREVO_API_KEY`. Senza la chiave finiscono nel log dell'API (`LogMailer`), che va bene solo in sviluppo: con `COOKIE_SECURE=true` e senza chiave l'API all'avvio scrive un avviso nel log, ma parte lo stesso.
+
+Per attivarle:
+
+1. In Brevo si crea una chiave API (nelle impostazioni, alla voce delle chiavi API e SMTP) e la si passa come `BREVO_API_KEY`.
+2. Si aggiunge in Brevo il dominio del mittente e si mettono nel DNS i record che Brevo indica: **SPF, DKIM** (e il codice di verifica). Senza SPF e DKIM le email finiscono nello spam o vengono rifiutate. Conviene anche un record DMARC (`v=DMARC1; p=none` per cominciare).
+3. `MAIL_FROM` è un indirizzo di quel dominio, `MAIL_FROM_NAME` il nome che vedono i destinatari.
+
+Se Brevo non risponde entro 10 secondi o rifiuta il messaggio:
+
+- **cambio dell'email e inviti:** la richiesta risponde `503` con `code: email_not_sent` e non cambia nulla, così l'utente può riprovare;
+- **password dimenticata:** la risposta resta `204`, come per un'email sconosciuta, e l'errore va solo nel log: una risposta diversa direbbe quali account esistono. Per lo stesso motivo la risposta non aspetta l'invio;
+- **avviso al vecchio indirizzo** nel cambio dell'email: solo nel log, perché il link al nuovo indirizzo è già partito.
+
+Ogni invio fallito lascia nel log un errore con la risposta di Brevo; la chiave non compare mai.

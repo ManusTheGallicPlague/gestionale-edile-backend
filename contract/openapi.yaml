@@ -3,12 +3,14 @@ info:
   title: Gestionale edile API
   version: 0.1.0
   description: |
-    Contratto tra frontend e backend: è l'unica fonte. Ogni cambio di API passa prima da qui.
-    Proposta da concordare con il backend: vedi docs/adr/0003-contratto-api-e-sessione.md.
+    Contratto tra frontend e backend.
 
-    COPIA DEL BACKEND: è la PR #7 di gestionale-edile (commit 660b946) con le modifiche
-    proposte nel commento del 4 novembre 2026. Quando la PR viene aggiornata, si sostituisce
-    con la versione concordata.
+    Dove vive: la fonte è questo file, contract/openapi.yaml nel repository del backend.
+    Ogni cambio di API si fa prima qui; i test del backend controllano ogni risposta contro
+    questo file. Il frontend ne tiene una copia in api/openapi.yaml, da cui genera i tipi:
+    la copia non si modifica a mano, si aggiorna ricopiando questo file, e la CI del
+    frontend controlla che i tipi generati corrispondano alla copia. Le scelte di fondo
+    (sessione a cookie, CSRF, azienda nel percorso) sono nell'ADR-0003 del frontend.
 
     Regole comuni:
     - Sessione con cookie HttpOnly, frontend e API sullo stesso dominio.
@@ -58,7 +60,10 @@ paths:
       operationId: getCsrfCookie
       summary: Imposta il cookie XSRF-TOKEN
       description: |
-        Il frontend lo chiama quando il cookie manca, prima della prima richiesta che modifica dati.
+        Il frontend lo chiama quando il cookie manca, prima della prima richiesta che modifica dati,
+        e anche dopo una risposta 403 con code csrf_invalid (token scaduto o di un'altra
+        sessione): dopo il rinnovo riprova la richiesta una volta sola, e se fallisce ancora
+        l'errore resta. Con più richieste rifiutate insieme basta un solo rinnovo.
         Il backend rinnova il token a ogni accesso e uscita, insieme alla sessione.
       security: []
       responses:
@@ -100,9 +105,10 @@ paths:
         Serve il token CSRF (come per l'accesso). Se l'email è di un account attivo il backend
         manda un messaggio con il link /password-dimenticata/{token}, valido un'ora e una volta
         sola; al massimo 3 messaggi l'ora per account. La risposta è sempre 204, anche per
-        un'email sconosciuta: non rivela quali account esistono. Oltre il limite per account,
-        che è silenzioso, c'è quello per indirizzo IP: dopo 10 richieste in 15 minuti, per
-        qualunque email, la risposta è 429 con Retry-After.
+        un'email sconosciuta e anche se l'invio del messaggio non riesce: non rivela quali
+        account esistono. Oltre il limite per account, che è silenzioso, c'è quello per
+        indirizzo IP: dopo 10 richieste in 15 minuti, per qualunque email, la risposta è 429
+        con Retry-After.
       security:
         - csrf: []
       requestBody:
@@ -234,7 +240,8 @@ paths:
         /conferma-email/{token}, valido 24 ore e una volta sola; al vecchio indirizzo arriva
         un avviso. Una nuova richiesta annulla i link precedenti; al massimo 3 richieste l'ora.
         Un indirizzo uguale a quello attuale o già usato da un altro account risponde 422 su
-        new_email.
+        new_email. Se il messaggio con il link non parte, la risposta è 503 con code
+        email_not_sent e non cambia nulla: i link precedenti restano validi e si può riprovare.
       security:
         - session: []
           csrf: []
@@ -250,6 +257,11 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503':
+          description: Il messaggio con il link non è partito (code email_not_sent).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/auth/email-change/{token}:
     parameters:
@@ -9853,7 +9865,8 @@ paths:
         copiare dall'applicazione; se l'email non arriva si rifà l'invito. Un nuovo invito
         per la stessa email sostituisce quello in attesa e il link precedente smette di
         funzionare. Se l'email è già di un membro dell'azienda la risposta è 409 con code
-        already_member.
+        already_member. Se il messaggio d'invito non parte, la risposta è 503 con code
+        email_not_sent e l'invito non viene creato (quello in attesa, se c'è, resta valido).
       security:
         - session: []
           csrf: []
@@ -9877,6 +9890,11 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '503':
+          description: Il messaggio d'invito non è partito (code email_not_sent).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/companies/{company}/invitations/{invitation}:
     parameters:
@@ -10871,7 +10889,7 @@ components:
           description: |
             Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
             Tutti quelli in uso: already_member, credit_note, csrf_invalid, current_session,
-            database_unavailable, email_in_use, estimate_final, has_documents, invalid_transition, last_manager,
+            database_unavailable, email_in_use, email_not_sent, estimate_final, has_documents, invalid_transition, last_manager,
             number_in_use, order_not_draft, precondition_required, quote_not_draft,
             report_not_draft, role_in_use, self_deactivation, site_exists, stale_record,
             statement_draft_exists, statement_not_draft.

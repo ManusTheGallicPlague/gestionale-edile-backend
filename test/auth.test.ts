@@ -55,6 +55,22 @@ describe('CSRF', () => {
     })
     expect(res.statusCode).toBe(403)
   })
+
+  it('after csrf_invalid a new GET /api/auth/csrf makes the same request work', async () => {
+    const user = await fx.user()
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    // A token left over from before the sign-in, as in a tab that was not reloaded.
+    const other = new Browser(ctx.app)
+    await other.request('GET', '/api/auth/csrf')
+    browser.cookies.set('XSRF-TOKEN', other.cookies.get('XSRF-TOKEN') ?? '')
+    const refused = await browser.call('POST', '/api/auth/logout')
+    expect(refused.statusCode).toBe(403)
+    expect(refused.json()).toMatchObject({ code: 'csrf_invalid' })
+
+    expect((await browser.call('GET', '/api/auth/csrf')).statusCode).toBe(204)
+    expect((await browser.call('POST', '/api/auth/logout')).statusCode).toBe(204)
+  })
 })
 
 describe('sign-in', () => {

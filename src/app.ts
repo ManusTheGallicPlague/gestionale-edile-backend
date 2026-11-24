@@ -58,7 +58,7 @@ import { numberingRoutes, settingsRoutes } from './routes/settings.js'
 import { meRoutes } from './routes/me.js'
 import { passwordResetRoutes } from './routes/password-reset.js'
 import { emailChangeRoutes } from './routes/email-change.js'
-import { LogMailer, type Mailer } from './mail/mailer.js'
+import { createMailer, type Mailer } from './mail/mailer.js'
 
 export function buildApp(
   config: Config,
@@ -81,7 +81,7 @@ export function buildApp(
           },
   })
 
-  const mailer = options.mailer ?? new LogMailer(app.log)
+  const mailer = options.mailer ?? createMailer(config, app.log)
 
   app.register(cookie)
   app.decorateRequest('session', null)

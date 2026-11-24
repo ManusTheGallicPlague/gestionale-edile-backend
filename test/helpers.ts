@@ -36,6 +36,7 @@ export async function startApp(): Promise<TestContext> {
     logLevel: 'silent',
     loginLimits: DEFAULT_LOGIN_LIMITS,
     appUrl: 'https://gestionale.example.test',
+    brevo: null,
   }
   const db = createDb({ app: urls.app, auth: urls.auth })
   const owner = new pg.Pool({ connectionString: urls.owner, max: 3 })

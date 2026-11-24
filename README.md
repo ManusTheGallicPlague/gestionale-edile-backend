@@ -4,36 +4,27 @@ API del gestionale per imprese edili. Il frontend è in [Affarin-pompe/gestional
 
 ## Stato
 
-Fatte le sezioni 1–5 del [piano](docs/piano.md), salvo la prova dell'immagine Docker.
+Il [piano](docs/piano.md) è tutto spuntato, compresa la prova dell'immagine Docker (6 novembre 2026). Il dettaglio di ogni compito, con le decisioni prese, è lì.
 
 | Area | Stato |
 |---|---|
 | Accesso: CSRF, login, logout, sessioni, limite ai tentativi | Fatto |
 | `GET /api/me`: aziende, ruolo e permessi | Fatto |
-| Clienti: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
 | Isolamento tra aziende (Row Level Security) | Fatto, con test avversario |
-| Fornitori e subappaltatori: elenco, scheda, creazione, modifica, archiviazione, eliminazione | Fatto |
-| Documenti di regolarità dei fornitori (DURC, visura, assicurazione) con scadenza e stato | Fatto |
-| Scadenze: elenco per intervallo di date, filtri, creazione, modifica, fatta/riaperta, eliminazione | Fatto |
-| Ricorrenze mensili, trimestrali, semestrali, annuali e biennali delle scadenze | Fatto |
-| Riepilogo delle scadenze per la dashboard | Fatto |
-| Documenti dei fornitori nello scadenziario | Fatto |
-| Computo metrico: testata (titolo, cliente, indirizzo, stato) | Fatto |
-| Computo metrico: capitoli annidati e voci (codice, descrizione, unità, prezzo) | Fatto |
-| Computo metrico: righe di misura con quantità calcolata (anche detrazioni) | Fatto |
-| Computo metrico: totali per voce, capitolo e computo, calcolati dal backend | Fatto |
-| Computo metrico: riordino e spostamento in blocco con versione dell'albero | Fatto |
-| Computo metrico: duplicazione | Fatto |
-| Preventivi: testata, invio con numero progressivo per anno senza buchi | Fatto |
-| Preventivi: righe (sezioni, testo, prezzo con sconto e IVA) | Fatto |
-| Preventivi: totali con IVA per aliquota | Fatto |
-| Preventivi: creazione da un computo | Fatto |
-| Preventivi: esito (accettato, rifiutato, scaduto) | Fatto |
-| Preventivi: revisioni, PDF | Fatto |
-| Impostazioni azienda, utenti e ruoli, profilo, password dimenticata | Fatto |
-| Esportazione CSV degli elenchi | Fatto |
-| Registro delle modifiche | Fatto |
-| Controllo di salute (`/api/health`), immagine Docker | Fatto; rilascio in [docs/rilascio.md](docs/rilascio.md) |
+| Clienti e fornitori, con documenti di regolarità (DURC, visura, assicurazione) e scadenze | Fatto |
+| Scadenziario: intervalli, filtri, ricorrenze, riepilogo, calendario iCalendar | Fatto |
+| Computo metrico: capitoli, voci, misure, totali, riordino, copia, PDF e CSV | Fatto |
+| Preventivi: numerazione senza buchi, righe, IVA e nature, revisioni, esito, PDF | Fatto |
+| Cantieri, squadra, cronoprogramma, documenti e foto, cartello di cantiere | Fatto |
+| Dipendenti e mezzi: anagrafica, documenti, assenze e ferie, manutenzioni e rifornimenti | Fatto |
+| Rapportini, giornale dei lavori, ore per cantiere e fogli ore | Fatto |
+| Costi e margine del cantiere, SAL con ritenuta di garanzia | Fatto |
+| Prezzari, acquisti, magazzino | Fatto |
+| Fatture (registro, senza SDI), incassi e pagamenti, estratti conto, previsione di cassa | Fatto |
+| Dashboard, ricerca rapida, importazione ed esportazione CSV, registro delle modifiche | Fatto |
+| Impostazioni azienda, utenti e ruoli, inviti, profilo, password dimenticata, cambio email | Fatto |
+| Invio delle email con Brevo (senza chiave restano nel log) | Fatto; configurazione in [docs/rilascio.md](docs/rilascio.md) |
+| Controllo di salute (`/api/health`), immagine Docker | Fatto e provato; rilascio in [docs/rilascio.md](docs/rilascio.md) |
 
 ## Stack
 
@@ -44,15 +35,9 @@ Fatte le sezioni 1–5 del [piano](docs/piano.md), salvo la prova dell'immagine 
 
 ## Contratto
 
-`contract/openapi.yaml` è la PR #7 del frontend **più le modifiche proposte nel commento del 4 novembre**:
-- risposta `403` con `code: csrf_invalid`;
-- slug riservati, da 3 a 50 caratteri;
-- `ETag`, `If-Match`, `412` e `428` sulla modifica;
-- tipo `public_body`, campo `country`, regole sui documenti obbligatori;
-- `code` facoltativo negli errori;
-- `422` sui parametri sbagliati dell'elenco.
+`contract/openapi.yaml` è **la fonte** del contratto: ogni cambio di API si fa prima qui. Il frontend ne tiene una copia in `api/openapi.yaml`, da cui genera i tipi; la copia non si modifica a mano, si aggiorna ricopiando questo file, e la CI del frontend controlla che i tipi generati corrispondano alla copia.
 
-Quando la PR #7 viene aggiornata, questo file si sostituisce con quello concordato. **I test controllano ogni risposta contro il contratto:** se il backend se ne allontana, falliscono.
+**I test controllano ogni risposta contro il contratto:** se il backend se ne allontana, falliscono.
 
 ## Come è fatto
 
@@ -61,14 +46,15 @@ db/migrations/      schema, Row Level Security, privilegi. SQL a mano, applicato
 scripts/migrate.ts  crea i ruoli e applica le migrazioni
 scripts/seed-dev.ts dati di sviluppo, gli stessi dei mock del frontend
 src/app.ts          server: sessione, errori, rotte
+src/config.ts       configurazione dalle variabili d'ambiente
 src/db.ts           i due pool e withIdentity()
 src/auth/           password, sessioni, CSRF, limite ai tentativi
-src/clients/        validazione dei clienti, partita IVA e codice fiscale
-src/suppliers/      validazione dei fornitori
-src/deadlines/      validazione delle scadenze
+src/http/           errori nel formato del contratto, contesto della richiesta, file
+src/mail/           invio delle email: Brevo, oppure il log in sviluppo
 src/money.ts        importi: stringhe nel contratto, centesimi nel database
-src/routes/         auth, me, clients, suppliers, supplier-documents, deadlines, estimates,
-                    estimate-structure, quotes, quote-lines
+src/pdf/            PDF (preventivi, computi, SAL, rapportini, ordini, estratti conto)
+src/routes/         un file di rotte per area; la validazione sta nella cartella dell'area
+                    (src/clients/, src/suppliers/, src/deadlines/, src/estimates/, src/quotes/…)
 test/               test di integrazione su un database usa e getta
 ```
 
@@ -108,6 +94,7 @@ npm run lint
 npm run format:check
 npm run typecheck
 npm test                 # crea e migra il database gestionale_test, non tocca quello di sviluppo
+                         # TEST_DB=gestionale_test_b npm test per lanciarne due insieme sullo stesso Postgres
 npm run build
 ```
 

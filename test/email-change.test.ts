@@ -190,4 +190,52 @@ describe('email change', () => {
     )
     expect(rows[0]?.email).toBe(user.email)
   })
+
+  it('if the link does not leave: 503, nothing changes and the earlier link still works', async () => {
+    const user = await fx.user()
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const first = freshEmail()
+    await browser.call('POST', '/api/me/email', {
+      body: { new_email: first, current_password: PASSWORD },
+    })
+    const firstToken = tokenFor(first)
+
+    const second = freshEmail()
+    ctx.mailer.refuses = (m) => m.to === second
+    try {
+      const failed = await browser.call('POST', '/api/me/email', {
+        body: { new_email: second, current_password: PASSWORD },
+      })
+      expect(failed.statusCode).toBe(503)
+      expect(failed.json()).toMatchObject({ code: 'email_not_sent' })
+    } finally {
+      ctx.mailer.refuses = () => false
+    }
+    const { rows } = await ctx.owner.query<{ count: number }>(
+      'select count(*)::int as count from auth.email_changes where user_id = $1',
+      [user.id],
+    )
+    expect(rows[0]?.count).toBe(1)
+    const done = await (await guest()).call('POST', `/api/auth/email-change/${firstToken}`)
+    expect(done.statusCode).toBe(204)
+  })
+
+  it('a warning that does not leave does not stop the change', async () => {
+    const user = await fx.user()
+    const browser = new Browser(ctx.app)
+    await browser.signIn(user.email)
+    const next = freshEmail()
+    ctx.mailer.refuses = (m) => m.to === user.email
+    try {
+      const asked = await browser.call('POST', '/api/me/email', {
+        body: { new_email: next, current_password: PASSWORD },
+      })
+      expect(asked.statusCode).toBe(204)
+    } finally {
+      ctx.mailer.refuses = () => false
+    }
+    const done = await (await guest()).call('POST', `/api/auth/email-change/${tokenFor(next)}`)
+    expect(done.statusCode).toBe(204)
+  })
 })

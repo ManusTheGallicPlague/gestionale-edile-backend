@@ -254,4 +254,28 @@ describe('invitations', () => {
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({ code: 'already_member' })
   })
+
+  it('if the email does not leave: 503 and the pending invitation stays as it was', async () => {
+    const { company, office, browser } = await ownerWithRole()
+    const email = `nuovo-${unique()}@example.test`
+    const pending = await invite(browser, company.slug, email, office)
+
+    ctx.mailer.refuses = (m) => m.to === email
+    try {
+      const failed = await browser.call('POST', `/api/companies/${company.slug}/invitations`, {
+        body: { email, role_id: office },
+      })
+      expect(failed.statusCode).toBe(503)
+      expect(failed.json()).toMatchObject({ code: 'email_not_sent' })
+      expect(failed.body).not.toContain('token')
+    } finally {
+      ctx.mailer.refuses = () => false
+    }
+    const list = await browser.call('GET', `/api/companies/${company.slug}/invitations`)
+    expect(list.json<{ data: unknown[] }>().data).toEqual([
+      expect.objectContaining({ id: pending.id, email }),
+    ])
+    const preview = await (await guest()).call('GET', `/api/invitations/${pending.token}`)
+    expect(preview.statusCode).toBe(200)
+  })
 })

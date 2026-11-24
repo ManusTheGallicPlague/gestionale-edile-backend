@@ -55,15 +55,21 @@ export function passwordResetRoutes(
       await db.auth.query(
         "delete from auth.password_resets where created_at < now() - interval '1 day'",
       )
-      await mailer.send({
-        to: email,
-        subject: 'Cambio della password',
-        text:
-          `Ciao ${user.name},\n\n` +
-          `per scegliere una nuova password apri questo link entro un'ora:\n` +
-          `${config.appUrl}/password-dimenticata/${token}\n\n` +
-          `Se non hai chiesto tu il cambio, ignora questo messaggio: la password resta quella di prima.\n`,
-      })
+      // Not awaited, and a failure only goes to the log: an answer that waited for the
+      // provider, or failed with it, would tell which accounts exist.
+      mailer
+        .send({
+          to: email,
+          subject: 'Cambio della password',
+          text:
+            `Ciao ${user.name},\n\n` +
+            `per scegliere una nuova password apri questo link entro un'ora:\n` +
+            `${config.appUrl}/password-dimenticata/${token}\n\n` +
+            `Se non hai chiesto tu il cambio, ignora questo messaggio: la password resta quella di prima.\n`,
+        })
+        .catch((error: unknown) => {
+          request.log.error({ err: error }, 'email per la password dimenticata non inviata')
+        })
     }
     return reply.code(204).send()
   })
