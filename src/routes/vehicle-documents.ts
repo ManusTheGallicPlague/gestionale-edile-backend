@@ -11,12 +11,12 @@ import { checkCsrf, requireSession } from '../http/request-context.js'
 import { IF_MATCH, refuseStale } from '../http/versions.js'
 import {
   ATTACHMENT_JSON,
-  ATTACHMENT_TYPES,
+  readAttachment,
+  replaceAttachment,
   sendAttachment,
   uploadScope,
   type AttachmentInfo,
 } from '../http/files.js'
-import { cleanFileName, matchesType } from './site-documents.js'
 
 export const VEHICLE_DOCUMENT_KINDS = [
   'insurance',
@@ -332,32 +332,8 @@ export function vehicleDocumentRoutes(app: FastifyInstance, config: Config, db: 
           const version = expectedVersion(request.headers['if-match'])
           // Before the file: 412 comes before 422.
           await bumpVersion(client, id, vehicleId, version)
-          const rawName = request.query.file_name
-          const fileName = typeof rawName === 'string' ? cleanFileName(rawName) : null
-          if (fileName === null || fileName.length > 200) {
-            throw new ValidationFailed({
-              file_name: [
-                fileName === null ? 'Indica il nome del file.' : 'Al massimo 200 caratteri.',
-              ],
-            })
-          }
-          const body = request.body
-          const declared = (request.headers['content-type'] ?? '').split(';')[0]?.trim()
-          const type = ATTACHMENT_TYPES.find((t) => t === declared)
-          if (!Buffer.isBuffer(body) || body.length === 0 || !type || !matchesType(body, type)) {
-            throw new ValidationFailed({
-              file: ['Il file non corrisponde al suo tipo, oppure è vuoto.'],
-            })
-          }
-          await client.query('delete from public.vehicle_document_files where document_id = $1', [
-            id,
-          ])
-          await client.query(
-            `insert into public.vehicle_document_files
-               (document_id, company_id, file_name, content_type, size_bytes, data)
-             values ($1, app.current_company_id(), $2, $3, $4, $5)`,
-            [id, fileName, type, body.length, body],
-          )
+          const file = readAttachment(request.query, request.headers['content-type'], request.body)
+          await replaceAttachment(client, 'vehicle_document_files', id, file)
           return readOne(client, id)
         })
         return send(reply, row)

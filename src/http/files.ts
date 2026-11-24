@@ -1,7 +1,15 @@
 import type { FastifyInstance, FastifyReply } from 'fastify'
+import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
+import { ValidationFailed } from './errors.js'
+import { stripImageMetadata } from './image-metadata.js'
 import { checkCsrf, requireSession } from './request-context.js'
-import { MAX_DOCUMENT_BYTES, contentDisposition } from '../routes/site-documents.js'
+import {
+  MAX_DOCUMENT_BYTES,
+  cleanFileName,
+  contentDisposition,
+  matchesType,
+} from '../routes/site-documents.js'
 
 /** The PDF of an invoice or a compliance document, or a scan or photo of it. */
 export const ATTACHMENT_TYPES = ['application/pdf', 'image/jpeg', 'image/png'] as const
@@ -65,6 +73,63 @@ export function uploadScope(
     routes(scope)
     done()
   })
+}
+
+/** An uploaded attachment, ready to store. */
+export interface UploadedFile {
+  file_name: string
+  content_type: AttachmentType
+  data: Buffer
+}
+
+/**
+ * The file of an upload in an uploadScope: its name from the query string (file_name), its
+ * type from Content-Type, checked against the first bytes; a photo loses its position and
+ * the other metadata here. 422 when something does not fit.
+ */
+export function readAttachment(
+  query: Record<string, unknown>,
+  contentType: string | undefined,
+  body: unknown,
+): UploadedFile {
+  const rawName = query.file_name
+  const fileName = typeof rawName === 'string' ? cleanFileName(rawName) : null
+  if (fileName === null || fileName.length > 200) {
+    throw new ValidationFailed({
+      file_name: [fileName === null ? 'Indica il nome del file.' : 'Al massimo 200 caratteri.'],
+    })
+  }
+  const declared = (contentType ?? '').split(';')[0]?.trim()
+  const type = ATTACHMENT_TYPES.find((t) => t === declared)
+  if (!Buffer.isBuffer(body) || body.length === 0 || !type || !matchesType(body, type)) {
+    throw new ValidationFailed({ file: ['Il file non corrisponde al suo tipo, oppure è vuoto.'] })
+  }
+  return { file_name: fileName, content_type: type, data: stripImageMetadata(body, type) }
+}
+
+/** The tables of the attachments, with the column that points to their record. */
+const ATTACHMENT_TABLES = {
+  supplier_document_files: 'document_id',
+  vehicle_document_files: 'document_id',
+  employee_document_files: 'document_id',
+  invoice_files: 'invoice_id',
+} as const
+
+/** Puts the file in place of the one the record had, if any. */
+export async function replaceAttachment(
+  client: PoolClient,
+  table: keyof typeof ATTACHMENT_TABLES,
+  id: string,
+  file: UploadedFile,
+): Promise<void> {
+  const key = ATTACHMENT_TABLES[table]
+  await client.query(`delete from public.${table} where ${key} = $1`, [id])
+  await client.query(
+    `insert into public.${table}
+       (${key}, company_id, file_name, content_type, size_bytes, data)
+     values ($1, app.current_company_id(), $2, $3, $4, $5)`,
+    [id, file.file_name, file.content_type, file.data.length, file.data],
+  )
 }
 
 /** Largest CSV file an import accepts. */
