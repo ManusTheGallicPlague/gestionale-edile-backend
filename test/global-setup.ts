@@ -7,7 +7,9 @@ import pg from 'pg'
 import type { TestProject } from 'vitest/node'
 import { migrate } from '../scripts/migrate.js'
 
-const TEST_DB = 'gestionale_test'
+// TEST_DB lets several checkouts run the tests side by side on the same Postgres.
+const TEST_DB = process.env.TEST_DB ?? 'gestionale_test'
+if (!/^[a-z_][a-z0-9_]*$/.test(TEST_DB)) throw new Error(`Invalid TEST_DB: ${TEST_DB}`)
 
 function required(name: string): string {
   const value = process.env[name]
