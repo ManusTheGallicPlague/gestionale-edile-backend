@@ -95,7 +95,9 @@ paths:
         Serve il token CSRF (come per l'accesso). Se l'email è di un account attivo il backend
         manda un messaggio con il link /password-dimenticata/{token}, valido un'ora e una volta
         sola; al massimo 3 messaggi l'ora per account. La risposta è sempre 204, anche per
-        un'email sconosciuta: non rivela quali account esistono.
+        un'email sconosciuta: non rivela quali account esistono. Oltre il limite per account,
+        che è silenzioso, c'è quello per indirizzo IP: dopo 10 richieste in 15 minuti, per
+        qualunque email, la risposta è 429 con Retry-After.
       security:
         - csrf: []
       requestBody:
@@ -108,6 +110,7 @@ paths:
           description: Richiesta ricevuta
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /api/auth/password-reset/{token}:
     parameters:
@@ -125,6 +128,9 @@ paths:
         Serve il token CSRF. Con un link valido la password cambia, tutte le sessioni
         dell'account si chiudono e gli altri link inviati smettono di funzionare; poi si
         accede con la nuova password. Un link sconosciuto, già usato o scaduto risponde 404.
+        Un link che non funziona (404) conta come tentativo fallito per l'indirizzo IP: dopo
+        20 in 15 minuti la risposta è 429 con Retry-After, anche per un link valido. Il
+        limite è comune ai link di password dimenticata, invito e cambio email.
       security:
         - csrf: []
       requestBody:
@@ -138,6 +144,7 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /api/auth/logout:
     post:
@@ -257,6 +264,9 @@ paths:
         accedere si usa da subito la nuova) e le sessioni restano aperte. Un link
         sconosciuto, già usato, scaduto o di un account disattivato risponde 404; se nel
         frattempo l'indirizzo è stato preso da un altro account, 409 con code email_in_use.
+        Un link che non funziona (404) conta come tentativo fallito per l'indirizzo IP: dopo
+        20 in 15 minuti la risposta è 429 con Retry-After, anche per un link valido. Il
+        limite è comune ai link di password dimenticata, invito e cambio email.
       security:
         - csrf: []
       responses:
@@ -269,6 +279,7 @@ paths:
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /api/me/sessions:
     get:
@@ -9892,6 +9903,9 @@ paths:
         Non serve la sessione. Un token sconosciuto, già usato o scaduto risponde 404, sempre
         con lo stesso messaggio. account_exists dice se l'email ha già un account: in quel
         caso la pagina chiede solo la password, altrimenti anche il nome.
+        Un link che non funziona (404) conta come tentativo fallito per l'indirizzo IP: dopo
+        20 in 15 minuti la risposta è 429 con Retry-After, anche per un link valido. Il
+        limite è comune ai link di password dimenticata, invito e cambio email.
       security: []
       responses:
         '200':
@@ -9900,6 +9914,7 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/InvitationPreview' }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /api/invitations/{token}/logo:
     parameters:
@@ -9909,7 +9924,9 @@ paths:
       summary: Logo dell'azienda che invita, per la pagina /invito/:token
       description: |
         Non serve la sessione: basta un invito valido. Risponde 404 se il token è sconosciuto,
-        già usato o scaduto, o se l'azienda non ha un logo (has_logo nell'invito lo dice prima).
+        già usato o scaduto, o se l'azienda non ha un logo (has_logo nell'invito lo dice prima:
+        senza logo non si chiama). Ogni 404 conta nel limite sui link per indirizzo IP, come
+        in getInvitation, e dopo troppi la risposta è 429 con Retry-After.
       security: []
       responses:
         '200':
@@ -9922,6 +9939,7 @@ paths:
             image/jpeg:
               schema: { type: string, format: binary }
         '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /api/invitations/{token}/accept:
     parameters:
@@ -9935,7 +9953,9 @@ paths:
         sua password (name è ignorato). Se va a buon fine l'utente entra nell'azienda con il
         ruolo dell'invito e il backend apre una sessione nuova, come all'accesso. Una
         password sbagliata risponde 422 sul campo password e conta come tentativo di accesso
-        fallito. Un utente già membro riceve 409 con code already_member.
+        fallito (dopo troppi, 429). Un utente già membro riceve 409 con code already_member.
+        Un invito sconosciuto, già usato o scaduto risponde 404 e conta nel limite sui link
+        per indirizzo IP, come in getInvitation: dopo troppi, 429 con Retry-After.
       security:
         - csrf: []
       requestBody:

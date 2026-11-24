@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import type { Config } from '../config.js'
 import type { Db } from '../db.js'
 import { randomToken, sha256 } from '../auth/crypto.js'
-import { clearFailures } from '../auth/login-limits.js'
+import { clearFailures, countResetRequest, underLinkLimit } from '../auth/login-limits.js'
 import { hashPassword } from '../auth/password.js'
 import { ApiError, ValidationFailed } from '../http/errors.js'
 import { checkCsrf } from '../http/request-context.js'
@@ -32,6 +32,8 @@ export function passwordResetRoutes(
     if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+$/.test(email)) {
       throw new ValidationFailed({ email: ["L'indirizzo email non sembra valido."] })
     }
+    // The limit per account below is silent; this one, per IP, answers 429.
+    await countResetRequest(db.auth, config.loginLimits, request.ip)
 
     // Same answer whether the account exists or not: nothing is revealed.
     const { rows } = await db.auth.query<{ id: string; name: string; recent: number }>(
@@ -78,42 +80,47 @@ export function passwordResetRoutes(
       if (password.length > 200) {
         throw new ValidationFailed({ new_password: ['Al massimo 200 caratteri.'] })
       }
-      if (!TOKEN.test(request.params.token)) throw new ApiError(404, INVALID_LINK)
-      const hash = await hashPassword(password)
-
-      const client = await db.auth.connect()
-      try {
-        await client.query('begin')
-        // Marks the token used in the same statement that checks it: it works once.
-        const { rows } = await client.query<{ user_id: string; email: string }>(
-          `update auth.password_resets r set used_at = now()
-           from auth.users u
-           where r.token_hash = $1 and r.used_at is null and r.expires_at > now()
-             and u.id = r.user_id and u.active
-           returning r.user_id, u.email`,
-          [sha256(request.params.token)],
-        )
-        const found = rows[0]
-        if (!found) throw new ApiError(404, INVALID_LINK)
-        await client.query('update auth.users set password_hash = $2 where id = $1', [
-          found.user_id,
-          hash,
-        ])
-        // Every session and every other link of the account stops working.
-        await client.query('delete from auth.sessions where user_id = $1', [found.user_id])
-        await client.query(
-          'delete from auth.password_resets where user_id = $1 and used_at is null',
-          [found.user_id],
-        )
-        await client.query('commit')
-        await clearFailures(db.auth, found.email)
-      } catch (error) {
-        await client.query('rollback').catch(() => {})
-        throw error
-      } finally {
-        client.release()
-      }
+      await underLinkLimit(db.auth, config.loginLimits, request.ip, () =>
+        setPassword(db, request.params.token, password),
+      )
       return reply.code(204).send()
     },
   )
+}
+
+async function setPassword(db: Db, token: string, password: string): Promise<void> {
+  if (!TOKEN.test(token)) throw new ApiError(404, INVALID_LINK)
+  const hash = await hashPassword(password)
+
+  const client = await db.auth.connect()
+  try {
+    await client.query('begin')
+    // Marks the token used in the same statement that checks it: it works once.
+    const { rows } = await client.query<{ user_id: string; email: string }>(
+      `update auth.password_resets r set used_at = now()
+       from auth.users u
+       where r.token_hash = $1 and r.used_at is null and r.expires_at > now()
+         and u.id = r.user_id and u.active
+       returning r.user_id, u.email`,
+      [sha256(token)],
+    )
+    const found = rows[0]
+    if (!found) throw new ApiError(404, INVALID_LINK)
+    await client.query('update auth.users set password_hash = $2 where id = $1', [
+      found.user_id,
+      hash,
+    ])
+    // Every session and every other link of the account stops working.
+    await client.query('delete from auth.sessions where user_id = $1', [found.user_id])
+    await client.query('delete from auth.password_resets where user_id = $1 and used_at is null', [
+      found.user_id,
+    ])
+    await client.query('commit')
+    await clearFailures(db.auth, found.email)
+  } catch (error) {
+    await client.query('rollback').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
 }

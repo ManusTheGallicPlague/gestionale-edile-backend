@@ -4,7 +4,12 @@ import type { Db } from '../db.js'
 import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { randomToken, sha256 } from '../auth/crypto.js'
-import { recordFailure, secondsUntilAllowed, clearFailures } from '../auth/login-limits.js'
+import {
+  clearFailures,
+  recordFailure,
+  secondsUntilAllowed,
+  underLinkLimit,
+} from '../auth/login-limits.js'
 import { hashPassword, verifyPassword } from '../auth/password.js'
 import { UUID } from '../deadlines/input.js'
 import { ApiError, ValidationFailed, forbidden, messages, notFound } from '../http/errors.js'
@@ -182,7 +187,9 @@ export function invitationRoutes(
   )
 
   app.get<{ Params: { token: string } }>('/api/invitations/:token', async (request) => {
-    const invitation = await findByToken(db, request.params.token)
+    const invitation = await underLinkLimit(db.auth, config.loginLimits, request.ip, () =>
+      findByToken(db, request.params.token),
+    )
     const logo = await db.auth.query<{ has_logo: boolean }>(
       'select auth.invitation_has_logo($1) as has_logo',
       [sha256(request.params.token)],
@@ -199,13 +206,17 @@ export function invitationRoutes(
 
   // The logo of the inviting company, for the page before anyone is signed in.
   app.get<{ Params: { token: string } }>('/api/invitations/:token/logo', async (request, reply) => {
-    if (!TOKEN.test(request.params.token)) throw new ApiError(404, INVALID_INVITATION)
-    const { rows } = await db.auth.query<{ content_type: string; data: Buffer; version: number }>(
-      'select * from auth.invitation_logo($1)',
-      [sha256(request.params.token)],
-    )
-    const logo = rows[0]
-    if (!logo) throw new ApiError(404, INVALID_INVITATION)
+    const logo = await underLinkLimit(db.auth, config.loginLimits, request.ip, async () => {
+      if (!TOKEN.test(request.params.token)) throw new ApiError(404, INVALID_INVITATION)
+      const { rows } = await db.auth.query<{
+        content_type: string
+        data: Buffer
+        version: number
+      }>('select * from auth.invitation_logo($1)', [sha256(request.params.token)])
+      const found = rows[0]
+      if (!found) throw new ApiError(404, INVALID_INVITATION)
+      return found
+    })
     return reply
       .header('Content-Type', logo.content_type)
       .header('ETag', `"${logo.version}"`)
@@ -217,7 +228,9 @@ export function invitationRoutes(
     async (request, reply) => {
       checkCsrf(config, request)
       const input = readAccept(request.body)
-      const invitation = await findByToken(db, request.params.token)
+      const invitation = await underLinkLimit(db.auth, config.loginLimits, request.ip, () =>
+        findByToken(db, request.params.token),
+      )
       const tokenHash = sha256(request.params.token)
 
       let passwordHash: string | null = null

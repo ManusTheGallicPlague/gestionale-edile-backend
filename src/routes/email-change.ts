@@ -2,7 +2,12 @@ import type { FastifyInstance } from 'fastify'
 import type { Config } from '../config.js'
 import type { Db } from '../db.js'
 import { randomToken, sha256 } from '../auth/crypto.js'
-import { clearFailures, recordFailure, secondsUntilAllowed } from '../auth/login-limits.js'
+import {
+  clearFailures,
+  recordFailure,
+  secondsUntilAllowed,
+  underLinkLimit,
+} from '../auth/login-limits.js'
 import { verifyPassword } from '../auth/password.js'
 import { ApiError, ValidationFailed, messages, type FieldErrors } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
@@ -123,46 +128,51 @@ export function emailChangeRoutes(
     '/api/auth/email-change/:token',
     async (request, reply) => {
       checkCsrf(config, request)
-      if (!TOKEN.test(request.params.token)) throw new ApiError(404, INVALID_LINK)
-      const client = await db.auth.connect()
-      try {
-        await client.query('begin')
-        // Marks the token used in the same statement that checks it: it works once.
-        const { rows } = await client.query<{ user_id: string; new_email: string }>(
-          `update auth.email_changes c set used_at = now()
-           from auth.users u
-           where c.token_hash = $1 and c.used_at is null and c.expires_at > now()
-             and u.id = c.user_id and u.active
-           returning c.user_id, c.new_email`,
-          [sha256(request.params.token)],
-        )
-        const found = rows[0]
-        if (!found) throw new ApiError(404, INVALID_LINK)
-        await client.query('savepoint change')
-        try {
-          await client.query('update auth.users set email = $2 where id = $1', [
-            found.user_id,
-            found.new_email,
-          ])
-        } catch (error) {
-          if ((error as { code?: string }).code !== '23505') throw error
-          // Taken by another account in the meantime: the link stays usable for nothing.
-          await client.query('rollback to savepoint change')
-          await client.query('commit')
-          throw new ApiError(409, IN_USE, 'email_in_use')
-        }
-        await client.query(
-          'delete from auth.email_changes where user_id = $1 and used_at is null',
-          [found.user_id],
-        )
-        await client.query('commit')
-      } catch (error) {
-        await client.query('rollback').catch(() => {})
-        throw error
-      } finally {
-        client.release()
-      }
+      await underLinkLimit(db.auth, config.loginLimits, request.ip, () =>
+        confirmEmail(db, request.params.token),
+      )
       return reply.code(204).send()
     },
   )
+}
+
+async function confirmEmail(db: Db, token: string): Promise<void> {
+  if (!TOKEN.test(token)) throw new ApiError(404, INVALID_LINK)
+  const client = await db.auth.connect()
+  try {
+    await client.query('begin')
+    // Marks the token used in the same statement that checks it: it works once.
+    const { rows } = await client.query<{ user_id: string; new_email: string }>(
+      `update auth.email_changes c set used_at = now()
+       from auth.users u
+       where c.token_hash = $1 and c.used_at is null and c.expires_at > now()
+         and u.id = c.user_id and u.active
+       returning c.user_id, c.new_email`,
+      [sha256(token)],
+    )
+    const found = rows[0]
+    if (!found) throw new ApiError(404, INVALID_LINK)
+    await client.query('savepoint change')
+    try {
+      await client.query('update auth.users set email = $2 where id = $1', [
+        found.user_id,
+        found.new_email,
+      ])
+    } catch (error) {
+      if ((error as { code?: string }).code !== '23505') throw error
+      // Taken by another account in the meantime: the link stays usable for nothing.
+      await client.query('rollback to savepoint change')
+      await client.query('commit')
+      throw new ApiError(409, IN_USE, 'email_in_use')
+    }
+    await client.query('delete from auth.email_changes where user_id = $1 and used_at is null', [
+      found.user_id,
+    ])
+    await client.query('commit')
+  } catch (error) {
+    await client.query('rollback').catch(() => {})
+    throw error
+  } finally {
+    client.release()
+  }
 }

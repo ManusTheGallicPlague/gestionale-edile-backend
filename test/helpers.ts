@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { randomInt, randomUUID } from 'node:crypto'
 import type { FastifyInstance } from 'fastify'
 import type { Response as InjectResponse } from 'light-my-request'
 import pg from 'pg'
@@ -57,6 +57,14 @@ export async function startApp(): Promise<TestContext> {
 }
 
 export const unique = () => randomUUID().slice(0, 8)
+
+/** The token of the last link to /{route}/ emailed to this address. */
+export function mailedToken(mailer: MemoryMailer, to: string, route: string): string {
+  const message = [...mailer.sent].reverse().find((m) => m.to === to)
+  const match = new RegExp(`/${route}/([A-Za-z0-9_-]+)`).exec(message?.text ?? '')
+  if (!match?.[1]) throw new Error(`no /${route}/ link emailed to ${to}`)
+  return match[1]
+}
 
 /** Creates data as the owner, bypassing the API: it is how tests set the scene. */
 export class Fixtures {
@@ -122,12 +130,15 @@ export class Fixtures {
  */
 export class Browser {
   readonly cookies = new Map<string, string>()
-  private static counter = 0
+  // Every test file starts at a random point of 10.0.0.0/8: the attempts counted per IP stay
+  // in the database between files, so two files must not share addresses.
+  private static counter = randomInt(2 ** 24 - 2 ** 16)
   readonly ip: string
 
   constructor(private readonly app: FastifyInstance) {
     Browser.counter++
-    this.ip = `10.0.${Math.floor(Browser.counter / 250)}.${(Browser.counter % 250) + 1}`
+    const n = Browser.counter
+    this.ip = `10.${(n >> 16) & 255}.${(n >> 8) & 255}.${n & 255}`
   }
 
   async request(

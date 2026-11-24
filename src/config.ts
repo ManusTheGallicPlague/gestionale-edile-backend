@@ -16,12 +16,18 @@ export interface LoginLimits {
   windowSeconds: number
   maxFailuresPerEmail: number
   maxFailuresPerIp: number
+  /** Password reset requests per IP in the window, whatever the email. */
+  maxResetRequestsPerIp: number
+  /** Links that do not work (reset, invitation, email change) per IP in the window. */
+  maxLinkFailuresPerIp: number
 }
 
 export const DEFAULT_LOGIN_LIMITS: LoginLimits = {
   windowSeconds: 15 * 60,
   maxFailuresPerEmail: 5,
   maxFailuresPerIp: 30,
+  maxResetRequestsPerIp: 10,
+  maxLinkFailuresPerIp: 20,
 }
 
 function required(env: NodeJS.ProcessEnv, name: string): string {
