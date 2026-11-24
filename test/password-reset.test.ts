@@ -122,4 +122,18 @@ describe('forgotten password', () => {
       ).statusCode,
     ).toBe(404)
   })
+
+  it('answers 204 even when the email does not leave, as for an unknown account', async () => {
+    const user = await fx.user()
+    const visitor = await guest()
+    ctx.mailer.refuses = () => true
+    try {
+      const res = await visitor.call('POST', '/api/auth/password-reset', {
+        body: { email: user.email },
+      })
+      expect(res.statusCode).toBe(204)
+    } finally {
+      ctx.mailer.refuses = () => false
+    }
+  })
 })

@@ -95,7 +95,8 @@ paths:
         Serve il token CSRF (come per l'accesso). Se l'email è di un account attivo il backend
         manda un messaggio con il link /password-dimenticata/{token}, valido un'ora e una volta
         sola; al massimo 3 messaggi l'ora per account. La risposta è sempre 204, anche per
-        un'email sconosciuta: non rivela quali account esistono.
+        un'email sconosciuta e anche se l'invio del messaggio non riesce: non rivela quali
+        account esistono.
       security:
         - csrf: []
       requestBody:
@@ -222,7 +223,8 @@ paths:
         /conferma-email/{token}, valido 24 ore e una volta sola; al vecchio indirizzo arriva
         un avviso. Una nuova richiesta annulla i link precedenti; al massimo 3 richieste l'ora.
         Un indirizzo uguale a quello attuale o già usato da un altro account risponde 422 su
-        new_email.
+        new_email. Se il messaggio con il link non parte, la risposta è 503 con code
+        email_not_sent e non cambia nulla: i link precedenti restano validi e si può riprovare.
       security:
         - session: []
           csrf: []
@@ -238,6 +240,11 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
         '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503':
+          description: Il messaggio con il link non è partito (code email_not_sent).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/auth/email-change/{token}:
     parameters:
@@ -9834,7 +9841,9 @@ paths:
         Il backend lo manda per email all'invitato; il token compare anche in questa risposta
         (e solo qui: il backend ne tiene l'impronta), così il link si può copiare e girare. Un nuovo
         invito per la stessa email sostituisce quello in attesa. Se l'email è già di un
-        membro dell'azienda la risposta è 409 con code already_member.
+        membro dell'azienda la risposta è 409 con code already_member. Se il messaggio
+        d'invito non parte, la risposta è 503 con code email_not_sent e l'invito non viene
+        creato (quello in attesa, se c'è, resta valido).
       security:
         - session: []
           csrf: []
@@ -9858,6 +9867,11 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
         '422': { $ref: '#/components/responses/ValidationFailed' }
+        '503':
+          description: Il messaggio d'invito non è partito (code email_not_sent).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
 
   /api/companies/{company}/invitations/{invitation}:
     parameters:
@@ -10839,7 +10853,7 @@ components:
           description: |
             Codice stabile per i casi che il frontend deve riconoscere senza leggere il testo.
             Tutti quelli in uso: already_member, credit_note, csrf_invalid, current_session,
-            database_unavailable, email_in_use, estimate_final, has_documents, invalid_transition, last_manager,
+            database_unavailable, email_in_use, email_not_sent, estimate_final, has_documents, invalid_transition, last_manager,
             number_in_use, order_not_draft, precondition_required, quote_not_draft,
             report_not_draft, role_in_use, self_deactivation, site_exists, stale_record,
             statement_draft_exists, statement_not_draft.

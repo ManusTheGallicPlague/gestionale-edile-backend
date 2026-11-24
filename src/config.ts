@@ -10,6 +10,14 @@ export interface Config {
   loginLimits: LoginLimits
   /** Public address of the frontend, for the links in emails (no trailing slash). */
   appUrl: string
+  /** Brevo, for sending the emails. Null without BREVO_API_KEY: the emails only go to the log. */
+  brevo: BrevoConfig | null
+}
+
+export interface BrevoConfig {
+  apiKey: string
+  /** The sender, an address verified in Brevo. */
+  sender: { email: string; name?: string }
 }
 
 export interface LoginLimits {
@@ -57,7 +65,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: env.LOG_LEVEL ?? 'info',
     loginLimits: DEFAULT_LOGIN_LIMITS,
     appUrl: appUrl(env),
+    brevo: brevo(env),
   }
+}
+
+function brevo(env: NodeJS.ProcessEnv): BrevoConfig | null {
+  const apiKey = env.BREVO_API_KEY?.trim()
+  if (!apiKey) return null
+  const email = required(env, 'MAIL_FROM').trim()
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error('MAIL_FROM must be an email address, like gestionale@example.test')
+  }
+  const name = env.MAIL_FROM_NAME?.trim()
+  return { apiKey, sender: name ? { email, name } : { email } }
 }
 
 function appUrl(env: NodeJS.ProcessEnv): string {

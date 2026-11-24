@@ -32,6 +32,7 @@ export const messages = {
   notFound: 'Non trovato, oppure non hai accesso.',
   notAllowed: 'Il tuo ruolo non permette questa azione.',
   tooManyAttempts: 'Troppi tentativi di accesso. Riprova tra qualche minuto.',
+  emailNotSent: "Non è stato possibile inviare l'email. Riprova tra qualche minuto.",
   staleRecord:
     'Il cliente è stato modificato da qualcun altro. Ricarica la scheda per vedere le modifiche.',
   missingIfMatch: 'Manca la versione del cliente: ricarica la scheda e riprova.',
