@@ -11,7 +11,13 @@ beforeAll(async () => {
 })
 afterAll(() => ctx.close())
 
-const ALL: Permission[] = ['vehicles.view', 'vehicles.create', 'vehicles.update', 'vehicles.delete']
+const ALL: Permission[] = [
+  'vehicles.view',
+  'vehicles.create',
+  'vehicles.update',
+  'vehicles.delete',
+  'costs.view',
+]
 
 function vehicleBody(overrides: Record<string, unknown> = {}) {
   return {

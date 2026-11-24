@@ -11,7 +11,7 @@ beforeAll(async () => {
 })
 afterAll(() => ctx.close())
 
-const ALL: Permission[] = ['reports.view', 'employees.view', 'vehicles.view']
+const ALL: Permission[] = ['reports.view', 'employees.view', 'vehicles.view', 'costs.view']
 
 interface Summary {
   hours: string

@@ -12,7 +12,7 @@ beforeAll(async () => {
 })
 afterAll(() => ctx.close())
 
-const ALL: Permission[] = ['employees.view', 'employees.create', 'employees.update']
+const ALL: Permission[] = ['employees.view', 'employees.create', 'employees.update', 'costs.view']
 
 async function scene(permissions: Permission[] = ALL) {
   const { company } = await fx.companyWithUser(ALL)

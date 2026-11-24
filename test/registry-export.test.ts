@@ -46,7 +46,7 @@ describe('sites, employees and vehicles export', () => {
   })
 
   it('exports the employees with hourly cost and status', async () => {
-    const { company, browser } = await signedIn(['employees.view'])
+    const { company, browser } = await signedIn(['employees.view', 'costs.view'])
     await ctx.owner.query(
       `insert into public.employees (company_id, first_name, last_name, job_title, hired_on,
          hourly_cost_cents, active)
@@ -71,7 +71,7 @@ describe('sites, employees and vehicles export', () => {
   })
 
   it('exports the vehicles with translated kind', async () => {
-    const { company, browser } = await signedIn(['vehicles.view'])
+    const { company, browser } = await signedIn(['vehicles.view', 'costs.view'])
     await ctx.owner.query(
       `insert into public.vehicles (company_id, name, kind, plate, hourly_cost_cents)
        values ($1, 'Furgone', 'vehicle', 'AB123CD', 1500), ($1, 'Gru', 'machine', null, null)`,
