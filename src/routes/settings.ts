@@ -7,6 +7,7 @@ import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
 import { ApiError, ValidationFailed, forbidden, messages } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH } from '../http/versions.js'
 import { PROFILE_FIELDS, parseProfile, type ProfileInput } from '../settings/input.js'
 
 export interface ProfileRow extends ProfileInput {
@@ -80,8 +81,15 @@ export function settingsRoutes(app: FastifyInstance, config: Config, db: Db): vo
       if (typeof header !== 'string' || header.trim() === '') {
         throw new ApiError(428, messages.settingsMissingIfMatch, 'precondition_required')
       }
-      const match = /^"(\d{1,9})"$/.exec(header.trim())
+      const match = IF_MATCH.exec(header.trim())
       const version = match ? Number(match[1]) : -1
+      // 412 comes before 422. No row yet is version 0, as in getCompanySettings.
+      const saved = await client.query<{ version: number }>(
+        'select version from public.company_profiles where company_id = app.current_company_id()',
+      )
+      if ((saved.rows[0]?.version ?? 0) !== version) {
+        throw new ApiError(412, messages.settingsStale, 'stale_record')
+      }
       const parsed = parseProfile(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
       const values: unknown[] = PROFILE_FIELDS.map((f) => parsed.input[f])

@@ -6,7 +6,7 @@ Come si mette in produzione il backend. Il frontend è fatto di file statici e v
 
 - Postgres 17 (o 16), con un database vuoto e un ruolo proprietario (`gestionale_owner`) che possa creare ruoli (`CREATEROLE`): le migrazioni creano da sole `gestionale_app` e `gestionale_auth` con le password dell'ambiente.
 - L'immagine Docker di questo repository, oppure Node 22 o più recente.
-- Un proxy inverso con HTTPS davanti all'API.
+- Un proxy inverso con HTTPS davanti all'API. Se comprime le risposte (nginx con `gzip on`), rende deboli gli `ETag` (`W/"7"`): l'API accetta anche questa forma in `If-Match`, quindi la compressione può restare accesa, ma il proxy non deve togliere l'header `ETag` né cambiare `If-Match`.
 
 ## Immagine
 

@@ -18,6 +18,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { csvScope } from '../http/files.js'
 import { ImportFailed } from '../csv-import.js'
 import { RowErrors } from '../clients/import.js'
@@ -108,7 +109,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.employeeMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -497,6 +498,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
       const id = request.params.employee ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(client, 'public.employees', { id }, version, messages.employeeStale)
       const parsed = parseEmployeeInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
       const canSeeCosts = permissions.has('costs.view')

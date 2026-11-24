@@ -15,6 +15,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { ImportFailed, MAX_IMPORT_ROWS, parsePriceListCsv } from '../price-lists/import.js'
 import { csvScope } from '../http/files.js'
 import { italianAmount, toCsv } from '../csv.js'
@@ -76,7 +77,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.priceListMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -300,6 +301,13 @@ export function priceListRoutes(app: FastifyInstance, config: Config, db: Db): v
       const current = await readList(client, request.params.list)
       if (!current) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.price_lists',
+        { id: current.id },
+        version,
+        messages.priceListStale,
+      )
       const input = parseList(request.body)
       const { rowCount } = await client.query(
         `update public.price_lists set name = $1, year = $2, notes = $3, version = version + 1,
@@ -454,6 +462,13 @@ export function priceListRoutes(app: FastifyInstance, config: Config, db: Db): v
       const current = list && (await readItem(client, list.id, request.params.item))
       if (!current) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.price_list_items',
+        { id: current.id },
+        version,
+        messages.priceListStale,
+      )
       const input = parseItem(request.body)
       const { rowCount } = await client
         .query(

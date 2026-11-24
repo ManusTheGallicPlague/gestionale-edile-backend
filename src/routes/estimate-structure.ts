@@ -16,6 +16,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { estimatePdf } from '../estimates/pdf.js'
 import { estimateCsv } from '../estimates/csv.js'
 import { readLogoForPdf } from './logo.js'
@@ -147,7 +148,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.structureMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -672,7 +673,6 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       async (client) => {
         const estimateId = await enterEstimate(client, request, 'estimates.update')
         const expected = expectedVersion(request.headers['if-match'])
-        const arrangement = parseArrangement(request.body)
         const { rows } = await client.query<{ structure_version: number }>(
           'select structure_version from public.estimates where id = $1 for update',
           [estimateId],
@@ -680,6 +680,8 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
         if (rows[0]?.structure_version !== expected) {
           throw new ApiError(412, messages.structureStale, 'stale_record')
         }
+        // After the version: 412 comes before 422.
+        const arrangement = parseArrangement(request.body)
         await arrange(client, estimateId, arrangement)
         await touch(client, estimateId)
         return readStructure(client, estimateId)
@@ -734,6 +736,13 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       const id = request.params.chapter ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.estimate_chapters',
+        { id, estimate_id: estimateId },
+        version,
+        messages.chapterStale,
+      )
       const input = parseChapter(request.body, false)
       const { rows } = await client.query<{ id: string }>(
         `update public.estimate_chapters
@@ -862,6 +871,13 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       const id = request.params.item ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.estimate_items',
+        { id, estimate_id: estimateId },
+        version,
+        messages.itemStale,
+      )
       const input = parseItem(request.body, false)
       const { rows } = await client.query<{ id: string }>(
         `update public.estimate_items
@@ -936,6 +952,13 @@ export function estimateStructureRoutes(app: FastifyInstance, config: Config, db
       const id = request.params.measurement ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.estimate_measurements',
+        { id, estimate_id: estimateId },
+        version,
+        messages.measurementStale,
+      )
       const input = parseMeasurement(request.body, false)
       const { rows } = await client
         .query<MeasurementRow>(

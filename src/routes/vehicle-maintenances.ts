@@ -16,6 +16,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 export const MAINTENANCE_KINDS = ['service', 'repair', 'inspection', 'tires', 'other'] as const
@@ -260,7 +261,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.maintenanceMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -501,6 +502,13 @@ export function vehicleMaintenanceRoutes(app: FastifyInstance, config: Config, d
       const id = request.params.maintenance ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.vehicle_maintenances',
+        { id, vehicle_id: vehicleId },
+        version,
+        messages.maintenanceStale,
+      )
       const input = parseMaintenanceInput(request.body)
       await checkSupplier(client, input)
       if (input.next_due_on === undefined) {

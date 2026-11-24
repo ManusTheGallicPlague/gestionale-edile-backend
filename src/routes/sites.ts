@@ -17,6 +17,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { formatQuoteNumber } from '../quotes/number.js'
 import { DOCUMENT_FILTERS, EMPLOYEE_DOCUMENTS_SQL } from './employees.js'
 import { onSite } from './site-subcontractors.js'
@@ -185,7 +186,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.siteMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -808,6 +809,7 @@ export function siteRoutes(app: FastifyInstance, config: Config, db: Db): void {
       const id = request.params.site ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(client, 'public.sites', { id }, version, messages.siteStale)
       const parsed = parseSiteInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
       const columns: string[] = [...COLUMNS]

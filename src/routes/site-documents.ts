@@ -14,6 +14,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 
@@ -112,7 +113,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.documentMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -315,6 +316,13 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
       const current = await readOne(client, request.params.site, request.params.document ?? '')
       if (!current) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.site_documents',
+        { id: current.id },
+        version,
+        messages.documentStale,
+      )
       const input = parseUpdate(request.body)
       const { rowCount } = await client.query(
         `update public.site_documents set title = $1, notes = $2, version = version + 1,

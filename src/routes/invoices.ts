@@ -16,6 +16,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import {
   ATTACHMENT_JSON,
   ATTACHMENT_TYPES,
@@ -288,7 +289,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.invoiceMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -1472,6 +1473,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const id = request.params.invoice ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(client, 'public.invoices', { id }, version, messages.invoiceStale)
       const input = parseInvoiceInput(request.body)
       const current = await readOne(client, id)
       if (!current) throw notFound()
@@ -1700,9 +1702,10 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const id = request.params.invoice ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const input = parsePaymentInput(request.body)
       // Locks the invoice: concurrent payments wait here, so the sum check below holds.
+      // Before the body: 412 comes before 422.
       await bumpVersion(client, id, version)
+      const input = parsePaymentInput(request.body)
       const current = await readOne(client, id)
       if (!current) throw notFound()
       if (current.document_type === 'credit_note') {
@@ -1795,6 +1798,8 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
           const id = request.params.invoice ?? ''
           if (!UUID.test(id)) throw notFound()
           const version = expectedVersion(request.headers['if-match'])
+          // Before the file: 412 comes before 422.
+          await bumpVersion(client, id, version)
           const rawName = request.query.file_name
           const fileName = typeof rawName === 'string' ? cleanFileName(rawName) : null
           if (fileName === null || fileName.length > 200) {
@@ -1812,7 +1817,6 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
               file: ['Il file non corrisponde al suo tipo, oppure è vuoto.'],
             })
           }
-          await bumpVersion(client, id, version)
           await client.query('delete from public.invoice_files where invoice_id = $1', [id])
           await client.query(
             `insert into public.invoice_files

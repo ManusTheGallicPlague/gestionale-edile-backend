@@ -17,6 +17,14 @@ info:
     - L'azienda è nel percorso: /api/companies/{company}/... Il backend verifica a ogni richiesta
       che l'utente ne faccia parte; se non è così risponde 404, come per un record che non esiste.
     - Importi e quantità sono stringhe decimali ("1234.50"); date e orari in ISO 8601.
+    - Modifiche concorrenti: ogni record modificabile ha una versione, che le letture e le
+      scritture danno nell'header ETag. È un ETag forte, con le virgolette ("7"). Le
+      modifiche la rimandano in If-Match: senza, 428 con code precondition_required; con una
+      versione che non è più quella attuale, 412 con code stale_record e niente cambia.
+      Il 412 viene prima del 422: su un record cambiato nel frattempo il corpo non si
+      controlla, e il frontend chiede di ricaricare invece di mostrare errori sui campi.
+      If-Match accetta anche la forma debole W/"7", che un proxy che comprime le risposte
+      (ad esempio nginx con gzip) può dare al posto dell'ETag forte: indica la stessa versione.
 
 servers:
   - url: /
@@ -10552,7 +10560,9 @@ components:
 
   headers:
     ETag:
-      description: Versione del record, da rimandare in If-Match quando lo si modifica.
+      description: |
+        Versione del record, da rimandare in If-Match quando lo si modifica. ETag forte: un
+        numero tra virgolette, ad esempio "7".
       schema:
         type: string
 
@@ -10743,7 +10753,10 @@ components:
       name: If-Match
       in: header
       required: true
-      description: ETag della versione che l'utente ha davanti.
+      description: |
+        ETag della versione che l'utente ha davanti, così come è arrivato: "7", oppure W/"7"
+        se un proxy che comprime lo ha reso debole. Si controlla prima del corpo: con una
+        versione superata la risposta è 412 anche se il corpo non è valido.
       schema:
         type: string
     Search:
@@ -10792,7 +10805,8 @@ components:
     StaleRecord:
       description: |
         Il record è stato modificato da qualcun altro dopo che l'utente l'ha aperto
-        (code stale_record). Niente viene cambiato.
+        (code stale_record). Niente viene cambiato. Viene prima del 422: il corpo non si
+        controlla.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
