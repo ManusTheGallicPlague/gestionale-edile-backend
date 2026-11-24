@@ -71,8 +71,13 @@ paths:
       summary: Accesso con email e password
       description: |
         Se va a buon fine, il backend crea una nuova sessione e invalida la precedente.
-        Con credenziali sbagliate risponde 422 con un messaggio generico sul campo email,
-        senza rivelare se l'email esiste.
+        Un'email inesistente, una password sbagliata e un utente disattivato hanno la stessa
+        risposta: 422 con lo stesso messaggio generico sul campo email, senza rivelare se
+        l'email esiste o se l'account è disattivato. Anche i tempi sono simili: il backend
+        verifica sempre una password con argon2, su un hash fittizio quando l'email non c'è.
+        Un utente disattivato non entra, nemmeno con la password giusta, e le sue sessioni
+        aperte smettono di valere (401). Ognuno di questi casi conta come tentativo fallito:
+        dopo troppi, per email o per indirizzo IP, la risposta è 429 con Retry-After.
       security:
         - csrf: []
       requestBody:
