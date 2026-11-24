@@ -7,6 +7,8 @@ import { enterCompany } from '../company.js'
 import { centsToAmount } from '../money.js'
 import { ApiError, ValidationFailed, forbidden, messages } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH } from '../http/versions.js'
+import { storageUsed } from '../http/storage.js'
 import { PROFILE_FIELDS, parseProfile, type ProfileInput } from '../settings/input.js'
 
 export interface ProfileRow extends ProfileInput {
@@ -32,7 +34,13 @@ export async function readProfile(client: PoolClient): Promise<ProfileRow> {
   return row
 }
 
-const toContract = (row: ProfileRow) => ({
+/** Space taken by the files of the company and its limit, in bytes: for the settings page. */
+interface Storage {
+  used_bytes: number
+  limit_bytes: number
+}
+
+const toContract = (row: ProfileRow, storage: Storage) => ({
   legal_name: row.legal_name,
   vat_number: row.vat_number,
   tax_code: row.tax_code,
@@ -49,39 +57,51 @@ const toContract = (row: ProfileRow) => ({
   iban: row.iban,
   patron_saint_day: row.patron_saint_day,
   updated_at: row.updated_at ? row.updated_at.toISOString() : null,
+  storage,
 })
 
-const send = (reply: FastifyReply, row: ProfileRow) =>
-  reply.header('ETag', `"${row.version}"`).send(toContract(row))
+const send = (reply: FastifyReply, result: { row: ProfileRow; storage: Storage }) =>
+  reply.header('ETag', `"${result.row.version}"`).send(toContract(result.row, result.storage))
 
 const placeholders = PROFILE_FIELDS.map((_, i) => `$${i + 1}`).join(', ')
 const assignments = PROFILE_FIELDS.map((f, i) => `${f} = $${i + 1}`).join(', ')
 
 export function settingsRoutes(app: FastifyInstance, config: Config, db: Db): void {
   const url = '/api/companies/:company/settings/company'
+  const withStorage = async (client: PoolClient) => ({
+    row: await readProfile(client),
+    storage: { used_bytes: await storageUsed(client), limit_bytes: config.storageLimitBytes },
+  })
 
   app.get<{ Params: { company: string } }>(url, async (request, reply) => {
     const session = requireSession(request)
-    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+    const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('settings.view')) throw forbidden()
-      return readProfile(client)
+      return withStorage(client)
     })
-    return send(reply, row)
+    return send(reply, result)
   })
 
   app.put<{ Params: { company: string } }>(url, async (request, reply) => {
     const session = requireSession(request)
     checkCsrf(config, request)
-    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+    const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('settings.update')) throw forbidden()
       const header = request.headers['if-match']
       if (typeof header !== 'string' || header.trim() === '') {
         throw new ApiError(428, messages.settingsMissingIfMatch, 'precondition_required')
       }
-      const match = /^"(\d{1,9})"$/.exec(header.trim())
+      const match = IF_MATCH.exec(header.trim())
       const version = match ? Number(match[1]) : -1
+      // 412 comes before 422. No row yet is version 0, as in getCompanyProfile.
+      const saved = await client.query<{ version: number }>(
+        'select version from public.company_profiles where company_id = app.current_company_id()',
+      )
+      if ((saved.rows[0]?.version ?? 0) !== version) {
+        throw new ApiError(412, messages.settingsStale, 'stale_record')
+      }
       const parsed = parseProfile(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
       const values: unknown[] = PROFILE_FIELDS.map((f) => parsed.input[f])
@@ -108,9 +128,9 @@ export function settingsRoutes(app: FastifyInstance, config: Config, db: Db): vo
           [parsed.patron],
         )
       }
-      return readProfile(client)
+      return withStorage(client)
     })
-    return send(reply, row)
+    return send(reply, result)
   })
 }
 

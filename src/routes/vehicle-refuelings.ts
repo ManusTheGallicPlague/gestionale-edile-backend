@@ -16,6 +16,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 
 interface RefuelingInput {
@@ -234,7 +235,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.refuelingMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -436,6 +437,13 @@ export function vehicleRefuelingRoutes(app: FastifyInstance, config: Config, db:
       const id = request.params.refueling ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.vehicle_refuelings',
+        { id, vehicle_id: vehicleId },
+        version,
+        messages.refuelingStale,
+      )
       const input = parseRefuelingInput(request.body)
       await checkSupplier(client, input)
       const { rowCount } = await client.query(

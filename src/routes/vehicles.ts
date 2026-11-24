@@ -17,6 +17,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { csvScope } from '../http/files.js'
 import { ImportFailed } from '../csv-import.js'
 import { RowErrors } from '../clients/import.js'
@@ -89,14 +90,16 @@ const SORTS = {
   '-updated_at': 'v.updated_at desc, v.id desc',
 } as const
 
-function toContract(row: VehicleRow) {
+/** The hourly cost is a cost: without costs.view it goes out as null. */
+function toContract(row: VehicleRow, canSeeCosts: boolean) {
   return {
     id: row.id,
     name: row.name,
     kind: row.kind,
     plate: row.plate,
     model: row.model,
-    hourly_cost: row.hourly_cost_cents === null ? null : centsToAmount(row.hourly_cost_cents),
+    hourly_cost:
+      !canSeeCosts || row.hourly_cost_cents === null ? null : centsToAmount(row.hourly_cost_cents),
     active: row.active,
     notes: row.notes,
     last_maintenance:
@@ -123,14 +126,21 @@ function toContract(row: VehicleRow) {
   }
 }
 
-const send = (reply: FastifyReply, row: VehicleRow, status = 200) =>
-  reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row))
+const send = (reply: FastifyReply, row: VehicleRow, canSeeCosts: boolean, status = 200) =>
+  reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row, canSeeCosts))
+
+/**
+ * Without costs.view the hourly cost is not written: the form of who cannot see it sends
+ * null, which must not wipe it out (on create it stays null).
+ */
+const columnsFor = (canSeeCosts: boolean) =>
+  COLUMNS.filter((f) => canSeeCosts || f !== 'hourly_cost_cents')
 
 function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.vehicleMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -319,7 +329,7 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
         values.slice(0, filters),
       )
       return {
-        data: rows.map(toContract),
+        data: rows.map((row) => toContract(row, permissions.has('costs.view'))),
         meta: { total: count.rows[0]?.total ?? 0, page: list.page, per_page: list.perPage },
       }
     })
@@ -345,14 +355,15 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
         }
         // One savepoint per row, so a duplicate plate is reported on its row.
         const errors = new RowErrors()
-        const placeholders = COLUMNS.map((_, i) => `$${i + 1}`).join(', ')
+        const columns = columnsFor(permissions.has('costs.view'))
+        const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ')
         for (const { line, input } of vehicles) {
           await client.query('savepoint import_row')
           try {
             await client.query(
-              `insert into public.vehicles (company_id, ${COLUMNS.join(', ')})
+              `insert into public.vehicles (company_id, ${columns.join(', ')})
                values (app.current_company_id(), ${placeholders})`,
-              COLUMNS.map((f) => input[f]),
+              columns.map((f) => input[f]),
             )
             await client.query('release savepoint import_row')
           } catch (error) {
@@ -378,6 +389,7 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
       const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('vehicles.view')) throw forbidden()
+        const canSeeCosts = permissions.has('costs.view')
         const { where, values } = listFilter(list)
         values.push(MAX_EXPORT_ROWS)
         const { rows } = await client.query<VehicleRow>(
@@ -391,7 +403,7 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
             'Tipo',
             'Targa',
             'Marca e modello',
-            'Costo orario',
+            ...(canSeeCosts ? ['Costo orario'] : []),
             'In uso',
             'Note',
             'Ultima manutenzione',
@@ -406,7 +418,7 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
             KIND_LABELS[r.kind],
             r.plate,
             r.model,
-            r.hourly_cost_cents && italianAmount(r.hourly_cost_cents),
+            ...(canSeeCosts ? [r.hourly_cost_cents && italianAmount(r.hourly_cost_cents)] : []),
             r.active ? 'Sì' : 'No',
             r.notes,
             r.last_maintenance_on && italianDate(r.last_maintenance_on),
@@ -427,66 +439,71 @@ export function vehicleRoutes(app: FastifyInstance, config: Config, db: Db): voi
 
   app.get<{ Params: Params }>(`${base}/:vehicle`, async (request, reply) => {
     const session = requireSession(request)
-    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+    const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('vehicles.view')) throw notFound()
       const id = request.params.vehicle ?? ''
       if (!UUID.test(id)) throw notFound()
-      return readOne(client, id)
+      return { row: await readOne(client, id), canSeeCosts: permissions.has('costs.view') }
     })
-    if (!row) throw notFound()
-    return send(reply, row)
+    if (!result.row) throw notFound()
+    return send(reply, result.row, result.canSeeCosts)
   })
 
   app.post<{ Params: Params }>(base, async (request, reply) => {
     const session = requireSession(request)
     checkCsrf(config, request)
-    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+    const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('vehicles.create')) throw forbidden()
       const parsed = parseVehicleInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
+      const canSeeCosts = permissions.has('costs.view')
+      const columns = columnsFor(canSeeCosts)
       const { rows } = await client
         .query<{ id: string }>(
-          `insert into public.vehicles (company_id, ${COLUMNS.join(', ')})
-           values (app.current_company_id(), ${COLUMNS.map((_, i) => `$${i + 1}`).join(', ')})
+          `insert into public.vehicles (company_id, ${columns.join(', ')})
+           values (app.current_company_id(), ${columns.map((_, i) => `$${i + 1}`).join(', ')})
            returning id`,
-          COLUMNS.map((f) => parsed.input[f]),
+          columns.map((f) => parsed.input[f]),
         )
         .catch(writeFailed)
-      return readOne(client, rows[0]?.id ?? '')
+      return { row: await readOne(client, rows[0]?.id ?? ''), canSeeCosts }
     })
-    if (!row) throw new Error('insert returned no row')
-    return send(reply, row, 201)
+    if (!result.row) throw new Error('insert returned no row')
+    return send(reply, result.row, result.canSeeCosts, 201)
   })
 
   app.put<{ Params: Params }>(`${base}/:vehicle`, async (request, reply) => {
     const session = requireSession(request)
     checkCsrf(config, request)
-    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+    const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('vehicles.update')) throw forbidden()
       const id = request.params.vehicle ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(client, 'public.vehicles', { id }, version, messages.vehicleStale)
       const parsed = parseVehicleInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
-      const values: unknown[] = COLUMNS.map((f) => parsed.input[f])
+      const canSeeCosts = permissions.has('costs.view')
+      const columns = columnsFor(canSeeCosts)
+      const values: unknown[] = columns.map((f) => parsed.input[f])
       values.push(id, version)
       const { rowCount } = await client
         .query(
           `update public.vehicles
-           set ${COLUMNS.map((f, i) => `${f} = $${i + 1}`).join(', ')},
+           set ${columns.map((f, i) => `${f} = $${i + 1}`).join(', ')},
                version = version + 1, updated_at = now()
            where id = $${values.length - 1} and version = $${values.length}`,
           values,
         )
         .catch(writeFailed)
       if (!rowCount) return missingOrStale(client, id)
-      return readOne(client, id)
+      return { row: await readOne(client, id), canSeeCosts }
     })
-    if (!row) throw notFound()
-    return send(reply, row)
+    if (!result.row) throw notFound()
+    return send(reply, result.row, result.canSeeCosts)
   })
 
   app.delete<{ Params: Params }>(`${base}/:vehicle`, async (request, reply) => {

@@ -76,6 +76,7 @@ async function readSummary(
   id: string,
   query: Record<string, unknown>,
   canSeeReports: boolean,
+  canSeeCosts: boolean,
 ) {
   const owner = await client.query<{ cents: string | null }>(
     `select hourly_cost_cents::text as cents from public.${source.table} where id = $1`,
@@ -131,7 +132,8 @@ async function readSummary(
     values,
   )
   const sum = total.rows[0] ?? { hours: '0.00', days: 0, cents: null }
-  const cost = (c: string | null) => (c === null ? null : centsToAmount(c))
+  // Costs come from the hourly costs: without costs.view they are null, like the hourly cost.
+  const cost = (c: string | null) => (!canSeeCosts || c === null ? null : centsToAmount(c))
   return {
     hours: sum.hours,
     days: sum.days,
@@ -538,6 +540,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
             id.toLowerCase(),
             request.query,
             permissions.has('reports.view'),
+            permissions.has('costs.view'),
           )
           if (!summary) return summary
           if (route.source.table === 'vehicles') {
@@ -573,22 +576,27 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
             id.toLowerCase(),
             request.query,
             permissions.has('reports.view'),
+            permissions.has('costs.view'),
           )
-          if (!summary || route.source.table !== 'employees') return summary
+          if (!summary) return null
+          const canSeeCosts = permissions.has('costs.view')
+          if (route.source.table !== 'employees') return { ...summary, canSeeCosts }
           return {
             ...summary,
+            canSeeCosts,
             payroll: await readPayroll(client, id.toLowerCase(), request.query),
             payrollSites: await readPayrollBySite(client, id.toLowerCase(), request.query),
           }
         })
         if (!summary) throw notFound()
+        const { canSeeCosts } = summary
         const decimal = (value: string | null) => (value === null ? null : value.replace('.', ','))
         const header = [
           'Codice',
           'Cantiere',
           'Ore',
           'Giorni',
-          'Costo',
+          ...(canSeeCosts ? ['Costo'] : []),
           'Primo giorno',
           'Ultimo giorno',
         ]
@@ -597,7 +605,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           r.site.name,
           decimal(r.hours),
           r.days,
-          decimal(r.cost),
+          ...(canSeeCosts ? [decimal(r.cost)] : []),
           italianDate(r.first_date),
           italianDate(r.last_date),
         ])
@@ -606,7 +614,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
           'Totale',
           decimal(summary.hours),
           summary.days,
-          decimal(summary.cost),
+          ...(canSeeCosts ? [decimal(summary.cost)] : []),
           null,
           null,
         ]
@@ -638,7 +646,7 @@ export function workSummaryRoutes(app: FastifyInstance, db: Db): void {
                 p.name,
                 decimal('0.00'),
                 0,
-                summary.cost === null ? null : decimal('0.00'),
+                ...(canSeeCosts ? [summary.cost === null ? null : decimal('0.00')] : []),
                 italianDate(p.first_date),
                 italianDate(p.last_date),
                 ...items(p),

@@ -20,6 +20,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { csvScope } from '../http/files.js'
 import { ImportFailed } from '../csv-import.js'
 import { RowErrors, parseClientsCsv, rowMessages } from '../clients/import.js'
@@ -57,7 +58,7 @@ const etagOf = (row: ClientRow) => `"${row.version}"`
 
 /** Reads If-Match: the version the user was editing, or null if it cannot be one of ours. */
 function expectedVersion(header: string): number | null {
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : null
 }
 
@@ -337,13 +338,13 @@ export function clientRoutes(app: FastifyInstance, config: Config, db: Db): void
       const id = request.params.client ?? ''
       if (!UUID.test(id)) throw notFound()
 
-      const ifMatch = requireIfMatch(request.headers['if-match'])
+      const version = expectedVersion(requireIfMatch(request.headers['if-match'])) ?? -1
+      await refuseStale(client, 'public.clients', { id }, version, messages.staleRecord)
       const parsed = parseClientInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
 
-      const version = expectedVersion(ifMatch)
       const values: unknown[] = CLIENT_FIELDS.map((field) => parsed.input[field])
-      values.push(id, version ?? -1)
+      values.push(id, version)
       try {
         const { rows } = await client.query<ClientRow>(
           `update public.clients

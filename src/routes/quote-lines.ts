@@ -15,6 +15,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { VAT_RATES, isVatNature, type VatNature } from '../quotes/vat.js'
 import { italianAmount, toCsv } from '../csv.js'
 import { formatQuoteNumber } from '../quotes/number.js'
@@ -79,7 +80,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.quoteMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -375,6 +376,13 @@ export function quoteLineRoutes(app: FastifyInstance, config: Config, db: Db): v
       const id = request.params.line ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.quote_lines',
+        { id, quote_id: quoteId },
+        version,
+        messages.lineStale,
+      )
       const input = parseLine(request.body)
       const { rowCount } = await client.query(
         `update public.quote_lines

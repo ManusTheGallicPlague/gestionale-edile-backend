@@ -19,6 +19,24 @@ info:
     - L'azienda è nel percorso: /api/companies/{company}/... Il backend verifica a ogni richiesta
       che l'utente ne faccia parte; se non è così risponde 404, come per un record che non esiste.
     - Importi e quantità sono stringhe decimali ("1234.50"); date e orari in ISO 8601.
+    - Modifiche concorrenti: ogni record modificabile ha una versione, che le letture e le
+      scritture danno nell'header ETag. È un ETag forte, con le virgolette ("7"). Le
+      modifiche la rimandano in If-Match: senza, 428 con code precondition_required; con una
+      versione che non è più quella attuale, 412 con code stale_record e niente cambia.
+      Il 412 viene prima del 422: su un record cambiato nel frattempo il corpo non si
+      controlla, e il frontend chiede di ricaricare invece di mostrare errori sui campi.
+      If-Match accetta anche la forma debole W/"7", che un proxy che comprime le risposte
+      (ad esempio nginx con gzip) può dare al posto dell'ETag forte: indica la stessa versione.
+    - Immagini caricate (JPEG, PNG e WebP: foto e documenti dei cantieri, file dei documenti
+      e delle fatture, logo): il backend toglie i metadati Exif e XMP, dove le foto del
+      telefono tengono la posizione GPS, il modello e l'ora dello scatto. Di un JPEG tiene solo
+      l'orientamento, se la foto è ruotata. Si salva e si scarica il file ripulito, e la
+      dimensione (size) è la sua.
+    - Spazio per i file: i file di un'azienda (documenti e foto dei cantieri, file dei
+      documenti e delle fatture, logo) hanno un limite totale, 20 GB se il server non è
+      configurato diversamente. Un caricamento che lo supererebbe risponde 413 con code
+      storage_full e un messaggio da mostrare; un file che ne sostituisce un altro conta al
+      netto di quello vecchio. Spazio usato e limite sono in storage di getCompanyProfile.
 
 servers:
   - url: /
@@ -1569,7 +1587,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -4581,7 +4601,8 @@ paths:
       description: |
         Permesso: documents.create. Il corpo è il file, con il suo Content-Type: PDF, JPEG, PNG,
         WebP, Word (.docx) o Excel (.xlsx), al massimo 20 MB. Il contenuto deve corrispondere al
-        tipo dichiarato (altrimenti 422 sotto file). Nome del file e titolo nella query; senza
+        tipo dichiarato (altrimenti 422 sotto file). Le foto perdono posizione GPS e altri
+        metadati (vedi le regole comuni). Nome del file e titolo nella query; senza
         titolo vale il nome del file. Il file non si sostituisce: si elimina e se ne carica un
         altro. Con daily_report_id il file (di solito una foto scattata in cantiere) resta
         collegato a un rapportino dello stesso cantiere; se il rapportino non c'è o è di un altro
@@ -4632,7 +4653,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -5922,9 +5945,9 @@ paths:
         5000 dipendenti), solo dipendenti nuovi, tutti o nessuno, errori sotto `file` o
         `row.<n>`; il file di exportEmployees si reimporta così com'è. Colonne per nome:
         cognome e nome sono obbligatorie; le altre sono codice fiscale, mansione, telefono,
-        email, assunzione (30/11/2026 oppure 2026-11-30), costo orario (28,50 oppure 28.50),
-        attivo (sì o no, vuoto vale sì), note, ferie annue (giorni interi), permessi annui
-        (ore intere). Ogni riga si controlla come createEmployee;
+        email, assunzione (30/11/2026 oppure 2026-11-30), costo orario (28,50 oppure 28.50;
+        senza costs.view si controlla ma non si salva), attivo (sì o no, vuoto vale sì), note,
+        ferie annue (giorni interi), permessi annui (ore intere). Ogni riga si controlla come createEmployee;
         un codice fiscale già presente nell'azienda o ripetuto nel file è un errore della riga.
       security:
         - session: []
@@ -5971,7 +5994,9 @@ paths:
       summary: Esportazione dei dipendenti in CSV
       description: |
         Permesso: employees.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
-        paginazione, nello stesso formato dell'esportazione dei clienti. Costo orario con la virgola decimale, data di assunzione come 30/11/2026, Attivo Sì o No.
+        paginazione, nello stesso formato dell'esportazione dei clienti. Costo orario con la
+        virgola decimale, e la sua colonna c'è solo con costs.view; data di assunzione come
+        30/11/2026, Attivo Sì o No.
         Il file si chiama dipendenti.csv.
       parameters:
         - $ref: '#/components/parameters/Search'
@@ -6147,8 +6172,8 @@ paths:
         scheda del dipendente: ore dai rapportini, giorni con ore e costo per cantiere, dal cantiere con
         più ore. Il costo usa il costo orario fissato
         all'approvazione del rapportino (attuale per i rapportini non approvati), come il
-        riepilogo dei costi del cantiere; è null se nessuna riga ha un costo orario. Senza
-        filtri conta tutti i rapportini.
+        riepilogo dei costi del cantiere; è null se nessuna riga ha un costo orario, e sempre
+        null senza costs.view (anche per ogni cantiere). Senza filtri conta tutti i rapportini.
         Con le ore anche le assenze dello stesso periodo (`absences`), per tipo: i giorni di
         calendario delle assenze di tutto il giorno, contati solo dentro filter[from] e
         filter[to], e le ore dei permessi. filter[status] vale solo per i rapportini.
@@ -6189,9 +6214,10 @@ paths:
       description: |
         Permessi come getEmployeeWorkSummary: employees.view (senza, 404) e reports.view (senza, 403).
         Gli stessi cantieri nello stesso ordine e con gli stessi filtri, nello stesso formato
-        delle altre esportazioni: colonne Codice, Cantiere, Ore, Giorni, Costo, Primo giorno,
-        Ultimo giorno, Di cui straordinario, Giorni di trasferta, Ore perse per maltempo, Di cui
-        festive, e in fondo una riga Totale con ore, giorni, costo e le quattro voci di payroll di
+        delle altre esportazioni: colonne Codice, Cantiere, Ore, Giorni, poi Costo solo con
+        costs.view, poi Primo giorno, Ultimo giorno, Di cui straordinario, Giorni di trasferta,
+        Ore perse per maltempo, Di cui festive, e in fondo una riga Totale con ore, giorni,
+        costo (con costs.view) e le quattro voci di payroll di
         tutto il periodo
         (nel totale un giorno di trasferta su due cantieri conta una volta). I cantieri dove nel
         periodo il dipendente ha soltanto ore perse per maltempo, assenti da sites, vengono dopo
@@ -6934,8 +6960,9 @@ paths:
         5000 mezzi), solo mezzi nuovi, tutti o nessuno, errori sotto `file` o `row.<n>`; il
         file di exportVehicles si reimporta così com'è. Colonne per nome: nome è
         obbligatoria; le altre sono tipo (Automezzo, Macchina operatrice o Attrezzatura,
-        vuoto vale Automezzo), targa, marca e modello, costo orario (45,00 oppure 45.00),
-        in uso (sì o no, vuoto vale sì), note. Ogni riga si controlla come createVehicle;
+        vuoto vale Automezzo), targa, marca e modello, costo orario (45,00 oppure 45.00;
+        senza costs.view si controlla ma non si salva), in uso (sì o no, vuoto vale sì), note.
+        Ogni riga si controlla come createVehicle;
         una targa già presente nell'azienda o ripetuta nel file è un errore della riga.
       security:
         - session: []
@@ -6982,7 +7009,9 @@ paths:
       summary: Esportazione dei mezzi in CSV
       description: |
         Permesso: vehicles.view. Stessi filtri, ricerca e ordinamento dell'elenco, senza
-        paginazione, nello stesso formato dell'esportazione dei clienti. Tipo tradotto (Automezzo, Macchina operatrice, Attrezzatura), costo orario con la virgola decimale.
+        paginazione, nello stesso formato dell'esportazione dei clienti. Tipo tradotto
+        (Automezzo, Macchina operatrice, Attrezzatura), costo orario con la virgola decimale,
+        e la sua colonna c'è solo con costs.view.
         Dopo le note, tre colonne vengono dall'intervento più recente (`last_maintenance`):
         data (gg/mm/aaaa), tipo per esteso e contachilometri o contaore; vuote se non ce ne
         sono. Le ultime tre vengono dal rifornimento più recente (`last_refueling`): data,
@@ -7111,8 +7140,8 @@ paths:
         scheda del mezzo: ore dai rapportini, giorni con ore e costo per cantiere, dal cantiere con
         più ore. Il costo usa il costo orario fissato
         all'approvazione del rapportino (attuale per i rapportini non approvati), come il
-        riepilogo dei costi del cantiere; è null se nessuna riga ha un costo orario. Senza
-        filtri conta tutti i rapportini.
+        riepilogo dei costi del cantiere; è null se nessuna riga ha un costo orario, e sempre
+        null senza costs.view (anche per ogni cantiere). Senza filtri conta tutti i rapportini.
         maintenance: numero e spesa delle manutenzioni del mezzo nello stesso periodo (filter[status]
         non conta).
         fuel: numero di rifornimenti, litri e spesa del carburante nello stesso periodo
@@ -7153,8 +7182,9 @@ paths:
       description: |
         Permessi come getVehicleWorkSummary: vehicles.view (senza, 404) e reports.view (senza, 403).
         Gli stessi cantieri nello stesso ordine e con gli stessi filtri, nello stesso formato
-        delle altre esportazioni: colonne Codice, Cantiere, Ore, Giorni, Costo, Primo giorno,
-        Ultimo giorno, e in fondo una riga Totale con ore, giorni e costo di tutto il periodo. Ore e
+        delle altre esportazioni: colonne Codice, Cantiere, Ore, Giorni, poi Costo solo con
+        costs.view, poi Primo giorno, Ultimo giorno, e in fondo una riga Totale con ore, giorni
+        e costo (con costs.view) di tutto il periodo. Ore e
         importi con la virgola decimale (12,50), date come 30/11/2026, costo vuoto se il costo
         orario manca. Il file si chiama ore-mezzo.csv.
       parameters:
@@ -7364,7 +7394,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -7574,7 +7606,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -8921,7 +8955,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413':
-          description: File più grande di 512 KB.
+          description: |
+            File più grande di 512 KB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni; il logo che si sostituisce non conta).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -9282,7 +9318,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -10591,7 +10629,9 @@ components:
 
   headers:
     ETag:
-      description: Versione del record, da rimandare in If-Match quando lo si modifica.
+      description: |
+        Versione del record, da rimandare in If-Match quando lo si modifica. ETag forte: un
+        numero tra virgolette, ad esempio "7".
       schema:
         type: string
 
@@ -10782,7 +10822,10 @@ components:
       name: If-Match
       in: header
       required: true
-      description: ETag della versione che l'utente ha davanti.
+      description: |
+        ETag della versione che l'utente ha davanti, così come è arrivato: "7", oppure W/"7"
+        se un proxy che comprime lo ha reso debole. Si controlla prima del corpo: con una
+        versione superata la risposta è 412 anche se il corpo non è valido.
       schema:
         type: string
     Search:
@@ -10831,7 +10874,8 @@ components:
     StaleRecord:
       description: |
         Il record è stato modificato da qualcun altro dopo che l'utente l'ha aperto
-        (code stale_record). Niente viene cambiato.
+        (code stale_record). Niente viene cambiato. Viene prima del 422: il corpo non si
+        controlla.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -10892,7 +10936,7 @@ components:
             database_unavailable, email_in_use, email_not_sent, estimate_final, has_documents, invalid_transition, last_manager,
             number_in_use, order_not_draft, precondition_required, quote_not_draft,
             report_not_draft, role_in_use, self_deactivation, site_exists, stale_record,
-            statement_draft_exists, statement_not_draft.
+            statement_draft_exists, statement_not_draft, storage_full.
     ValidationError:
       type: object
       required: [message, errors]
@@ -15761,6 +15805,11 @@ components:
           description: |
             Costo orario aziendale, per il costo della manodopera nei cantieri. Cambiarlo non
             cambia i rapportini già approvati, che tengono quello del giorno dell'approvazione.
+            È un costo: si vede e si cambia solo con costs.view. Senza costs.view arriva
+            sempre null (elenco, scheda, risposte di creazione e modifica), e quello che si
+            invia si ignora: alla modifica il costo orario resta quello che c'era, alla
+            creazione resta vuoto. Il form di chi non lo vede può quindi rimandare null senza
+            cancellarlo.
           oneOf:
             - $ref: '#/components/schemas/Amount'
             - type: 'null'
@@ -15824,7 +15873,8 @@ components:
         cost:
           description: |
             Ore per costo orario fissato all'approvazione (attuale per i rapportini non
-            approvati), o null se nessuna riga ha un costo orario.
+            approvati), o null se nessuna riga ha un costo orario. Sempre null senza
+            costs.view.
           oneOf:
             - $ref: '#/components/schemas/Amount'
             - type: 'null'
@@ -15844,6 +15894,7 @@ components:
               hours: { $ref: '#/components/schemas/WorkHours' }
               days: { type: integer }
               cost:
+                description: Come cost del totale; sempre null senza costs.view.
                 oneOf:
                   - $ref: '#/components/schemas/Amount'
                   - type: 'null'
@@ -16066,7 +16117,10 @@ components:
         hourly_cost:
           description: |
             Costo orario del mezzo, per i costi dei cantieri. Cambiarlo non cambia i rapportini
-            già approvati, che tengono quello del giorno dell'approvazione.
+            già approvati, che tengono quello del giorno dell'approvazione. Come per i
+            dipendenti, si vede e si cambia solo con costs.view: senza, arriva sempre null e
+            quello che si invia si ignora (alla modifica resta quello che c'era, alla creazione
+            resta vuoto).
           oneOf:
             - $ref: '#/components/schemas/Amount'
             - type: 'null'
@@ -16461,12 +16515,22 @@ components:
       allOf:
         - $ref: '#/components/schemas/CompanyProfileInput'
         - type: object
-          required: [patron_saint_day, updated_at]
+          required: [patron_saint_day, updated_at, storage]
           properties:
             updated_at:
               type: [string, 'null']
               format: date-time
               description: Null se i dati non sono mai stati salvati.
+            storage:
+              type: object
+              description: |
+                Solo lettura: lo spazio occupato dai file dell'azienda (documenti e foto dei
+                cantieri, file dei documenti e delle fatture, logo) e il limite oltre il quale
+                i caricamenti rispondono 413 con code storage_full, in byte. Non cambia l'ETag.
+              required: [used_bytes, limit_bytes]
+              properties:
+                used_bytes: { type: integer, minimum: 0 }
+                limit_bytes: { type: integer, minimum: 1 }
     Numbering:
       type: object
       required: [quotes, purchase_orders]

@@ -6,7 +6,7 @@ Come si mette in produzione il backend. Il frontend è fatto di file statici e v
 
 - Postgres 17 (o 16), con un database vuoto e un ruolo proprietario (`gestionale_owner`) che possa creare ruoli (`CREATEROLE`): le migrazioni creano da sole `gestionale_app` e `gestionale_auth` con le password dell'ambiente.
 - L'immagine Docker di questo repository, oppure Node 22 o più recente.
-- Un proxy inverso con HTTPS davanti all'API.
+- Un proxy inverso con HTTPS davanti all'API. Se comprime le risposte (nginx con `gzip on`), rende deboli gli `ETag` (`W/"7"`): l'API accetta anche questa forma in `If-Match`, quindi la compressione può restare accesa, ma il proxy non deve togliere l'header `ETag` né cambiare `If-Match`.
 
 ## Immagine
 
@@ -33,6 +33,7 @@ Nessun segreto sta nel repository o nell'immagine: si passano all'avvio.
 | `BREVO_API_KEY` | API | chiave API di Brevo per le email (vedi «Email»). Senza, le email finiscono solo nel log |
 | `MAIL_FROM` | API | mittente delle email, un indirizzo del dominio verificato in Brevo. Obbligatoria con `BREVO_API_KEY` |
 | `MAIL_FROM_NAME` | API | nome del mittente, facoltativo (ad esempio `Gestionale edile`) |
+| `COMPANY_STORAGE_LIMIT_GB` | API | spazio massimo per i file di ogni azienda (documenti, foto, allegati, logo), in GB da 1024³ byte, anche con decimali (`0.5`); se manca vale `20`. I file stanno nel database: il disco del server deve reggere questo limite per il numero di aziende, più i backup. Oltre il limite i caricamenti rispondono `413` con `code: storage_full` |
 | `DATABASE_URL_OWNER` | migrazioni | `postgres://gestionale_owner:<password>@<host>:5432/<db>` |
 | `DB_APP_PASSWORD`, `DB_AUTH_PASSWORD` | migrazioni | le password che le migrazioni danno a `gestionale_app` e `gestionale_auth`: le stesse degli URL sopra |
 

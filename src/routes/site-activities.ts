@@ -15,6 +15,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 import { workingDays } from '../holidays.js'
 
@@ -73,7 +74,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.activityMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -485,6 +486,13 @@ export function siteActivityRoutes(app: FastifyInstance, config: Config, db: Db)
       const current = await readActivity(client, siteId, request.params.activity)
       if (!current) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.site_activities',
+        { id: current.id },
+        version,
+        messages.activityStale,
+      )
       const input = parseActivity(request.body)
       const { rowCount } = await client.query(
         `update public.site_activities set name = $1, start_on = $2, end_on = $3, progress = $4,

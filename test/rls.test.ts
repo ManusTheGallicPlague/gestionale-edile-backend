@@ -89,6 +89,32 @@ describe('the API role cannot cross companies', () => {
     expect(rows.rowCount).toBe(0)
   })
 
+  it('counts the storage of its own company only, and of no company it does not belong to', async () => {
+    for (const [companyId, bytes] of [
+      [companyA.id, 300],
+      [companyB.id, 5000],
+    ] as const) {
+      await owner.query(
+        `insert into public.company_logos (company_id, content_type, data)
+         values ($1, 'image/png', $2)
+         on conflict (company_id) do update set data = excluded.data`,
+        [companyId, Buffer.alloc(bytes, 1)],
+      )
+    }
+    const used = (companyId: string) =>
+      as(alice.id, companyId, async (c) => {
+        const { rows } = await c.query<{ bytes: string }>(
+          'select app.company_storage_bytes()::text as bytes',
+        )
+        return rows[0]?.bytes
+      })
+    expect(await used(companyA.id)).toBe('300')
+    expect(await used(companyB.id)).toBe('0')
+    await owner.query('delete from public.company_logos where company_id = any($1)', [
+      [companyA.id, companyB.id],
+    ])
+  })
+
   it('cannot read another company by id even without a company declared', async () => {
     const rows = await as(alice.id, '', (c) =>
       c.query('select * from public.clients where company_id = $1', [companyB.id]),

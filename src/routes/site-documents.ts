@@ -14,6 +14,9 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { stripImageMetadata } from '../http/image-metadata.js'
+import { reserveStorage } from '../http/storage.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
 
@@ -112,7 +115,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.documentMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -315,6 +318,13 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
       const current = await readOne(client, request.params.site, request.params.document ?? '')
       if (!current) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(
+        client,
+        'public.site_documents',
+        { id: current.id },
+        version,
+        messages.documentStale,
+      )
       const input = parseUpdate(request.body)
       const { rowCount } = await client.query(
         `update public.site_documents set title = $1, notes = $2, version = version + 1,
@@ -397,6 +407,9 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
             }
           }
           const kind: Kind = type.startsWith('image/') ? 'photo' : 'document'
+          // A photo loses its position and the other metadata.
+          const data = stripImageMetadata(body, type)
+          await reserveStorage(client, config.storageLimitBytes, data.length)
           const { rows } = await client.query<{ id: string }>(
             `insert into public.site_documents (company_id, site_id, daily_report_id, kind, title,
                file_name, content_type, size_bytes, uploaded_by)
@@ -407,7 +420,7 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
               input.title,
               input.file_name,
               type,
-              body.length,
+              data.length,
               session.user.id,
               input.daily_report_id,
             ],
@@ -416,7 +429,7 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
           await client.query(
             `insert into public.site_document_files (document_id, company_id, data)
              values ($1, app.current_company_id(), $2)`,
-            [id, body],
+            [id, data],
           )
           return readOne(client, request.params.site, id)
         })

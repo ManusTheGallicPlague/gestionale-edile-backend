@@ -16,6 +16,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 
 const STATUSES = ['draft', 'final'] as const
 type Status = (typeof STATUSES)[number]
@@ -98,7 +99,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.estimateMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -353,6 +354,7 @@ export function estimateRoutes(app: FastifyInstance, config: Config, db: Db): vo
       const id = request.params.estimate ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(client, 'public.estimates', { id }, version, messages.estimateStale)
       const parsed = parseInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
       const values: unknown[] = FIELDS.map((f) => parsed.input[f])

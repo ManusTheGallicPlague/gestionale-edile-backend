@@ -15,6 +15,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH } from '../http/versions.js'
 import { MAX_EXPORT_ROWS, italianDate, toCsv } from '../csv.js'
 import { centsToAmount } from '../money.js'
 import { reportPdf, reportsPdf, type ReportPdfData } from '../daily-reports/pdf.js'
@@ -183,7 +184,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.reportMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -1159,11 +1160,12 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
       const id = request.params.report ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const input = parseReportInput(request.body)
       const current = await readOne(client, id)
       if (!current) throw notFound()
       if (current.row.version !== version)
         throw new ApiError(412, messages.reportStale, 'stale_record')
+      // After the version: 412 comes before 422.
+      const input = parseReportInput(request.body)
       if (current.row.status !== 'draft') {
         throw new ApiError(409, messages.reportNotDraft, 'report_not_draft')
       }
@@ -1196,18 +1198,19 @@ export function dailyReportRoutes(app: FastifyInstance, config: Config, db: Db):
       const id = request.params.report ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      const current = await readOne(client, id)
+      if (!current) throw notFound()
+      if (current.row.version !== version)
+        throw new ApiError(412, messages.reportStale, 'stale_record')
+      // After the version: 412 comes before 422.
       const body = request.body as Record<string, unknown> | null
       const target = REPORT_STATUSES.find((s) => s === body?.status)
       if (!target) throw new ValidationFailed({ status: ['Stato non valido.'] })
-      const current = await readOne(client, id)
-      if (!current) throw notFound()
       const from = current.row.status
       // Submitting is part of writing the report; approving and sending back are not.
       const needed =
         from === 'draft' && target === 'submitted' ? 'reports.update' : 'reports.approve'
       if (!permissions.has(needed)) throw forbidden()
-      if (current.row.version !== version)
-        throw new ApiError(412, messages.reportStale, 'stale_record')
       const allowed =
         (from === 'draft' && target === 'submitted') ||
         (from === 'submitted' && target === 'approved') ||

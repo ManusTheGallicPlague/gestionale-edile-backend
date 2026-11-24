@@ -17,6 +17,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { quotePdf } from '../quotes/pdf.js'
 import { readLogoForPdf } from './logo.js'
 import { readProfile } from './settings.js'
@@ -167,7 +168,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.quoteMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -503,6 +504,7 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
       const id = request.params.quote ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(client, 'public.quotes', { id }, version, messages.quoteStale)
       const input = parseInput(request.body)
       const values: unknown[] = FIELDS.map((f) => input[f])
       values.push(id, version)
@@ -595,6 +597,7 @@ export function quoteRoutes(app: FastifyInstance, config: Config, db: Db): void 
       const id = request.params.quote ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(client, 'public.quotes', { id }, version, messages.quoteStale)
       const body = request.body as Record<string, unknown> | null
       const target = OUTCOMES.find((s) => s === body?.status)
       if (!target) throw new ValidationFailed({ status: ['Stato non valido.'] })

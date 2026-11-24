@@ -16,6 +16,7 @@ const ALL: Permission[] = [
   'employees.create',
   'employees.update',
   'employees.delete',
+  'costs.view',
 ]
 
 function employeeBody(overrides: Record<string, unknown> = {}) {

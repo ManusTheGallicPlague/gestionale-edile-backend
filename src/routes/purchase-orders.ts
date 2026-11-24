@@ -17,6 +17,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH } from '../http/versions.js'
 import { MAX_EXPORT_ROWS, italianAmount, italianDate, toCsv } from '../csv.js'
 import { orderPdf } from '../purchases/pdf.js'
 import { readLogoForPdf } from './logo.js'
@@ -203,7 +204,7 @@ function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.orderMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -823,12 +824,13 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
       const id = request.params.order ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const input = parseOrderInput(request.body)
       const current = await readOne(client, id)
       if (!current) throw notFound()
       if (current.row.version !== version) {
         throw new ApiError(412, messages.orderStale, 'stale_record')
       }
+      // After the version: 412 comes before 422.
+      const input = parseOrderInput(request.body)
       if (current.row.status !== 'draft') {
         throw new ApiError(409, messages.orderNotDraft, 'order_not_draft')
       }
@@ -867,14 +869,15 @@ export function purchaseOrderRoutes(app: FastifyInstance, config: Config, db: Db
       const id = request.params.order ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
-      const body = request.body as Record<string, unknown> | null
-      const target = ORDER_STATUSES.find((s) => s === body?.status)
-      if (!target) throw new ValidationFailed({ status: ['Stato non valido.'] })
       const current = await readOne(client, id)
       if (!current) throw notFound()
       if (current.row.version !== version) {
         throw new ApiError(412, messages.orderStale, 'stale_record')
       }
+      // After the version: 412 comes before 422.
+      const body = request.body as Record<string, unknown> | null
+      const target = ORDER_STATUSES.find((s) => s === body?.status)
+      if (!target) throw new ValidationFailed({ status: ['Stato non valido.'] })
       const from = current.row.status
       const allowed =
         (from === 'draft' && target === 'sent') ||

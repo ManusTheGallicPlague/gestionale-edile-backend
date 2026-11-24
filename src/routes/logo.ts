@@ -6,6 +6,8 @@ import { withIdentity } from '../db.js'
 import { enterCompany } from '../company.js'
 import { ValidationFailed, forbidden, notFound } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { stripImageMetadata } from '../http/image-metadata.js'
+import { checkStorage, lockStorage } from '../http/storage.js'
 import { UnsupportedImage, imageType, readImage, type PdfImage } from '../pdf/image.js'
 
 export const MAX_LOGO_BYTES = 512 * 1024
@@ -79,6 +81,19 @@ export function logoRoutes(app: FastifyInstance, config: Config, db: Db): void {
           }
           throw error
         }
+        // A photo used as logo loses its position and the other metadata.
+        const data = stripImageMetadata(body, type)
+        // Within the storage limit of the company, where the old logo no longer counts.
+        await lockStorage(client)
+        const old = await client.query<{ bytes: number }>(
+          `select octet_length(data) as bytes from public.company_logos
+           where company_id = app.current_company_id()`,
+        )
+        await checkStorage(
+          client,
+          config.storageLimitBytes,
+          data.length - (old.rows[0]?.bytes ?? 0),
+        )
         const { rows } = await client.query<{ version: number }>(
           `insert into public.company_logos (company_id, content_type, data)
            values (app.current_company_id(), $1, $2)
@@ -86,7 +101,7 @@ export function logoRoutes(app: FastifyInstance, config: Config, db: Db): void {
              data = excluded.data, version = public.company_logos.version + 1,
              updated_at = now()
            returning version`,
-          [type, body],
+          [type, data],
         )
         return rows[0]?.version ?? 1
       })

@@ -18,6 +18,7 @@ import {
   type FieldErrors,
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
+import { IF_MATCH, refuseStale } from '../http/versions.js'
 import { csvScope } from '../http/files.js'
 import { ImportFailed } from '../csv-import.js'
 import { RowErrors } from '../clients/import.js'
@@ -79,7 +80,8 @@ const SORTS = {
   '-updated_at': 'e.updated_at desc, e.id desc',
 } as const
 
-function toContract(row: EmployeeRow) {
+/** The hourly cost is a cost: without costs.view it goes out as null. */
+function toContract(row: EmployeeRow, canSeeCosts: boolean) {
   return {
     id: row.id,
     first_name: row.first_name,
@@ -89,7 +91,8 @@ function toContract(row: EmployeeRow) {
     phone: row.phone,
     email: row.email,
     hired_on: row.hired_on,
-    hourly_cost: row.hourly_cost_cents === null ? null : centsToAmount(row.hourly_cost_cents),
+    hourly_cost:
+      !canSeeCosts || row.hourly_cost_cents === null ? null : centsToAmount(row.hourly_cost_cents),
     active: row.active,
     notes: row.notes,
     annual_leave_days: row.annual_leave_days,
@@ -99,14 +102,14 @@ function toContract(row: EmployeeRow) {
   }
 }
 
-const send = (reply: FastifyReply, row: EmployeeRow, status = 200) =>
-  reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row))
+const send = (reply: FastifyReply, row: EmployeeRow, canSeeCosts: boolean, status = 200) =>
+  reply.code(status).header('ETag', `"${row.version}"`).send(toContract(row, canSeeCosts))
 
 function expectedVersion(header: string | string[] | undefined): number {
   if (typeof header !== 'string' || header.trim() === '') {
     throw new ApiError(428, messages.employeeMissingIfMatch, 'precondition_required')
   }
-  const match = /^"(\d{1,9})"$/.exec(header.trim())
+  const match = IF_MATCH.exec(header.trim())
   return match ? Number(match[1]) : -1
 }
 
@@ -199,8 +202,12 @@ export function parseEmployeeInput(
 /** Columns written only when the input has them, kept as they are on update otherwise. */
 const OPTIONAL = ['annual_leave_days', 'annual_permit_hours'] as const
 
-const columnsOf = (input: EmployeeValues): (keyof EmployeeValues)[] => [
-  ...COLUMNS,
+/**
+ * Without costs.view the hourly cost is not written: the form of who cannot see it sends
+ * null, which must not wipe it out (on create it stays null).
+ */
+const columnsOf = (input: EmployeeValues, canSeeCosts: boolean): (keyof EmployeeValues)[] => [
+  ...COLUMNS.filter((f) => canSeeCosts || f !== 'hourly_cost_cents'),
   ...OPTIONAL.filter((f) => input[f] !== undefined),
 ]
 
@@ -338,7 +345,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
         values.slice(0, filters),
       )
       return {
-        data: rows.map(toContract),
+        data: rows.map((row) => toContract(row, permissions.has('costs.view'))),
         meta: { total: count.rows[0]?.total ?? 0, page: list.page, per_page: list.perPage },
       }
     })
@@ -365,7 +372,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
         // One savepoint per row, so a duplicate tax code is reported on its row.
         const errors = new RowErrors()
         for (const { line, input } of employees) {
-          const columns = columnsOf(input)
+          const columns = columnsOf(input, permissions.has('costs.view'))
           await client.query('savepoint import_row')
           try {
             await client.query(
@@ -399,6 +406,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
       const csv = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
         const permissions = await enterCompany(client, request.params.company)
         if (!permissions.has('employees.view')) throw forbidden()
+        const canSeeCosts = permissions.has('costs.view')
         const { where, values } = listFilter(list)
         values.push(MAX_EXPORT_ROWS)
         const { rows } = await client.query<EmployeeRow>(
@@ -415,7 +423,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
             'Telefono',
             'Email',
             'Assunzione',
-            'Costo orario',
+            ...(canSeeCosts ? ['Costo orario'] : []),
             'Attivo',
             'Note',
             'Ferie annue',
@@ -429,7 +437,7 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
             r.phone,
             r.email,
             r.hired_on && italianDate(r.hired_on),
-            r.hourly_cost_cents && italianAmount(r.hourly_cost_cents),
+            ...(canSeeCosts ? [r.hourly_cost_cents && italianAmount(r.hourly_cost_cents)] : []),
             r.active ? 'Sì' : 'No',
             r.notes,
             r.annual_leave_days,
@@ -446,26 +454,27 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
 
   app.get<{ Params: Params }>(`${base}/:employee`, async (request, reply) => {
     const session = requireSession(request)
-    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+    const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('employees.view')) throw notFound()
       const id = request.params.employee ?? ''
       if (!UUID.test(id)) throw notFound()
-      return readOne(client, id)
+      return { row: await readOne(client, id), canSeeCosts: permissions.has('costs.view') }
     })
-    if (!row) throw notFound()
-    return send(reply, row)
+    if (!result.row) throw notFound()
+    return send(reply, result.row, result.canSeeCosts)
   })
 
   app.post<{ Params: Params }>(base, async (request, reply) => {
     const session = requireSession(request)
     checkCsrf(config, request)
-    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+    const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('employees.create')) throw forbidden()
       const parsed = parseEmployeeInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
-      const columns = columnsOf(parsed.input)
+      const canSeeCosts = permissions.has('costs.view')
+      const columns = columnsOf(parsed.input, canSeeCosts)
       const { rows } = await client
         .query<{ id: string }>(
           `insert into public.employees (company_id, ${columns.join(', ')})
@@ -474,24 +483,26 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
           columns.map((f) => parsed.input[f]),
         )
         .catch(writeFailed)
-      return readOne(client, rows[0]?.id ?? '')
+      return { row: await readOne(client, rows[0]?.id ?? ''), canSeeCosts }
     })
-    if (!row) throw new Error('insert returned no row')
-    return send(reply, row, 201)
+    if (!result.row) throw new Error('insert returned no row')
+    return send(reply, result.row, result.canSeeCosts, 201)
   })
 
   app.put<{ Params: Params }>(`${base}/:employee`, async (request, reply) => {
     const session = requireSession(request)
     checkCsrf(config, request)
-    const row = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
+    const result = await withIdentity(db.app, { userId: session.user.id }, async (client) => {
       const permissions = await enterCompany(client, request.params.company)
       if (!permissions.has('employees.update')) throw forbidden()
       const id = request.params.employee ?? ''
       if (!UUID.test(id)) throw notFound()
       const version = expectedVersion(request.headers['if-match'])
+      await refuseStale(client, 'public.employees', { id }, version, messages.employeeStale)
       const parsed = parseEmployeeInput(request.body)
       if ('errors' in parsed) throw new ValidationFailed(parsed.errors)
-      const columns = columnsOf(parsed.input)
+      const canSeeCosts = permissions.has('costs.view')
+      const columns = columnsOf(parsed.input, canSeeCosts)
       const values: unknown[] = columns.map((f) => parsed.input[f])
       values.push(id, version)
       const { rowCount } = await client
@@ -504,10 +515,10 @@ export function employeeRoutes(app: FastifyInstance, config: Config, db: Db): vo
         )
         .catch(writeFailed)
       if (!rowCount) return missingOrStale(client, id)
-      return readOne(client, id)
+      return { row: await readOne(client, id), canSeeCosts }
     })
-    if (!row) throw notFound()
-    return send(reply, row)
+    if (!result.row) throw notFound()
+    return send(reply, result.row, result.canSeeCosts)
   })
 
   app.delete<{ Params: Params }>(`${base}/:employee`, async (request, reply) => {
