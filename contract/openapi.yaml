@@ -3,12 +3,14 @@ info:
   title: Gestionale edile API
   version: 0.1.0
   description: |
-    Contratto tra frontend e backend: è l'unica fonte. Ogni cambio di API passa prima da qui.
-    Proposta da concordare con il backend: vedi docs/adr/0003-contratto-api-e-sessione.md.
+    Contratto tra frontend e backend.
 
-    COPIA DEL BACKEND: è la PR #7 di gestionale-edile (commit 660b946) con le modifiche
-    proposte nel commento del 4 novembre 2026. Quando la PR viene aggiornata, si sostituisce
-    con la versione concordata.
+    Dove vive: la fonte è questo file, contract/openapi.yaml nel repository del backend.
+    Ogni cambio di API si fa prima qui; i test del backend controllano ogni risposta contro
+    questo file. Il frontend ne tiene una copia in api/openapi.yaml, da cui genera i tipi:
+    la copia non si modifica a mano, si aggiorna ricopiando questo file, e la CI del
+    frontend controlla che i tipi generati corrispondano alla copia. Le scelte di fondo
+    (sessione a cookie, CSRF, azienda nel percorso) sono nell'ADR-0003 del frontend.
 
     Regole comuni:
     - Sessione con cookie HttpOnly, frontend e API sullo stesso dominio.

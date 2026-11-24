@@ -4,6 +4,7 @@ Backend del gestionale edile. Il piano è in `docs/piano.md`, le regole del prog
 
 ## Regole che non si toccano
 
+- **Dove vive il contratto.** La fonte è `contract/openapi.yaml` di questo repository. Il frontend ne tiene una copia in `api/openapi.yaml`, da cui genera i tipi, e la sua CI controlla che i tipi corrispondano alla copia. La copia non si modifica a mano: le modifiche si fanno qui e poi si ricopia il file nel frontend.
 - **Il contratto viene prima.** Ogni operazione nuova si aggiunge prima a `contract/openapi.yaml`, con lo stesso stile di quelle esistenti (errori, paginazione, `ETag`/`If-Match`, `code` negli errori). I test controllano ogni risposta contro il contratto con `Browser.call` / `expectContract`.
 - **Isolamento tra aziende.** Ogni tabella con dati di un'azienda ha `company_id`, la RLS attiva, i privilegi giusti per `gestionale_app` e un caso avversario in `test/rls.test.ts`. Mai query sui dati delle aziende fuori da `withIdentity()`.
 - **Permessi.** Ogni modulo aggiunge i suoi permessi in `src/permissions.ts`, nel contratto (`components.schemas.Permission`) e nei ruoli di `scripts/seed-dev.ts`.

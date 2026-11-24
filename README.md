@@ -35,15 +35,9 @@ Il [piano](docs/piano.md) è tutto spuntato, compresa la prova dell'immagine Doc
 
 ## Contratto
 
-`contract/openapi.yaml` è la PR #7 del frontend **più le modifiche proposte nel commento del 4 novembre**:
-- risposta `403` con `code: csrf_invalid`;
-- slug riservati, da 3 a 50 caratteri;
-- `ETag`, `If-Match`, `412` e `428` sulla modifica;
-- tipo `public_body`, campo `country`, regole sui documenti obbligatori;
-- `code` facoltativo negli errori;
-- `422` sui parametri sbagliati dell'elenco.
+`contract/openapi.yaml` è **la fonte** del contratto: ogni cambio di API si fa prima qui. Il frontend ne tiene una copia in `api/openapi.yaml`, da cui genera i tipi; la copia non si modifica a mano, si aggiorna ricopiando questo file, e la CI del frontend controlla che i tipi generati corrispondano alla copia.
 
-Quando la PR #7 viene aggiornata, questo file si sostituisce con quello concordato. **I test controllano ogni risposta contro il contratto:** se il backend se ne allontana, falliscono.
+**I test controllano ogni risposta contro il contratto:** se il backend se ne allontana, falliscono.
 
 ## Come è fatto
 
