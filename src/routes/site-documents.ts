@@ -15,6 +15,7 @@ import {
 } from '../http/errors.js'
 import { checkCsrf, requireSession } from '../http/request-context.js'
 import { stripImageMetadata } from '../http/image-metadata.js'
+import { reserveStorage } from '../http/storage.js'
 import { IF_MATCH, refuseStale } from '../http/versions.js'
 
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
@@ -408,6 +409,7 @@ export function siteDocumentRoutes(app: FastifyInstance, config: Config, db: Db)
           const kind: Kind = type.startsWith('image/') ? 'photo' : 'document'
           // A photo loses its position and the other metadata.
           const data = stripImageMetadata(body, type)
+          await reserveStorage(client, config.storageLimitBytes, data.length)
           const { rows } = await client.query<{ id: string }>(
             `insert into public.site_documents (company_id, site_id, daily_report_id, kind, title,
                file_name, content_type, size_bytes, uploaded_by)

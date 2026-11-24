@@ -30,6 +30,11 @@ info:
       telefono tengono la posizione GPS, il modello e l'ora dello scatto. Di un JPEG tiene solo
       l'orientamento, se la foto è ruotata. Si salva e si scarica il file ripulito, e la
       dimensione (size) è la sua.
+    - Spazio per i file: i file di un'azienda (documenti e foto dei cantieri, file dei
+      documenti e delle fatture, logo) hanno un limite totale, 20 GB se il server non è
+      configurato diversamente. Un caricamento che lo supererebbe risponde 413 con code
+      storage_full e un messaggio da mostrare; un file che ne sostituisce un altro conta al
+      netto di quello vecchio. Spazio usato e limite sono in storage di getCompanyProfile.
 
 servers:
   - url: /
@@ -1554,7 +1559,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -4618,7 +4625,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -7357,7 +7366,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -7567,7 +7578,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -8914,7 +8927,9 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '413':
-          description: File più grande di 512 KB.
+          description: |
+            File più grande di 512 KB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni; il logo che si sostituisce non conta).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -9275,7 +9290,9 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '412': { $ref: '#/components/responses/StaleRecord' }
         '413':
-          description: File più grande di 20 MB.
+          description: |
+            File più grande di 20 MB, oppure spazio per i file dell'azienda esaurito (code
+            storage_full, vedi le regole comuni).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -10869,7 +10886,7 @@ components:
             database_unavailable, email_in_use, estimate_final, has_documents, invalid_transition, last_manager,
             number_in_use, order_not_draft, precondition_required, quote_not_draft,
             report_not_draft, role_in_use, self_deactivation, site_exists, stale_record,
-            statement_draft_exists, statement_not_draft.
+            statement_draft_exists, statement_not_draft, storage_full.
     ValidationError:
       type: object
       required: [message, errors]
@@ -16457,12 +16474,22 @@ components:
       allOf:
         - $ref: '#/components/schemas/CompanyProfileInput'
         - type: object
-          required: [patron_saint_day, updated_at]
+          required: [patron_saint_day, updated_at, storage]
           properties:
             updated_at:
               type: [string, 'null']
               format: date-time
               description: Null se i dati non sono mai stati salvati.
+            storage:
+              type: object
+              description: |
+                Solo lettura: lo spazio occupato dai file dell'azienda (documenti e foto dei
+                cantieri, file dei documenti e delle fatture, logo) e il limite oltre il quale
+                i caricamenti rispondono 413 con code storage_full, in byte. Non cambia l'ETag.
+              required: [used_bytes, limit_bytes]
+              properties:
+                used_bytes: { type: integer, minimum: 0 }
+                limit_bytes: { type: integer, minimum: 1 }
     Numbering:
       type: object
       required: [quotes, purchase_orders]

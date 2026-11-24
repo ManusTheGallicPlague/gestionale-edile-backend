@@ -1801,7 +1801,7 @@ export function invoiceRoutes(app: FastifyInstance, config: Config, db: Db): voi
           // Before the file: 412 comes before 422.
           await bumpVersion(client, id, version)
           const file = readAttachment(request.query, request.headers['content-type'], request.body)
-          await replaceAttachment(client, 'invoice_files', id, file)
+          await replaceAttachment(client, 'invoice_files', id, file, config.storageLimitBytes)
           return readOne(client, id)
         })
         if (!row) throw notFound()

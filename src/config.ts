@@ -10,7 +10,12 @@ export interface Config {
   loginLimits: LoginLimits
   /** Public address of the frontend, for the links in emails (no trailing slash). */
   appUrl: string
+  /** Total size of the files of one company (documents, photos, attachments, logo). */
+  storageLimitBytes: number
 }
+
+/** 20 GB per company unless COMPANY_STORAGE_LIMIT_GB says otherwise. */
+export const DEFAULT_STORAGE_LIMIT_GB = 20
 
 export interface LoginLimits {
   windowSeconds: number
@@ -57,7 +62,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: env.LOG_LEVEL ?? 'info',
     loginLimits: DEFAULT_LOGIN_LIMITS,
     appUrl: appUrl(env),
+    storageLimitBytes: storageLimit(env),
   }
+}
+
+function storageLimit(env: NodeJS.ProcessEnv): number {
+  const value = env.COMPANY_STORAGE_LIMIT_GB
+  const gb = value === undefined || value === '' ? DEFAULT_STORAGE_LIMIT_GB : Number(value)
+  if (!Number.isFinite(gb) || gb <= 0 || gb > 1024 * 1024) {
+    throw new Error('COMPANY_STORAGE_LIMIT_GB must be a positive number of GB, like 20 or 0.5')
+  }
+  return Math.round(gb * 1024 ** 3)
 }
 
 function appUrl(env: NodeJS.ProcessEnv): string {

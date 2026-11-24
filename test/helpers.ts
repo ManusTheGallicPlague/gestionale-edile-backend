@@ -5,7 +5,7 @@ import pg from 'pg'
 import { inject } from 'vitest'
 import { buildApp } from '../src/app.js'
 import { hashPassword } from '../src/auth/password.js'
-import { DEFAULT_LOGIN_LIMITS, type Config } from '../src/config.js'
+import { DEFAULT_LOGIN_LIMITS, DEFAULT_STORAGE_LIMIT_GB, type Config } from '../src/config.js'
 import { createDb, type Db } from '../src/db.js'
 import type { Permission } from '../src/permissions.js'
 import { expectContract } from './contract.js'
@@ -23,7 +23,8 @@ export interface TestContext {
   close(): Promise<void>
 }
 
-export async function startApp(): Promise<TestContext> {
+/** The app on the test database; `overrides` change the configuration, e.g. a limit. */
+export async function startApp(overrides: Partial<Config> = {}): Promise<TestContext> {
   const urls = inject('testDb')
   const config: Config = {
     host: '127.0.0.1',
@@ -36,6 +37,8 @@ export async function startApp(): Promise<TestContext> {
     logLevel: 'silent',
     loginLimits: DEFAULT_LOGIN_LIMITS,
     appUrl: 'https://gestionale.example.test',
+    storageLimitBytes: DEFAULT_STORAGE_LIMIT_GB * 1024 ** 3,
+    ...overrides,
   }
   const db = createDb({ app: urls.app, auth: urls.auth })
   const owner = new pg.Pool({ connectionString: urls.owner, max: 3 })

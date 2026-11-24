@@ -333,7 +333,13 @@ export function vehicleDocumentRoutes(app: FastifyInstance, config: Config, db: 
           // Before the file: 412 comes before 422.
           await bumpVersion(client, id, vehicleId, version)
           const file = readAttachment(request.query, request.headers['content-type'], request.body)
-          await replaceAttachment(client, 'vehicle_document_files', id, file)
+          await replaceAttachment(
+            client,
+            'vehicle_document_files',
+            id,
+            file,
+            config.storageLimitBytes,
+          )
           return readOne(client, id)
         })
         return send(reply, row)

@@ -30,6 +30,7 @@ Nessun segreto sta nel repository o nell'immagine: si passano all'avvio.
 | `APP_URL` | API | indirizzo pubblico del frontend, senza `/` finale: è la base dei link nelle email |
 | `HOST`, `PORT` | API | nell'immagine `0.0.0.0` e `3100` |
 | `LOG_LEVEL` | API | `info` |
+| `COMPANY_STORAGE_LIMIT_GB` | API | spazio massimo per i file di ogni azienda (documenti, foto, allegati, logo), in GB da 1024³ byte, anche con decimali (`0.5`); se manca vale `20`. I file stanno nel database: il disco del server deve reggere questo limite per il numero di aziende, più i backup. Oltre il limite i caricamenti rispondono `413` con `code: storage_full` |
 | `DATABASE_URL_OWNER` | migrazioni | `postgres://gestionale_owner:<password>@<host>:5432/<db>` |
 | `DB_APP_PASSWORD`, `DB_AUTH_PASSWORD` | migrazioni | le password che le migrazioni danno a `gestionale_app` e `gestionale_auth`: le stesse degli URL sopra |
 

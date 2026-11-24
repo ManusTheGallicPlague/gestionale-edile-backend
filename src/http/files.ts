@@ -3,6 +3,7 @@ import type { PoolClient } from 'pg'
 import type { Config } from '../config.js'
 import { ValidationFailed } from './errors.js'
 import { stripImageMetadata } from './image-metadata.js'
+import { reserveStorage } from './storage.js'
 import { checkCsrf, requireSession } from './request-context.js'
 import {
   MAX_DOCUMENT_BYTES,
@@ -115,15 +116,20 @@ const ATTACHMENT_TABLES = {
   invoice_files: 'invoice_id',
 } as const
 
-/** Puts the file in place of the one the record had, if any. */
+/**
+ * Puts the file in place of the one the record had, if any, within the storage limit of
+ * the company (413 storage_full): the old file no longer counts.
+ */
 export async function replaceAttachment(
   client: PoolClient,
   table: keyof typeof ATTACHMENT_TABLES,
   id: string,
   file: UploadedFile,
+  storageLimit: number,
 ): Promise<void> {
   const key = ATTACHMENT_TABLES[table]
   await client.query(`delete from public.${table} where ${key} = $1`, [id])
+  await reserveStorage(client, storageLimit, file.data.length)
   await client.query(
     `insert into public.${table}
        (${key}, company_id, file_name, content_type, size_bytes, data)
