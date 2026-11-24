@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { Browser, Fixtures, startApp, type TestContext } from './helpers.js'
+import { Browser, Fixtures, mailedToken, startApp, type TestContext } from './helpers.js'
 
 let ctx: TestContext
 let fx: Fixtures
@@ -1089,7 +1089,7 @@ describe('audit log', () => {
         body: { email, role_id: roleId },
       })
       expect(res.statusCode).toBe(201)
-      return res.json<{ id: string; token: string }>()
+      return { ...res.json<{ id: string }>(), token: mailedToken(ctx.mailer, email, 'invito') }
     }
     const withdrawn = await invite('ritirato@example.test')
     expect((await browser.call('DELETE', `${base}/invitations/${withdrawn.id}`)).statusCode).toBe(

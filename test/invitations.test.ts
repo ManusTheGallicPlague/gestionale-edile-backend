@@ -1,5 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { Browser, Fixtures, PASSWORD, startApp, unique, type TestContext } from './helpers.js'
+import {
+  Browser,
+  Fixtures,
+  PASSWORD,
+  mailedToken,
+  startApp,
+  unique,
+  type TestContext,
+} from './helpers.js'
 
 let ctx: TestContext
 let fx: Fixtures
@@ -23,7 +31,9 @@ async function invite(browser: Browser, slug: string, email: string, roleId: str
     body: { email, role_id: roleId },
   })
   expect(res.statusCode).toBe(201)
-  return res.json<{ id: string; token: string; status: string; role: { id: string } }>()
+  const created = res.json<{ id: string; email: string; status: string; role: { id: string } }>()
+  // The token is only in the email sent to the invited person.
+  return { ...created, token: mailedToken(ctx.mailer, created.email, 'invito'), body: res.body }
 }
 
 /** A browser with no session, holding the pre-session CSRF token. */
@@ -40,6 +50,9 @@ describe('invitations', () => {
     const created = await invite(browser, company.slug, ` ${email.toUpperCase()} `, office)
     expect(created).toMatchObject({ email, status: 'pending', role: { id: office } })
     expect(created.token.length).toBeGreaterThanOrEqual(20)
+    // Whoever invites never sees the link: accepting it proves the inbox is the person's
+    expect(JSON.parse(created.body)).not.toHaveProperty('token')
+    expect(created.body).not.toContain(created.token)
     const mail = ctx.mailer.sent.find((m) => m.to === email)
     expect(mail?.subject).toBe(`Invito a ${company.name}`)
     expect(mail?.text).toContain(`https://gestionale.example.test/invito/${created.token}`)

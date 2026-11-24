@@ -9842,10 +9842,13 @@ paths:
       summary: Invito di una persona con un ruolo
       description: |
         Permesso: users.manage. Il link è /invito/{token}, vale 7 giorni e una volta sola.
-        Il backend lo manda per email all'invitato; il token compare anche in questa risposta
-        (e solo qui: il backend ne tiene l'impronta), così il link si può copiare e girare. Un nuovo
-        invito per la stessa email sostituisce quello in attesa. Se l'email è già di un
-        membro dell'azienda la risposta è 409 con code already_member.
+        Il backend lo manda solo per email all'invitato e non lo restituisce mai a chi invita,
+        né qui né altrove (ne tiene solo l'impronta): chi accetta l'invito ha quindi letto
+        quella casella, e l'account che nasce ha un'email verificata. Il link non si può
+        copiare dall'applicazione; se l'email non arriva si rifà l'invito. Un nuovo invito
+        per la stessa email sostituisce quello in attesa e il link precedente smette di
+        funzionare. Se l'email è già di un membro dell'azienda la risposta è 409 con code
+        already_member.
       security:
         - session: []
           csrf: []
@@ -9859,7 +9862,7 @@ paths:
           description: Invito creato
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/InvitationCreated' }
+              schema: { $ref: '#/components/schemas/Invitation' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -11111,15 +11114,6 @@ components:
         created_at:
           type: string
           format: date-time
-    InvitationCreated:
-      allOf:
-        - $ref: '#/components/schemas/Invitation'
-        - type: object
-          required: [token]
-          properties:
-            token:
-              type: string
-              description: Da mettere nel link /invito/{token}. Non si può più rileggere.
     InvitationList:
       type: object
       required: [data]

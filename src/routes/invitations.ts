@@ -160,7 +160,8 @@ export function invitationRoutes(
             `${config.appUrl}/invito/${token}\n\n` +
             `Se non aspettavi questo invito, ignora il messaggio.\n`,
         })
-        return { ...present(row), token }
+        // The token travels only in the email: accepting proves the person reads that inbox.
+        return present(row)
       })
       return reply.code(201).send(body)
     },

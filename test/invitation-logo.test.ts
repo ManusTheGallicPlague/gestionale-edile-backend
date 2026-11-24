@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
-import { Browser, Fixtures, startApp, unique, type TestContext } from './helpers.js'
+import { Browser, Fixtures, mailedToken, startApp, unique, type TestContext } from './helpers.js'
 
 let ctx: TestContext
 let fx: Fixtures
@@ -24,11 +24,12 @@ async function invitingCompany(logo?: Buffer) {
   }
   const browser = new Browser(ctx.app)
   await browser.signIn(setup.user.email)
+  const email = `logo-${unique()}@example.test`
   const res = await browser.call('POST', `/api/companies/${setup.company.slug}/invitations`, {
-    body: { email: `logo-${unique()}@example.test`, role_id: role },
+    body: { email, role_id: role },
   })
   expect(res.statusCode).toBe(201)
-  return { ...setup, token: res.json<{ id: string; token: string }>().token }
+  return { ...setup, token: mailedToken(ctx.mailer, email, 'invito') }
 }
 
 describe('logo on the invitation page', () => {
