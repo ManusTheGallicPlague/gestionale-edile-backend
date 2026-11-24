@@ -10821,8 +10821,12 @@ components:
     Slug:
       type: string
       description: |
-        Non cambia dopo la creazione. Sono riservati i nomi delle rotte fisse del frontend
-        (accedi, profilo, password-dimenticata, invito).
+        Non cambia dopo la creazione. Sono riservati, perché stanno sullo stesso dominio
+        accanto a /{slug}/: le rotte fisse del frontend (accedi, esci, profilo,
+        password-dimenticata, invito, conferma-email), le API (api) e i file della build
+        (assets). Oggi le aziende si creano solo dal backend; un'operazione che crea o cambia
+        uno slug risponderà a uno slug riservato con 422 sul campo slug, come agli altri
+        errori di validazione.
       minLength: 3
       maxLength: 50
       pattern: '^[a-z0-9]+(-[a-z0-9]+)*$'

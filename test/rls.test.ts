@@ -6,7 +6,20 @@
 import pg from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { inject } from 'vitest'
+import { contractSchema } from './contract.js'
 import { Fixtures } from './helpers.js'
+
+// The frontend's fixed routes, the links in the emails, the API and the build's files.
+const RESERVED_SLUGS = [
+  'accedi',
+  'esci',
+  'profilo',
+  'password-dimenticata',
+  'invito',
+  'conferma-email',
+  'api',
+  'assets',
+]
 
 let owner: pg.Pool
 let app: pg.Pool
@@ -2662,10 +2675,18 @@ describe('the auth role reaches only sign-in data', () => {
 })
 
 describe('database rules', () => {
-  it('refuses slugs reserved for the frontend routes', async () => {
-    await expect(
-      owner.query("insert into public.companies (slug, name) values ('accedi', 'X')"),
-    ).rejects.toThrow(/check constraint/)
+  it('refuses slugs reserved for the frontend routes, the API and the build files', async () => {
+    for (const slug of RESERVED_SLUGS) {
+      await expect(
+        owner.query('insert into public.companies (slug, name) values ($1, $2)', [slug, 'X']),
+        slug,
+      ).rejects.toThrow(/companies_slug_reserved/)
+    }
+  })
+
+  it('lists every reserved slug in the contract', () => {
+    const description = String(contractSchema('Slug').description)
+    for (const slug of RESERVED_SLUGS) expect(description, slug).toContain(slug)
   })
 
   it('refuses a membership with a role of another company', async () => {

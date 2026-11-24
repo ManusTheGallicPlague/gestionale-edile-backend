@@ -14,6 +14,13 @@ type Json = Record<string, unknown>
 const doc = parse(
   readFileSync(new URL('../contract/openapi.yaml', import.meta.url), 'utf8'),
 ) as Json
+
+/** The schema of a component, for tests that check what the contract says. */
+export function contractSchema(name: string): Json {
+  const schema = ((doc.components as Json).schemas as Json)[name] as Json | undefined
+  if (!schema) throw new Error(`No schema ${name} in the contract`)
+  return schema
+}
 const ajv = new Ajv2020({ strict: false, allErrors: true })
 const addFormats = addFormatsModule as unknown as (ajv: Ajv2020) => void
 addFormats(ajv)
