@@ -60,7 +60,10 @@ paths:
       operationId: getCsrfCookie
       summary: Imposta il cookie XSRF-TOKEN
       description: |
-        Il frontend lo chiama quando il cookie manca, prima della prima richiesta che modifica dati.
+        Il frontend lo chiama quando il cookie manca, prima della prima richiesta che modifica dati,
+        e anche dopo una risposta 403 con code csrf_invalid (token scaduto o di un'altra
+        sessione): dopo il rinnovo riprova la richiesta una volta sola, e se fallisce ancora
+        l'errore resta. Con più richieste rifiutate insieme basta un solo rinnovo.
         Il backend rinnova il token a ogni accesso e uscita, insieme alla sessione.
       security: []
       responses:
